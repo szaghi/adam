@@ -54,6 +54,8 @@ type :: field_fnl_object
       procedure, pass(self) :: reduce_ghost_mpi_gpu   !< Fold deposited ghosts back onto their owner cells of other ranks.
       procedure, pass(self) :: update_ghost_local_gpu !< Update ghosts locally.
       procedure, pass(self) :: update_ghost_mpi_gpu   !< Update ghosts MPI.
+      procedure, pass(self) :: update_ghost_local_gpu_maps !< Update ghosts locally through other maps (#156 L2).
+      procedure, pass(self) :: update_ghost_mpi_gpu_maps   !< Update ghosts MPI through other maps (#156 L2).
 endtype field_fnl_object
 
 contains
@@ -439,4 +441,76 @@ contains
    endif
    endassociate
    endsubroutine update_ghost_mpi_gpu
+
+   subroutine update_ghost_local_gpu_maps(self, maps, q_gpu)
+   !< Update (local) ghost cells through `maps` instead of the field's own: the restricted maps of a partial ghost update
+   !< (#156 L2, the eikonal sweeps' ghost cells). The same kernel as update_ghost_local_gpu, with the seam fill guard.
+   class(field_fnl_object), intent(in)    :: self  !< The field.
+   type(maps_fnl_object),   intent(in)    :: maps  !< The maps of the rows to fill (device).
+   real(R8P),               intent(inout) :: q_gpu(1:,           &
+                                                   1-self%ngc:, &
+                                                   1-self%ngc:, &
+                                                   1-self%ngc:, &
+                                                   1:)          !< Field component to be updated.
+
+   if (.not.associated(maps%local_map_ghost_cell_gpu)) return
+   call update_ghost_local_gpu_dev(l_map_ghost_cell_gpu=maps%local_map_ghost_cell_gpu, ngc=self%ngc,   &
+                                   seam_ghost_fill=maps%seam_ghost_fill,                             &
+                                   seam_restriction=maps%seam_restriction,                           &
+                                   ri=maps%refine_ratio(1), rj=maps%refine_ratio(2),                 &
+                                   rk=maps%refine_ratio(3), q_gpu=q_gpu,                             &
+                                   seam_density_var=maps%seam_density_var,                           &
+                                   prolongation_rows_gpu=maps%local_map_ghost_cell_prol_gpu,         &
+                                   seam_rho_gpu=maps%seam_rho_gpu)
+   endsubroutine update_ghost_local_gpu_maps
+
+   subroutine update_ghost_mpi_gpu_maps(self, maps, comm_map_send_ptr_ghost, comm_map_recv_ptr_ghost, q_gpu)
+   !< Update ghost cells within other processes through `maps` instead of the field's own: the restricted maps of a
+   !< partial ghost update (#156 L2). The same pack, GPU-direct exchange and unpack as update_ghost_mpi_gpu, with the
+   !< seam fill guard; `comm_map_*_ptr_ghost` are the CPU segment pointers of those maps.
+   class(field_fnl_object), intent(inout) :: self                        !< The field.
+   type(maps_fnl_object),   intent(inout) :: maps                        !< The maps of the rows to fill (device).
+   integer(I4P),            intent(in)    :: comm_map_send_ptr_ghost(0:) !< Per-rank send offsets of `maps` (CPU).
+   integer(I4P),            intent(in)    :: comm_map_recv_ptr_ghost(0:) !< Per-rank recv offsets of `maps` (CPU).
+   real(R8P),               intent(inout) :: q_gpu(1:,                    &
+                                                   1-self%ngc:,          &
+                                                   1-self%ngc:,          &
+                                                   1-self%ngc:,          &
+                                                   1:)                   !< Field component to be updated.
+   integer(I4P)                           :: p                           !< Counter.
+   integer(I4P)                           :: ptr_start, ptr_end          !< Segment bounds.
+   integer(I4P)                           :: n_recv, n_send              !< Segment sizes.
+
+   if (mpih_fnl%procs_number == 1_I4P) return
+   associate(procs_number=>mpih_fnl%procs_number, error=>mpih_fnl%error, req_send_recv=>mpih_fnl%req_send_recv)
+   req_send_recv = MPI_REQUEST_NULL
+   if (associated(maps%comm_map_send_ghost_cell_gpu))                                                         &
+      call populate_send_buffer_ghost_gpu_dev(ngc=self%ngc, seam_ghost_fill=maps%seam_ghost_fill,            &
+                                              seam_restriction=maps%seam_restriction,                       &
+                                              ri=maps%refine_ratio(1), rj=maps%refine_ratio(2),             &
+                                              rk=maps%refine_ratio(3),                                      &
+                                              comm_map_send_ghost_cell_gpu=maps%comm_map_send_ghost_cell_gpu, &
+                                              send_buffer_ghost_gpu=maps%send_buffer_ghost_gpu,             &
+                                              q_gpu=q_gpu, seam_density_var=maps%seam_density_var,          &
+                                              density_rows_gpu=maps%comm_map_send_density_rows_gpu,         &
+                                              seam_rho_gpu=maps%seam_rho_send_gpu)
+   do p=0, procs_number - 1_I4P
+      ptr_start = comm_map_recv_ptr_ghost(p) + 1
+      ptr_end   = comm_map_recv_ptr_ghost(p+1)
+      n_recv    = ptr_end - ptr_start + 1
+      if (n_recv > 0) call MPI_IRECV(maps%recv_buffer_ghost_gpu(ptr_start), n_recv, MPI_REAL8, p, 100, MPI_COMM_WORLD, &
+                                     req_send_recv(p), error)
+   enddo
+   do p=0, procs_number - 1_I4P
+      ptr_start = comm_map_send_ptr_ghost(p) + 1
+      ptr_end   = comm_map_send_ptr_ghost(p+1)
+      n_send    = ptr_end - ptr_start + 1
+      if (n_send > 0) call MPI_ISEND(maps%send_buffer_ghost_gpu(ptr_start), n_send, MPI_REAL8, p, 100, MPI_COMM_WORLD, &
+                                     req_send_recv(p+procs_number), error)
+   enddo
+   call MPI_WAITALL(procs_number * 2, req_send_recv, MPI_STATUSES_IGNORE, error)
+   call receive_recv_buffer_ghost_gpu_dev(ngc=self%ngc, comm_map_recv_ghost_cell_gpu=maps%comm_map_recv_ghost_cell_gpu, &
+                                          recv_buffer_ghost_gpu=maps%recv_buffer_ghost_gpu, q_gpu=q_gpu)
+   endassociate
+   endsubroutine update_ghost_mpi_gpu_maps
 endmodule adam_fnl_field_object

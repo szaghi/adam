@@ -2224,23 +2224,37 @@ contains
    call self%ic%set_initial_conditions(field=self%adam%field, q=self%q)
    endsubroutine set_initial_conditions
 
-   subroutine update_ghost(self, q)
+   subroutine update_ghost(self, q, ib_rows)
    !< Update ghost cells: intra-realm local copies, MPI exchange, boundary conditions, then the positivity blend of the
    !< inadmissible face ghosts (issue #50, D2: a coarse-to-fine seam interpolant of admissible states may be inadmissible;
    !< every other ghost is a copy or a boundary state, admissible, and untouched).
    !<
-   !< Inter-realm seam ghosts are filled by the forest (`fill_seam_from_peer_forest`), not here.
-   class(flume_cpu_object), intent(inout) :: self          !< The equation.
-   real(R8P),               intent(inout) :: q(1:,         &
-                                               1-self%ngc:,&
-                                               1-self%ngc:,&
-                                               1-self%ngc:,&
-                                               1:)         !< Conservative variables.
-   integer(I4P)                           :: blended       !< Face ghosts blended toward the interior.
+   !< Inter-realm seam ghosts are filled by the forest (`fill_seam_from_peer_forest`), not here. With `ib_rows`, the
+   !< local copies and the MPI exchange fill only the ghost cells the eikonal sweeps read (`ib_maps`, #156 L2).
+   class(flume_cpu_object), intent(inout)        :: self          !< The equation.
+   real(R8P),               intent(inout)        :: q(1:,         &
+                                                      1-self%ngc:,&
+                                                      1-self%ngc:,&
+                                                      1-self%ngc:,&
+                                                      1:)         !< Conservative variables.
+   logical,                 intent(in), optional :: ib_rows       !< Only the ghost cells of the eikonal sweeps.
+   integer(I4P)                                  :: blended       !< Face ghosts blended toward the interior.
+   logical                                       :: ib_rows_      !< Only the ghost cells of the eikonal sweeps, local.
 
-   call self%adam%field%update_ghost_local(grid=self%adam%grid, maps=self%adam%maps, q=q)
-   call self%adam%field%update_ghost_mpi(grid=self%adam%grid, maps=self%adam%maps, q=q)
-   call self%set_boundary_conditions(q=q)
+   ib_rows_ = .false. ; if (present(ib_rows)) ib_rows_ = ib_rows
+   ! restricted maps made from an older build of the ghost maps (a map change not followed by compute_phi): the full update
+   if (ib_rows_) ib_rows_ = self%ib_maps%parent_build == self%adam%maps%ghost_maps_build
+   if (ib_rows_) then
+      call self%adam%field%update_ghost_local(grid=self%adam%grid, maps=self%ib_maps, q=q)
+      call self%adam%field%update_ghost_mpi(grid=self%adam%grid, maps=self%ib_maps, q=q)
+   else
+      call self%adam%field%update_ghost_local(grid=self%adam%grid, maps=self%adam%maps, q=q)
+      call self%adam%field%update_ghost_mpi(grid=self%adam%grid, maps=self%adam%maps, q=q)
+   endif
+   ! restricted: the boundary conditions only when a flagged cell is filled by no row; the blend only when a kept row is
+   ! not a plain copy (it touches only inadmissible ghosts: the stale ones were blended when written)
+   if (.not.ib_rows_ .or. self%ib_maps%restricted_uncovered) call self%set_boundary_conditions(q=q)
+   if (ib_rows_ .and. .not.self%ib_maps%restricted_derived) return
    blended = 0_I4P
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nb=>self%blocks_number, is_null=>self%adam%grid%null_xyz)
    select case(self%physics%model)
@@ -3671,12 +3685,14 @@ contains
    integer(I4P)                                         :: e             !< Eikonal iterations counter.
 
    if (self%ib%solids_number > 0_I4P) then
-      call self%update_ghost(q=q)
+      ! the sweeps read only the ghost cells next to a solid cell on a block face: the exchanges before and between them
+      ! fill those (ib_maps); the main exchange below fills every ghost (issue #156, lever 2)
+      call self%update_ghost(q=q, ib_rows=.true.)
       do e=1, self%ib%n_eikonal
          call self%ib%evolve_eikonal(field=self%adam%field, grid=self%adam%grid, q=q, dq=dq)
          ! the exchange after the last sweep is the main one below: invert_eikonal and apply_floors are pointwise on
          ! the interior cells and read no ghost cell, so the main update_ghost fills the same ghosts (issue #156, lever 2)
-         if (e < self%ib%n_eikonal) call self%update_ghost(q=q)
+         if (e < self%ib%n_eikonal) call self%update_ghost(q=q, ib_rows=.true.)
       enddo
       call self%ib%invert_eikonal(field=self%adam%field, grid=self%adam%grid, q=q)
    endif
@@ -3939,12 +3955,14 @@ contains
    integer(I4P)                                         :: fallbacks(3)  !< Riemann solver fallbacks per direction.
 
    if (self%ib%solids_number > 0_I4P) then
-      call self%update_ghost(q=q)
+      ! the sweeps read only the ghost cells next to a solid cell on a block face: the exchanges before and between them
+      ! fill those (ib_maps); the main exchange below fills every ghost (issue #156, lever 2)
+      call self%update_ghost(q=q, ib_rows=.true.)
       do e=1, self%ib%n_eikonal
          call self%ib%evolve_eikonal(field=self%adam%field, grid=self%adam%grid, q=q, dq=dq)
          ! the exchange after the last sweep is the main one below: invert_eikonal and apply_floors are pointwise on
          ! the interior cells and read no ghost cell, so the main update_ghost fills the same ghosts (issue #156, lever 2)
-         if (e < self%ib%n_eikonal) call self%update_ghost(q=q)
+         if (e < self%ib%n_eikonal) call self%update_ghost(q=q, ib_rows=.true.)
       enddo
       call self%ib%invert_eikonal(field=self%adam%field, grid=self%adam%grid, q=q)
    endif
