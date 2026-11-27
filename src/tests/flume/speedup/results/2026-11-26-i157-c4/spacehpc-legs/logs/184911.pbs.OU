@@ -1,0 +1,22 @@
+06:58:13 job 184911.pbs on gpu-005, case 3b-channel-runtime
+0, 0x0000000000000001, 699.00, 700.00, 1
+1, 0x0000000000000001, 699.00, 700.00, 1
+2, 0x0000000000000001, 699.00, 700.00, 1
+3, 0x0000000000000001, 699.00, 700.00, 1
+06:58:30 A 3b-channel-runtime r1-n10: rc 0 wall 15.972 loop 1.0578, steps 0.7720,
+06:58:46 B 3b-channel-runtime r1-n10: rc 0 wall 15.215 loop 0.9456, steps 0.6642,
+06:59:08 A 3b-channel-runtime r1-n110: rc 0 wall 22.186 loop 8.3772, steps 5.1811,
+06:59:31 B 3b-channel-runtime r1-n110: rc 0 wall 21.977 loop 8.0557, steps 4.9642,
+06:59:47 A 3b-channel-runtime r2-n10: rc 0 wall 15.249 loop 0.9907, steps 0.7042,
+07:00:02 B 3b-channel-runtime r2-n10: rc 0 wall 14.947 loop 0.9753, steps 0.6878,
+07:00:25 A 3b-channel-runtime r2-n110: rc 0 wall 22.357 loop 8.1702, steps 5.1023,
+07:00:48 B 3b-channel-runtime r2-n110: rc 0 wall 22.087 loop 8.1009, steps 4.9885,
+07:01:03 A 3b-channel-runtime r3-n10: rc 0 wall 14.894 loop 0.9903, steps 0.7066,
+07:01:19 B 3b-channel-runtime r3-n10: rc 0 wall 15.158 loop 0.9801, steps 0.6975,
+07:01:41 A 3b-channel-runtime r3-n110: rc 0 wall 22.211 loop 8.2818, steps 5.1202,
+07:02:04 B 3b-channel-runtime r3-n110: rc 0 wall 22.113 loop 8.1235, steps 5.0235,
+gpu0: busy 62 s, SM mean 1980 min 1980 MHz
+gpu1: busy 66 s, SM mean 1980 min 1980 MHz
+gpu2: busy 67 s, SM mean 1980 min 1980 MHz
+gpu3: busy 65 s, SM mean 1980 min 1980 MHz
+07:02:04 I157H-DONE 3b-channel-runtime

@@ -908,7 +908,26 @@ dumps, 3 repetitions each; jobs 1370470, 1370471, 1370477 on gnode21, gnode18, g
   guarded density for each variable, is cheaper than a second launch; B4 pays only on seams of many rows, which no
   measured case has. The step cost stays within 0.3 % in all three builds.
 
-### Device memory (phase 4.3)
+The step and the channel on **4 H100** (ESA SpaceHPC, 2026-11-27; the medooza window dumps of the six cases copied to
+SpaceHPC, byte for byte; A and B the executables of the sphere legs above, alternated run by run, 3 repetitions; one
+job per case, all six concurrent: 184907-184912; every GPU at 1980 MHz, no brake bit;
+`results/2026-11-26-i157-c4/spacehpc-legs/`):
+
+| Case, 4 H100 | A (s/step) | B (s/step) | Change | Steps A -> B | Spread A, B | Seam fills A -> B (ms/step) |
+|---|---|---|---|---|---|---|
+| 1a step uniform | 0.0862 | 0.0863 | +0.1 % | 0.0858 -> 0.0862 | 1.2 %, 1.7 % | 0.62 -> 0.82 |
+| 1b step frozen | 0.0666 | 0.0670 | +0.6 % | 0.0662 -> 0.0669 | 0.3 %, 0.4 % | 1.22 -> 1.40 |
+| 1c step runtime | 0.0891 | 0.0885 | -0.7 % | 0.0686 -> 0.0685 | 1.5 %, 2.3 % | 1.15 -> 1.33 |
+| 3a channel uniform | 0.0638 | 0.0609 | **-4.5 %** | 0.0635 -> 0.0606 | 0.1 %, 0.7 % | |
+| 3b channel runtime | 0.0729 | 0.0713 | **-2.3 %** | 0.0441 -> 0.0430 | 1.9 %, 0.5 % | |
+| 3c channel frozen | 0.0448 | 0.0437 | **-2.6 %** | 0.0446 -> 0.0434 | 0.9 %, 0.3 % | |
+
+- **The channel gains 2.3-4.5 % on the H100** (2.4-2.9 % on the A30), the uniform channel most: its fill is all
+  copies, as the uniform sphere's.
+- **The step stays where it was** within its spread, except 1b, +0.6 % against a spread of 0.4 %: B4's seam fills
+  add 0.18 ms per step there (as on the A30), about half of 1b's 0.35 ms.
+- With the sphere legs above, C4 is now measured on the nine cases on both clusters.
+
 
 The FNL backend allocates every block-sized device array at the block **capacity** of the budget,
 `nb = memory_fraction x device memory / realms / (fields_number x 8 B x block_weight)` (`adam_adam_object`
@@ -1074,7 +1093,7 @@ never (leg 3): a flow with more churn pays more regrid.
 | `results/2026-11-25-i157/` | the AMR legs before and after #157 (the guard once per ghost): the medooza and SpaceHPC summaries per executable, `ab_table.py` (the before/after tables), `acc_table.py` (the kernel table from `NVCOMPILER_ACC_TIME` logs, interleaving-proof), the job scripts, the logs and the compressed kernel-time logs |
 | `results/2026-11-25-i156/` | #156 lever 2, first part (no exchange after the last eikonal sweep) on SpaceHPC: the sphere windows' summaries per executable, the phase-timer reports of `wg-l4b38` (1 and 8 nodes) and 2a (8 nodes), the medooza bitwise gate jobs, the SpaceHPC jobs and plans, the updated `apply_phase_timer.py`, `fetch.sh`, the logs |
 | `results/2026-11-26-i156-l2b/` | #156 lever 2, second part: the ceiling (both eikonal exchanges skipped, measurement only; `jobs/ceiling-C-vs-B.diff`), the no-body floor, part 2 with BC and blend in full (D) and final (E): the phase-timer reports, the bitwise logs of the sphere, the job logs, plans and scripts (`apply_phase_timer_l2b.py`: the phase timer on the part-2 tree, FNL only) |
-| `results/2026-11-26-i157-c4/` | #157 C4: the sphere on SpaceHPC (`spacehpc/`: analyze.py summaries of A = 80582712 and B = C4, the job logs and scripts of 184727-184729, 184742, 184743) and the nine cases on medooza (`medooza/`: the same for jobs 1370470, 1370471, 1370477; `medooza-b4fix/`: the step leg with A, B and C = B4's scratch persistent, job 1370492) |
+| `results/2026-11-26-i157-c4/` | #157 C4: the sphere on SpaceHPC (`spacehpc/`: analyze.py summaries of A = 80582712 and B = C4, the job logs and scripts of 184727-184729, 184742, 184743) and the nine cases on medooza (`medooza/`: the same for jobs 1370470, 1370471, 1370477; `medooza-b4fix/`: the step leg with A, B and C = B4's scratch persistent, job 1370492); the step and the channel on SpaceHPC (`spacehpc-legs/`: analyze.py summaries of A and B, the job logs of 184907-184912 and `sp-leg.pbs`) |
 | `results/2026-11-26-remeasure-l2/` | the sphere re-measured at HEAD 0984b5f5 after #156 lever 2: medooza (`medooza/`: the analyze.py summaries of the work tree `speedup-133/l2` and of the CPU rerun `l2-cpu2`, the job logs and scripts) and ESA SpaceHPC (`spacehpc/`: the final analyze.py summary of the work tree `speedup-133/l2` on SpaceHPC, jobs 184703-184706 and 184730) |
 | `results/2026-11-25-spacehpc/` | the H100 runs: summaries, phase reports, job logs with the GPU health, the node reconnaissance (`recon.pbs`) and the bandwidth tests (`netbw.sh`), the plans, `fetch.sh` |
 | `build.sh` | builds one backend from a clean tree into `exe/<backend>/` (it still calls backends "legs") |
