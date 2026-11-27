@@ -460,6 +460,8 @@ little work per kernel launch, as the profile of the small cases showed on the A
 | 2a (24^3, body), H100 | 56.6 M | 0.2541 | 0.1371 (0.927) | 0.0780 (0.814) | 0.0462 (0.687) |
 | 2a, A30 (medooza) | 56.6 M | 0.780 | 0.491 (0.79) | 0.260 (0.75) | 0.167 (0.58) |
 | `wg-l4b38` (38^3, body), H100 | 225 M | 0.8613 | 0.4508 (0.955) | 0.2387 (0.902) | 0.1303 (0.826) |
+| 2a, H100, since #156 lever 2 (HEAD 0984b5f5, 2026-11-26) | 56.6 M | 0.1952 | 0.09889 (0.987) | 0.05163 (0.945) | 0.02662 (0.916) |
+| `wg-l4b38`, H100, since #156 lever 2 | 225 M | 0.727 | 0.3683 (0.987) | 0.1857 (0.979) | 0.09586 (0.948) |
 | cells per H100, 2a / `wg-l4b38` | | 14.2 M / 56.2 M | 7.08 M / 28.1 M | 3.54 M / 14.0 M | 1.77 M / 7.02 M |
 
 On 2a the H100 loses less from 1 to 2 and to 4 nodes than the A30 (0.927 and 0.814 against 0.79 and 0.75) although
@@ -471,6 +473,14 @@ leaving it. On 8 nodes (1.77 M cells per H100) the same split gives 5.9 of the 8
 load and the node (`wg-b24` on 4 H100: 23.9 ns at 1.77 M cells per GPU) and 2.2 to the network: 2a's 0.687 is mostly
 a grid too small for 32 H100, not the network.
 
+**Since #156 lever 2** (re-measured 2026-11-26 at HEAD 0984b5f5, jobs 184703 build, 184705 / 184730 / 184706 /
+184704 on 1 / 2 / 4 / 8 nodes, `results/2026-11-26-remeasure-l2/spacehpc/`, the final `analyze.py` summary taken
+after every job had ended): the body's ghost work no longer grows with the node count, and 2a keeps 0.987, 0.945 and
+0.916 (0.927, 0.814, 0.687 before), `wg-l4b38` 0.987, 0.979 and 0.948. On 8 nodes 2a loses 1.2 ns per cell-step
+(15.0 against 13.8) instead of 8.1: most of what the split above gave to "the load and the node" was the body's ghost
+work, which no longer grows as each GPU's share of the grid shrinks. The 8-node 2a point repeats within 8.1 % only (the
+analysis flags it; every other point within 1.5 %).
+
 **Weak scaling across nodes** (g in ns per cell-step at a fixed load per H100; one node against 8 nodes; without the
 body: the phase-timer runs below, whose step costs agree with the windows within 0.4 %):
 
@@ -479,6 +489,8 @@ body: the phase-timer runs below, whose step costs agree with the windows within
 | 14.2 M | 24^3 | 18.0 (2a) | 19.6 (`w2-sphere-l5`, 453 M cells) | **0.92** | 0.80 |
 | 7.02 M | 38^3 | 16.9 (`wg-b38`) | 18.6 (`wg-l4b38`, 225 M cells) | **0.91** | 0.75 |
 | 7.02 M, no body | 38^3 | 12.8 (`wg-b38`) | 13.2 (`wg-l4b38`) | **0.97** | 0.90 |
+| 14.2 M, since #156 lever 2 | 24^3 | 13.8 (2a) | 14.1 (`w2-sphere-l5`) | **0.98** | 0.95 |
+| 7.02 M, since #156 lever 2 | 38^3 | 13.2 (`wg-b38`) | 13.6 (`wg-l4b38`) | **0.97** | 0.93 |
 
 Leaving the node costs **~1 ms per ghost exchange** on the H100 nodes, with or without the body: (18.6 - 16.9) ns x
 7.02 M / 12 exchanges = 0.99 ms with it, (13.23 - 12.82) x 7.02 M / 3 = 0.96 ms without, against 9.7-9.8 ms on medooza
@@ -829,6 +841,37 @@ fluxes 0.37 -> 0.37, send buffers 0.04 -> 0.03, boundary conditions 0.05 -> 0.05
   prolongation); and **the host regrid**, unchanged in absolute terms (0.122 s per step), is now 27 % of 2b's step
   (T(R)/T(F) - 1 = 37 %, from 32 %).
 
+### The sphere with the copy rows in their own launch (#157 C4, 2026-11-26)
+
+#157 C4 runs the local fill in two launches: the restriction and prolongation rows in the map's order, then the copy
+rows packed in int32 and sorted with the receiving block fastest (`docs/developer/ghost-fill-benchmark.md`, "Applied:
+the copy rows in their own launch"; bitwise on every regression case). The sphere's windows re-run on **4 H100** with
+HEAD 80582712 (**A**, #156 lever 2 in, so the absolute numbers are below the section above) and the C4 tree (**B**),
+alternated run by run from the same window dumps (SpaceHPC jobs 184729, 184742, 184743; trees built by 184727/184728;
+every GPU at 1980 MHz, no brake bit; `results/2026-11-26-i157-c4/spacehpc/`):
+
+| Case, 4 H100 | A (s/step) | B (s/step) | Change | Steps A -> B | Regrid A -> B |
+|---|---|---|---|---|---|
+| 2a sphere uniform | 0.1953 | 0.1874 | **-4.0 %** | 0.1948 -> 0.1870 | 0.0002 -> 0.0003 |
+| 2b sphere runtime | 0.1800 | 0.1718 | **-4.6 %** | 0.1201 -> 0.1110 | 0.0600 -> 0.0613 |
+| 2c sphere frozen | 0.0799 (3.8 %) | 0.0833 (10.5 % (!)) | see below | | |
+| 2c, 9 repetitions, (wall 110 - wall 10) / 100, median | 0.0828 | 0.0809 | **-2.3 %** | | |
+
+The local fill itself (`NVCOMPILER_ACC_TIME`, 10-step runs, `update_ghost_local_*` per GPU; job 184743): **2c 82.4 ->
+64.6 ms (-22 %)**, **2a 112.4 -> 31.7 ms (3.5x)** (two of 2a B's four device reports interleave; the two clean ones
+agree within 0.1 ms).
+
+- **On the uniform sphere the fill is all copies**: 3.5 times cheaper, 8 ms per step, exactly the step's gain
+  (0.1953 -> 0.1874).
+- **On the frozen AMR sphere the copies are the smaller part**: the fill is 22 % cheaper (1.8 ms per step of ~80),
+  a gain smaller than 2c's window scatter in one pass (3.8-10.5 %); nine repetitions put it at -2.3 %, as the fill
+  predicts. What is left of the 2c fill is the heavy launch: the prolongation and its density guard (#157 D).
+- **The runtime AMR sphere** gains 7.6 % on its time steps; its host regrid (0.06 s per step, a third of the step) is
+  unchanged (#149).
+- In 2c's forest timing the reflux reduction takes 2.9 s of a 10.7 s 110-step loop (27 %): not a ghost-fill cost, a
+  lever of its own.
+- The A30 legs (medooza, A against B on all nine cases) are queued (`speedup-133/i157c`); they will be added here.
+
 ### Device memory (phase 4.3)
 
 The FNL backend allocates every block-sized device array at the block **capacity** of the budget,
@@ -995,7 +1038,8 @@ never (leg 3): a flow with more churn pays more regrid.
 | `results/2026-11-25-i157/` | the AMR legs before and after #157 (the guard once per ghost): the medooza and SpaceHPC summaries per executable, `ab_table.py` (the before/after tables), `acc_table.py` (the kernel table from `NVCOMPILER_ACC_TIME` logs, interleaving-proof), the job scripts, the logs and the compressed kernel-time logs |
 | `results/2026-11-25-i156/` | #156 lever 2, first part (no exchange after the last eikonal sweep) on SpaceHPC: the sphere windows' summaries per executable, the phase-timer reports of `wg-l4b38` (1 and 8 nodes) and 2a (8 nodes), the medooza bitwise gate jobs, the SpaceHPC jobs and plans, the updated `apply_phase_timer.py`, `fetch.sh`, the logs |
 | `results/2026-11-26-i156-l2b/` | #156 lever 2, second part: the ceiling (both eikonal exchanges skipped, measurement only; `jobs/ceiling-C-vs-B.diff`), the no-body floor, part 2 with BC and blend in full (D) and final (E): the phase-timer reports, the bitwise logs of the sphere, the job logs, plans and scripts (`apply_phase_timer_l2b.py`: the phase timer on the part-2 tree, FNL only) |
-| `results/2026-11-26-remeasure-l2/` | the sphere re-measured at HEAD 0984b5f5 after #156 lever 2: medooza (`medooza/`: the analyze.py summaries of the work tree `speedup-133/l2` and of the CPU rerun `l2-cpu2`, the job logs and scripts) and ESA SpaceHPC (when its maintenance ends) |
+| `results/2026-11-26-i157-c4/` | #157 C4 on the sphere: SpaceHPC (`spacehpc/`: analyze.py summaries of A = 80582712 and B = C4, the job logs and scripts of 184727-184729, 184742, 184743) |
+| `results/2026-11-26-remeasure-l2/` | the sphere re-measured at HEAD 0984b5f5 after #156 lever 2: medooza (`medooza/`: the analyze.py summaries of the work tree `speedup-133/l2` and of the CPU rerun `l2-cpu2`, the job logs and scripts) and ESA SpaceHPC (`spacehpc/`: the final analyze.py summary of the work tree `speedup-133/l2` on SpaceHPC, jobs 184703-184706 and 184730) |
 | `results/2026-11-25-spacehpc/` | the H100 runs: summaries, phase reports, job logs with the GPU health, the node reconnaissance (`recon.pbs`) and the bandwidth tests (`netbw.sh`), the plans, `fetch.sh` |
 | `build.sh` | builds one backend from a clean tree into `exe/<backend>/` (it still calls backends "legs") |
 | `templates/sphere-legacy.ini` | the removed matrix's sphere input, a record (stale, does not run) |

@@ -1,0 +1,54 @@
+# medooza job 1370425 (dev-gn, fastlink build), tree s03i: HEAD 80582712 + #157 steps 01-02 + harness with the C/K variants (V0 = the pre-C4 fill)
+## 24 2 0.75 tricubic mean 30 16.0
+# b  24 base level  2 box 0.750 fill tricubic restriction mean
+# blocks     253 cells     3.497 M, levels   2-  3
+# descriptors     5310 (copy, restriction, prolongation:     4162     331     817)
+# rows    2870802 (copy, restriction, prolongation:    2527794     65799    277209)
+# cells the descriptors cover (copy, restriction, prolongation)    2527794     65799    277209 (minus the rows: the duplicates the dedupe removed)
+# shape classes    154 (copy, restriction, prolongation:     26    37    91)
+V0  ADAM rows, one launch       median      6.110 ms
+Ca  compact rows, ADAM order             median      6.016 ms  bitwise vs V0 T
+Cb  compact rows, receiver block fastest median     12.591 ms  bitwise vs V0 T
+Cc  compact rows, by kind, block fastest median      5.598 ms  bitwise vs V0 T
+Ce  compact rows, heavy first, then copi median      5.584 ms  bitwise vs V0 T
+Cf  heavy rows in ADAM order, then copie median      5.226 ms  bitwise vs V0 T
+Cg  copies, then heavy rows in ADAM orde median      5.223 ms  bitwise vs V0 T
+K0  copy rows, ADAM kernel (V0s copy)    median      2.643 ms
+Ka  copy rows, compact, ADAM order       median      1.537 ms  bitwise vs K0 T
+Kb  copy rows, compact, receiver fastest median      0.525 ms  bitwise vs K0 T
+Kd  copy rows, compact, donor fastest    median      0.511 ms  bitwise vs K0 T
+Kp  copy rows, packed b+ijk, receiver fa median      0.646 ms  bitwise vs K0 T
+V0p ADAM rows, guard per variable median      8.022 ms  bitwise vs V0 T
+V0png ADAM rows, b8641a59 guard off median      3.518 ms
+V0k ADAM rows by kind          median      5.864 ms  bitwise vs V0 T  (guard off: V0kng      3.661 ms)
+V0s ADAM rows, one launch/kind   median      5.867 ms  (copy, restr, prol      2.643     0.305     2.915)  bitwise T
+D2  shape classes, one launch/kind median      9.706 ms  (copy, restr, prol      3.111     0.265     6.316)  bitwise T
+D1  descriptors, one launch/kind   median     11.555 ms  (copy, restr, prol      3.956     0.310     7.275)  bitwise T
+V0ng ADAM rows, guard off         median      3.505 ms  (prolongation rows      0.750)
+D3  prolongation per anchor (tricubic, guard off) median      1.505 ms  bitwise vs V0ng prolongation T
+## 24 2 0.75 weno6 weno6 30 16.0
+# b  24 base level  2 box 0.750 fill weno6 restriction weno6
+# blocks     253 cells     3.497 M, levels   2-  3
+# descriptors     5310 (copy, restriction, prolongation:     4162     331     817)
+# rows    2870802 (copy, restriction, prolongation:    2527794     65799    277209)
+# cells the descriptors cover (copy, restriction, prolongation)    2527794     65799    277209 (minus the rows: the duplicates the dedupe removed)
+# shape classes    154 (copy, restriction, prolongation:     26    37    91)
+V0  ADAM rows, one launch       median     23.794 ms
+Ca  compact rows, ADAM order             median     23.636 ms  bitwise vs V0 T
+Cb  compact rows, receiver block fastest median    118.024 ms  bitwise vs V0 T
+Cc  compact rows, by kind, block fastest median     23.112 ms  bitwise vs V0 T
+Ce  compact rows, heavy first, then copi median     23.079 ms  bitwise vs V0 T
+Cf  heavy rows in ADAM order, then copie median     21.712 ms  bitwise vs V0 T
+Cg  copies, then heavy rows in ADAM orde median     21.771 ms  bitwise vs V0 T
+K0  copy rows, ADAM kernel (V0s copy)    median      2.643 ms
+Ka  copy rows, compact, ADAM order       median      1.538 ms  bitwise vs K0 T
+Kb  copy rows, compact, receiver fastest median      0.525 ms  bitwise vs K0 T
+Kd  copy rows, compact, donor fastest    median      0.511 ms  bitwise vs K0 T
+Kp  copy rows, packed b+ijk, receiver fa median      0.646 ms  bitwise vs K0 T
+V0p ADAM rows, guard per variable median     36.812 ms  bitwise vs V0 T
+V0png ADAM rows, b8641a59 guard off median     21.238 ms
+V0k ADAM rows by kind          median     22.221 ms  bitwise vs V0 T  (guard off: V0kng     20.081 ms)
+V0s ADAM rows, one launch/kind   median     22.404 ms  (copy, restr, prol      2.642     4.548    15.205)  bitwise T
+D2  shape classes, one launch/kind median     39.909 ms  (copy, restr, prol      3.112     4.184    32.545)  bitwise T
+D1  descriptors, one launch/kind   median     45.834 ms  (copy, restr, prol      3.950     4.592    37.262)  bitwise T
+V0ng ADAM rows, guard off         median     21.626 ms  (prolongation rows     13.080)

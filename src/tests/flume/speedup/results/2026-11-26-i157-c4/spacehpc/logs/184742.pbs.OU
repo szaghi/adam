@@ -1,0 +1,34 @@
+19:18:18 job 184742.pbs on gpu-002
+0, 0x0000000000000001, 699.00, 700.00, 1
+1, 0x0000000000000001, 699.00, 700.00, 1
+2, 0x0000000000000001, 699.00, 700.00, 1
+3, 0x0000000000000001, 699.00, 700.00, 1
+19:18:42 A 2c-sphere-fixed r1-n10: rc 0 wall 22.546 loop 2.8181, steps 2.8148,
+19:19:03 B 2c-sphere-fixed r1-n10: rc 0 wall 20.896 loop 1.9258, steps 1.9227,
+19:19:33 A 2c-sphere-fixed r1-n110: rc 0 wall 29.579 loop 10.6464, steps 10.6257,
+19:20:03 B 2c-sphere-fixed r1-n110: rc 0 wall 29.309 loop 10.5237, steps 10.5018,
+19:20:25 A 2c-sphere-fixed r2-n10: rc 0 wall 20.578 loop 1.9092, steps 1.9070,
+19:20:47 B 2c-sphere-fixed r2-n10: rc 0 wall 21.470 loop 2.5309, steps 2.5278,
+19:21:16 A 2c-sphere-fixed r2-n110: rc 0 wall 29.072 loop 10.1026, steps 10.0834,
+19:21:46 B 2c-sphere-fixed r2-n110: rc 0 wall 28.891 loop 10.0308, steps 10.0068,
+19:22:08 A 2c-sphere-fixed r3-n10: rc 0 wall 21.199 loop 2.5144, steps 2.5102,
+19:22:29 B 2c-sphere-fixed r3-n10: rc 0 wall 20.931 loop 1.8971, steps 1.8928,
+19:23:00 A 2c-sphere-fixed r3-n110: rc 0 wall 29.579 loop 10.6898, steps 10.6677,
+19:23:29 B 2c-sphere-fixed r3-n110: rc 0 wall 29.229 loop 10.5180, steps 10.4976,
+19:23:51 A 2c-sphere-fixed r1-n10: rc 0 wall 20.700 loop 1.9523, steps 1.9497,
+19:24:13 B 2c-sphere-fixed r1-n10: rc 0 wall 21.712 loop 2.5076, steps 2.5046,
+19:24:43 A 2c-sphere-fixed r1-n110: rc 0 wall 29.114 loop 10.1506, steps 10.1314,
+19:25:13 B 2c-sphere-fixed r1-n110: rc 0 wall 29.045 loop 9.8915, steps 9.8698,
+19:25:34 A 2c-sphere-fixed r2-n10: rc 0 wall 21.227 loop 2.5128, steps 2.5091,
+19:25:56 B 2c-sphere-fixed r2-n10: rc 0 wall 21.098 loop 1.9189, steps 1.9161,
+19:26:26 A 2c-sphere-fixed r2-n110: rc 0 wall 29.510 loop 10.6838, steps 10.6618,
+19:26:56 B 2c-sphere-fixed r2-n110: rc 0 wall 29.391 loop 10.4858, steps 10.4670,
+19:27:18 A 2c-sphere-fixed r3-n10: rc 0 wall 20.669 loop 1.8871, steps 1.8829,
+19:27:40 B 2c-sphere-fixed r3-n10: rc 0 wall 21.827 loop 2.5160, steps 2.5135,
+19:28:10 A 2c-sphere-fixed r3-n110: rc 0 wall 29.202 loop 10.0873, steps 10.0652,
+19:28:40 B 2c-sphere-fixed r3-n110: rc 0 wall 29.048 loop 10.0040, steps 9.9799,
+gpu0: busy 182 s, SM mean 1980 min 1980 MHz
+gpu1: busy 193 s, SM mean 1980 min 1980 MHz
+gpu2: busy 184 s, SM mean 1980 min 1980 MHz
+gpu3: busy 184 s, SM mean 1980 min 1980 MHz
+19:28:40 I157N-2C-DONE

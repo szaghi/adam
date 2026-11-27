@@ -1,0 +1,47 @@
+18:54:02 job 184729.pbs on gpu-001
+0, 0x0000000000000001, 699.00, 700.00, 1
+1, 0x0000000000000001, 699.00, 700.00, 1
+2, 0x0000000000000001, 699.00, 700.00, 1
+3, 0x0000000000000001, 699.00, 700.00, 1
+18:56:08 BENCH done: /lustre/projects/1026/CALCOLI/adam/speedup-133/i157n/h100-bench-184729.txt
+18:56:31 A 2c-sphere-fixed r1-n10: rc 0 wall 22.046 loop 2.8161, steps 2.8135,
+18:56:53 B 2c-sphere-fixed r1-n10: rc 0 wall 21.303 loop 1.8748, steps 1.8716,
+18:57:24 A 2c-sphere-fixed r1-n110: rc 0 wall 29.951 loop 10.6579, steps 10.6359,
+18:57:54 B 2c-sphere-fixed r1-n110: rc 0 wall 29.389 loop 10.4097, steps 10.3907,
+18:58:16 A 2c-sphere-fixed r2-n10: rc 0 wall 21.014 loop 2.1195, steps 2.1166,
+18:58:38 B 2c-sphere-fixed r2-n10: rc 0 wall 21.449 loop 2.4901, steps 2.4855,
+18:59:08 A 2c-sphere-fixed r2-n110: rc 0 wall 29.206 loop 10.1047, steps 10.0830,
+18:59:38 B 2c-sphere-fixed r2-n110: rc 0 wall 29.370 loop 10.1481, steps 10.1286,
+19:00:00 A 2c-sphere-fixed r3-n10: rc 0 wall 21.501 loop 2.4602, steps 2.4581,
+19:00:22 B 2c-sphere-fixed r3-n10: rc 0 wall 21.335 loop 2.1246, steps 2.1217,
+19:00:53 A 2c-sphere-fixed r3-n110: rc 0 wall 29.683 loop 10.6046, steps 10.5858,
+19:01:23 B 2c-sphere-fixed r3-n110: rc 0 wall 29.646 loop 10.4576, steps 10.4352,
+19:01:46 A 2b-sphere-runtime r1-n10: rc 0 wall 21.817 loop 2.5475, steps 1.9831,
+19:02:08 B 2b-sphere-runtime r1-n10: rc 0 wall 22.147 loop 3.1166, steps 2.5569,
+19:02:49 A 2b-sphere-runtime r1-n110: rc 0 wall 39.988 loop 20.5648, steps 13.9970,
+19:03:29 B 2b-sphere-runtime r1-n110: rc 0 wall 39.549 loop 20.2946, steps 13.6128,
+19:03:51 A 2b-sphere-runtime r2-n10: rc 0 wall 21.271 loop 2.4535, steps 1.8874,
+19:04:14 B 2b-sphere-runtime r2-n10: rc 0 wall 22.445 loop 3.1383, steps 2.5426,
+19:04:55 A 2b-sphere-runtime r2-n110: rc 0 wall 39.763 loop 20.4182, steps 13.8882,
+19:05:35 B 2b-sphere-runtime r2-n110: rc 0 wall 39.405 loop 20.2787, steps 13.6442,
+19:05:57 A 2b-sphere-runtime r3-n10: rc 0 wall 21.345 loop 2.4868, steps 1.9235,
+19:06:20 B 2b-sphere-runtime r3-n10: rc 0 wall 22.365 loop 3.1233, steps 2.5421,
+19:07:01 A 2b-sphere-runtime r3-n110: rc 0 wall 40.149 loop 20.4850, steps 13.9385,
+19:07:41 B 2b-sphere-runtime r3-n110: rc 0 wall 39.671 loop 20.4299, steps 13.6888,
+19:08:05 A 2a-sphere-uniform r1-n10: rc 0 wall 23.266 loop 1.9608, steps 1.9554,
+19:08:31 B 2a-sphere-uniform r1-n10: rc 0 wall 24.836 loop 1.8841, steps 1.8794,
+19:09:14 A 2a-sphere-uniform r1-n110: rc 0 wall 42.249 loop 21.5071, steps 21.4390,
+19:09:58 B 2a-sphere-uniform r1-n110: rc 0 wall 43.693 loop 20.6287, steps 20.5766,
+19:10:22 A 2a-sphere-uniform r2-n10: rc 0 wall 22.696 loop 1.9604, steps 1.9542,
+19:10:48 B 2a-sphere-uniform r2-n10: rc 0 wall 25.095 loop 1.8881, steps 1.8823,
+19:11:31 A 2a-sphere-uniform r2-n110: rc 0 wall 42.502 loop 21.4933, steps 21.4408,
+19:12:15 B 2a-sphere-uniform r2-n110: rc 0 wall 43.631 loop 20.6008, steps 20.5509,
+19:12:39 A 2a-sphere-uniform r3-n10: rc 0 wall 22.738 loop 1.9622, steps 1.9567,
+19:13:04 B 2a-sphere-uniform r3-n10: rc 0 wall 24.991 loop 1.8837, steps 1.8775,
+19:13:47 A 2a-sphere-uniform r3-n110: rc 0 wall 42.393 loop 21.4851, steps 21.4323,
+19:14:32 B 2a-sphere-uniform r3-n110: rc 0 wall 44.006 loop 20.6377, steps 20.5837,
+gpu0: busy 405 s, SM mean 1980 min 1980 MHz
+gpu1: busy 369 s, SM mean 1980 min 1980 MHz
+gpu2: busy 354 s, SM mean 1980 min 1980 MHz
+gpu3: busy 360 s, SM mean 1980 min 1980 MHz
+19:14:32 I157N-H100-DONE

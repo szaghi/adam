@@ -201,19 +201,22 @@ to GPU between nodes at 52.4 GB/s, 34 times medooza's 1.53 (9.8 GB/s with GPUDir
 is nvfortran 26.3 with CUDA 12.9; every job checked first that no GPU was throttled.
 
 - **A cell costs 2.5–3.0 times less than on an A30** at equal blocks (15–25 ns per cell-step against 44–63), 3.1
-  times on the 4-GPU node with the 56.6 M-cell sphere (0.254 s per step against 0.780). An H100 holds at least 147 M
-  cells of this case (an A30 28.1 M).
+  times on the 4-GPU node with the 56.6 M-cell sphere (0.254 s per step against 0.780; since #156 lever 2, 0.195 s
+  against 0.575, 2.9 times). An H100 holds at least 147 M cells of this case (an A30 28.1 M).
 - **The block size weighs more**: 24³ blocks cost 30 % more per cell than 64³ (on the A30, 24³ against 38³, 16 %). The
   per-cell compute fell 5.5 times, the cost of the stored ghost cells only 2.2 times.
 - **Inside a node there is no penalty for the third and fourth GPU**: above ~14 M cells per H100, four GPUs keep
   0.97–0.98 of one GPU's throughput. Below ~2 M cells per H100 a quarter or more is lost: a load that keeps an A30 busy
   is a light one for an H100.
-- **Across nodes the sphere keeps 0.93, 0.81 and 0.69 of its throughput per GPU on 2, 4 and 8 nodes** (A30: 0.79,
-  0.75 and 0.58), and the 225 M-cell grid 0.96, 0.90 and 0.83. On 8 nodes the sphere has 1.8 M cells per H100, too few
-  for the GPU: of the 8.1 ns per cell-step it loses, 5.9 come from the small load and 2.2 from the network.
-- **At a fixed load, leaving the node costs 8–9 %**: from one node to eight (32 H100) the sphere keeps 0.92 at 14 M
-  cells per GPU (453 M cells) and 0.91 at 7 M in 38³ blocks (A30: 0.80 and 0.75), 0.97 without the body (A30: 0.90).
-  An exchange between nodes costs ~1 ms (medooza: ~10 ms on the same loads).
+- **Across nodes the sphere keeps 0.99, 0.95 and 0.92 of its throughput per GPU on 2, 4 and 8 nodes** since #156
+  lever 2 (re-measured 2026-11-26; before it 0.93, 0.81 and 0.69; the A30 nodes since lever 2: 0.92, 0.90 and 0.84),
+  and the 225 M-cell grid 0.99, 0.98 and 0.95 (before: 0.96, 0.90 and 0.83). On 8 nodes the sphere has 1.8 M cells per
+  H100 and loses 1.2 ns per cell-step (15.0 against 13.8); before lever 2 it lost 8.1, of which 5.9 came from the small
+  load, most of it the body's ghost work that lever 2 removed.
+- **At a fixed load, leaving the node costs 2–3 %** since #156 lever 2: from one node to eight (32 H100) the sphere
+  keeps 0.98 at 14 M cells per GPU (453 M cells) and 0.97 at 7 M in 38³ blocks (before lever 2: 0.92 and 0.91, 0.97
+  without the body; the A30 nodes since lever 2: 0.95 and 0.93). An exchange between nodes costs ~1 ms (medooza: ~10 ms
+  on the same loads).
 - **The immersed body's cost is ghost work**: on one node it adds 152 ms to a 710 ms step, of which the local ghost fill
   85, boundary conditions 36, the MPI exchange 14 (mostly packing), its own kernels 10; on 8 nodes it adds 40 % (37 ms
   on 93), the MPI exchange the largest part (15), and it takes the strong efficiency of the 225 M-cell grid from 0.955
@@ -333,7 +336,7 @@ the accuracy-first paths:
 |---|---|---|
 | The regrid runs on the host at every regrid step | 22–27 % of a runtime step on 4 A30, also when the grid does not change | per-phase timers, then marking on the device |
 | The runtime layout keeps sibling sets whole and splits every realm from rank 0 | the CPU runtime step stops at 64 ranks; legs 1 and 3 gain nothing from runtime AMR on the CPU node | offset or joint split of the realms, weighted by cells; split sibling sets between regrids |
-| A cell of the sphere's AMR grid costs twice a uniform cell on the A30 | grid efficiency 0.51 on 4 A30 | [#157](https://github.com/szaghi/adam/issues/157): the density guard once per fine ghost, **applied** (the 2:1 fill 20–43 % faster on the H100 benchmark, 3–50 % on the A30; the sphere's frozen AMR step 14 % cheaper on 4 A30, grid efficiency 0.51 → 0.59); one kernel per kind of row, measured, not applied (slower on the H100); structured descriptors and a cooperative prolongation planned ([ghost-fill benchmark](/developer/ghost-fill-benchmark#applied-the-density-guard-once-per-ghost)) |
+| A cell of the sphere's AMR grid costs twice a uniform cell on the A30 | grid efficiency 0.51 on 4 A30 | [#157](https://github.com/szaghi/adam/issues/157): the density guard once per fine ghost, **applied** (the 2:1 fill 20–43 % faster on the H100 benchmark, 3–50 % on the A30; the sphere's frozen AMR step 14 % cheaper on 4 A30, grid efficiency 0.51 → 0.59); one kernel per kind of row, measured, not applied (slower on the H100); the copy rows packed and sorted with the receiving block fastest in their own launch, **applied** (C4, bitwise: the copies 3.5–4x faster, the tricubic 2:1 fill −37 % on the H100 and −34 % on the A30 benchmark; [ghost-fill benchmark](/developer/ghost-fill-benchmark#applied-the-copy-rows-in-their-own-launch)), the guard once per ghost in the inter-realm seam pack too (B4); a cooperative prolongation planned (D) |
 | A 2-D block stores ghost layers along its null axis; realms share the device equally | the step fits ~1.7 M cells per A30 | no ghosts on a null axis; device share in proportion to stored cells |
 | The FNL job's free-memory check sees the batch node only | multi-node jobs | check every node |
 
@@ -342,4 +345,4 @@ Open MPI 5.0.11 (`iac_gnu`) on medooza (Intel Xeon Gold 6338, 64 ranks per node)
 (`iac_nvf`) on NVIDIA A30 (4 per node): the matrix 2026-11-23 (jobs 1369400-1369597, 1369616), the grid study and the
 rank placement 2026-11-24 (jobs 1369668-1369679, 1369687-1369691), the CPU weak pairs (1369694-1369698);
 `speedup/run.sh` windows, `analyze.py`, `matrix_plot.py` and `grid_study_plot.py`. H100: ESA SpaceHPC, nvfortran 26.3,
-CUDA 12.9, LTO (`spacehpc_nvf`), NVIDIA H100 (4 per node), the 2026-11-24 tree (`2a67b16c`), jobs 183592-183633; #156 lever 2: d68d5f97, 4a029436 and the second part, jobs 184501-184691.*
+CUDA 12.9, LTO (`spacehpc_nvf`), NVIDIA H100 (4 per node), the 2026-11-24 tree (`2a67b16c`), jobs 183592-183633; #156 lever 2: d68d5f97, 4a029436 and the second part, jobs 184501-184691; the re-measure after lever 2 (HEAD 0984b5f5): jobs 184703-184706 and 184730, `results/2026-11-26-remeasure-l2/spacehpc/`.*

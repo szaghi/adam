@@ -13,7 +13,7 @@ OUT=$(readlink -f "$OUT")
    || { tail -30 "$OUT.build.log"; exit 3; }
 EXE="$REPO/exe/test_amr_ghost_bench_fnl"
 WORK="$(dirname "$OUT")/work-$$" ; mkdir -p "$WORK" ; cd "$WORK"
-run() { echo "## $*" ; mpirun -np 1 "$EXE" "$@" 2>&1 | grep -E '^#|^V0|^D[0-9]|differ|rror|STOP' ; echo ; }
+run() { echo "## $*" ; mpirun -np 1 "$EXE" "$@" 2>&1 | grep -E '^#|^V0|^C[a-z]|^K[0-9a-z]|^P[0-9]|^D[0-9]|differ|rror|STOP' ; echo ; }
 {
    echo "# host $(hostname) $(date -Is); $(nvfortran --version | grep -m1 nvfortran); varset $VARSET"
    nvidia-smi --query-gpu=index,name,memory.total,clocks.max.sm,clocks_event_reasons.active --format=csv,noheader

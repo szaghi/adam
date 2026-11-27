@@ -189,7 +189,9 @@ the same total row count; with the per-row costs above that implies about 26 % p
 3. **Group the rows by kind**: free with today's maps, bitwise, up to 38 % on the A30. **Measured with the guard
    once: slower on the H100, not applied** ([below](#applied-the-density-guard-once-per-ghost)).
 4. **Descriptors need structure, not only compression**: few, regular, non-overlapping by construction (no owner mask),
-   member blocks contiguous, the seam metadata precomputed per class.
+   member blocks contiguous, the seam metadata precomputed per class. **Superseded for the copies by C4**
+   ([below](#applied-the-copy-rows-in-their-own-launch)): the rows themselves, packed and sorted with the receiving block
+   fastest, give the copies their 4x without descriptors.
 
 ### Applied: the density guard once per ghost
 
@@ -222,6 +224,53 @@ kernel (V0p) on every regime pair and both GPUs, and against the CPU fill.
 Per-case numbers, the nvfortran hazards met on the way and the repeatability notes are in the benchmark's README
 (`src/tests/perf/ghost-fill/amr/README.md`, "#157").
 
+### Applied: the copy rows in their own launch
+
+[#157](https://github.com/szaghi/adam/issues/157) C (2026-11-26). The plan proposed structured descriptors for the copy
+rows; the benchmark found a shorter way. What gave the uniform benchmark its 3–5x is **the receiving block running
+fastest** (consecutive threads write consecutive memory of the block-fastest field), not the absence of a map. New
+variants, every one bitwise against V0:
+
+| Variant | What it runs | A30, production-like grid, tricubic / mean |
+|---|---|---|
+| K0 | the copy rows alone, ADAM's kernel and order | 2.64 ms |
+| Ka | the copy rows as int32 donor and receiver offsets, ADAM's order | 1.54 |
+| Kb / Kd | the same sorted by receiver / donor offset (the block fastest) | **0.53 / 0.51** |
+| Kp | the copy rows packed as [block, i j k] int32 pairs, sorted as Kb, the field indexed directly | **0.65** |
+| Ca–Cg | every kind of row in one compact launch, in ADAM's order or sorted (by receiver, by kind, heavy rows first or last) | 5.2–12.6 |
+| Ci / Cj | ADAM's kernel on the restriction and prolongation rows in ADAM's order, then Kb / Kp | **3.71 / 3.84** |
+
+- **Sorting the copies gains 4x, compressing them alone 1.7x.** Sorting the *prolongation* rows loses: the children of
+  a coarse anchor stop being neighbours and their shared footprints leave the caches (Cb, every row sorted by receiver,
+  is twice V0).
+- **Mixing the kinds in one launch wastes the gain**, whatever the order: the copies need their own launch.
+- **The dedupe never removes a row** on any FLUME or PRISM regression case nor on the #133 grids (its message never
+  appears in the logs): the rows are non-overlapping already, so any split and order is bitwise.
+
+**Applied as Cj** (C4): `maps_fnl_object%copy_cpu_gpu` derives, from the same CPU map, the heavy rows (restriction and
+prolongation, the map's order, int64) and the copy rows (four int32 `[b_send, ijk_send, b_recv, ijk_recv]`, ijk packed
+10 bits each, sorted by receiver cell then block); the local fill runs `update_ghost_local_gpu_dev` on the first and
+`update_ghost_local_copy_gpu_dev` on the second. Bitwise against the b8641a59 kernel on the full map in every run, and
+on every FLUME and PRISM regression case (A/B), on both GPUs.
+
+| Production-like grid (ms) | A30 before C4 | A30 C4 | H100 before C4 | H100 C4 |
+|---|---|---|---|---|
+| tricubic / mean | 5.86 | **3.88** (−34 %) | 1.67 | **1.04** (−37 %) |
+| weno6 / weno6 | 22.3 | 20.5 (−8 %) | 5.18 | 4.56 (−12 %) |
+| guard off, tricubic | 3.52 (b8641a59) | 1.65 | 1.21 | 0.58 (−53 %) |
+
+On the H100 (SpaceHPC job 184729, HEAD 80582712 against C4 alternated on one GPU) every case gains, the split launch
+costs nothing there: quintic / lagrange6 2.37 → 1.88 ms (−21 %), tricubic on 16³ blocks 0.396 → 0.277 (−30 %), at 4
+times the load (960 blocks) 4.58 → 2.32 (−49 %); the copies alone 0.90 → 0.26 ms (3.5x).
+The A30 figures of the C4 fill are its two launches timed apart and the fill timed again at the end of the run
+(3.24 + 0.65 = 3.88 ms): **the first variant a run times is not warm** (V0, 5.37 ms in the same run). The harness now
+fills for a second before V0; the figures of the earlier sections, each run's first, are biased high by up to that much,
+so the gains reported against V0 there were conservative.
+
+**After C4 the 2:1 fill is the prolongation and its guard**: on the A30 the copies are 0.65 of 3.88 ms; the guard alone
+(3.88 against 1.65 guard-off) is 2.2 ms. That is where the cooperative prolongation (#157 D) and the rest of the guard
+have to act.
+
 ## What it does not cover
 
 - **Real AMR layouts.** The 2:1 benchmark refines a box; the row mix of a grid that hugs a body (the sphere) is
@@ -229,7 +278,10 @@ Per-case numbers, the nvfortran hazards met on the way and the repeatability not
 - **The boundary-condition rows, the blend and the MPI pack/unpack.** They use the same per-row maps; they are expected to
   carry a similar factor and are the next measurements.
 - **Several realms, empty ranks, an immersed body.** The fill here is the same-level local fill only.
-- **Other vendors.** Plain OpenACC on NVIDIA; the AMD path (FUNDAL's OpenMP offload) is not measured.
+- **Other vendors.** Plain OpenACC on NVIDIA here; the AMD path (FUNDAL's OpenMP offload) was measured by Giacomo Rossi
+  on an MI300X (#157): there an array constructor with variable elements in device code was a device `malloc`, which
+  made the 2:1 fill 7.8 times the H100's; fixed (element assignments, bitwise; nvfortran's quintic-mp fill gained 14 %
+  on the A30 too), and `src/tests/lint/check-device-array-constructors.sh` keeps it out.
 
 ## Future paths it indicates
 
@@ -238,8 +290,9 @@ Per-case numbers, the nvfortran hazards met on the way and the repeatability not
    cell indices. For a uniform same-level neighbourhood this is V3/V5. The AMR redesign has to give every block this kind
    of description of its neighbourhood, including the 2:1 faces.
 2. **2:1 seams: the guard and the operators first.** The 2:1 benchmark shows the seam rows are arithmetic (the
-   prolongation operators and, above all, the density guard), not data movement: a descriptor form of them pays only
-   once the guard is computed once per ghost (done, #157 B2) and the footprints are shared cooperatively (#157 D).
+   prolongation operators and, above all, the density guard), not data movement: once the guard runs once per ghost
+   (#157 B2) and the copies have their own sorted launch (#157 C4), what is left is the guard's velocity bound and the
+   footprint reads that the cooperative prolongation (#157 D) would share.
 3. **One pass per refresh.** Local fill, boundary conditions and the blend run as three passes over three maps today;
    with slab descriptors they can be one fused pass per ghost refresh, which matters most where the refreshes are many
    (12 per step with the immersed body).
