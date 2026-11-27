@@ -45,16 +45,19 @@ T(CPU node) / T(GPU node) on the uniform grids:
 | Case | Grid | Blocks | GPU node / CPU node |
 |---|---|---|---|
 | 2a sphere (3-D, WENO-5, IB, SSP-33) | 56.6 M cells, L4 | 4096 of 24³ | 13.8 since #156 lever 2 (11.4 before it; 16.3 before the CPU build flushed subnormals) |
-| 3a channel (3-D, hybrid, viscous, SSP-54) | 6.29 M cells, L3 | 512 of 32×24×16 | 13.8 |
+| 3a channel (3-D, hybrid, viscous, SSP-54) | 6.29 M cells, L3 | 512 of 32×24×16 | 16.2 with the CPU flushing subnormals at HEAD (13.8 before; 14.7 at the CPU cost of the 2026-11-18 build, see below) |
 | sphere, grid study | 7.08 M cells, L3 | 512 of 24³ | 11.9 |
 | sphere, grid study | 28.1 M cells, L3 | 512 of 38³ | 12.6 |
 
-A GPU node runs the uniform 3-D flows 11 to 14 times faster than a CPU node; on the same flow the factor moves with
+A GPU node runs the uniform 3-D flows 11 to 16 times faster than a CPU node; on the same flow the factor moves with
 the grid. On the CPU node the sphere costs 14.4 µs per cell-step per core on 2a, 12.4 on the 24³ grid and 10.2 on the
 38³ grid. The 2a figure is inflated by subnormal arithmetic in its developed state, which slows a few CPU ranks and
 not the GPU ([What does not scale](#what-does-not-scale-and-why)): with flush to zero 2a costs 8.74 µs, the cold 24³
 grid 8.81–9.54. The two grid-study grids load the GPU node with 1.8 and 7.0 M cells per A30, below 2a's
 14.2 M ([what a cell costs](#what-a-cell-costs-on-one-a30)). Larger blocks make both nodes cheaper per cell.
+The channel's CPU node is 8 % slower per step at HEAD than with the build of the first table (the same node, the two
+executables alternated: 3.53 against 3.26 s; time steps +6.9 %), a slowdown of the CPU channel path not yet located;
+the step case did not slow down (1.26 → 1.22 s with flush to zero).
 
 ## What a cell costs on one A30
 
@@ -292,8 +295,8 @@ cost goes:
 - **The 2-D step's cell costs 1.60 cells of the same step extruded in 3-D** at the same order and load (202 against
   126 ns per cell-step): the boundary-condition kernel refills the `ngc` ghost layers along the null axis at every
   stage (59 % of the 2-D kernel time). The same ghosts cap the step at about 1.7 M cells per A30. A GPU node runs the
-  step 5.8 times faster than a CPU node (uniform 5.83, frozen 5.75, runtime 5.72), against 11–14 on the 3-D uniform
-  grids.
+  step 5.8 times faster than a CPU node (uniform 5.83, frozen 5.75, runtime 5.72; uniform 5.67 with the CPU flushing
+  subnormals), against 11–16 on the 3-D uniform grids.
 
 Timings of these paths on more nodes (baselines; step cost in s on 4 / 8 / 16 / 32 A30 and 64 / 128 / 256 cores):
 

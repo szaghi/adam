@@ -126,12 +126,16 @@ for performance; their timings are kept as baselines ("The accuracy-first paths"
 |---|---|---|---|---|---|
 | 2a sphere (3-D, WENO-5, IB, SSP-33) | 56.6 M | 4096 of 24^3 | 12.7 | 0.780 | 16.3 |
 | 2a sphere, CPU linked with `-mdaz-ftz` (2026-11-24) | 56.6 M | 4096 of 24^3 | 8.917 | 0.780 | **11.4** |
-| 3a channel (3-D, hybrid-kep-weno, viscous, SSP-54) | 6.29 M | 512 of 32x24x16 | 3.17 | 0.230 | 13.8 |
+| 3a channel (3-D, hybrid-kep-weno, viscous, SSP-54), before `-mdaz-ftz` | 6.29 M | 512 of 32x24x16 | 3.17 | 0.230 | 13.8 |
+| 3a channel, CPU with `-mdaz-ftz`, HEAD 5b200ffa (2026-11-27; GPU: the C4 tree) | 6.29 M | 512 of 32x24x16 | 3.59 | 0.2219 | **16.2** |
 | `wg-b24` sphere, L3 (2026-11-24) | 7.08 M | 512 of 24^3 | 1.366 | 0.1147 | 11.9 |
 | `wg-b38` sphere, L3 (2026-11-24) | 28.1 M | 512 of 38^3 | 4.458 | 0.355 | 12.6 |
 
 The factor is not one number: on the same flow it is 11.4-12.6 with the grid and the build (16.3 for 2a before the CPU
-build flushed subnormals). On the CPU node 2a costs 14.4 us per
+build flushed subnormals). The channel's 16.2 (#160 step 1.3, job 1370499, spread 6.7 %) is not flush to zero: on one
+node (A/B job 1370519, 3 pairs alternated) the HEAD build costs 3.53 s per step against 3.26 for the 2026-11-18 build
+of the 3.17 row, +8.3 % (time steps +6.9 %), a slowdown of the CPU channel between the two builds, not yet located (a
+follow-up issue); at the 2026-11-18 cost the factor would be 14.7. On the CPU node 2a costs 14.4 us per
 cell-step per core, against 12.4 for `wg-b24` (8 blocks per rank) and 10.2 for `wg-b38` (job 1369687; spreads 5.3 and
 0.7 %). The 2a figure is inflated by subnormal arithmetic in its developed state, which slows the CPU ranks that hold it
 and not the A30 ("Where a step's time goes" below): with flush to zero 2a costs 8.74 us per cell-step per core, the cold
@@ -195,9 +199,9 @@ top of one node's, against 14.2). In throughput the two 8-node runs are equal: 2
   more per cell than at 14.2 M.
 - **The CPU node scales to 8 nodes since the GNU builds flush subnormals** (`-mdaz-ftz`: 2a strong 0.91, weak 1.01;
   before it, 0.98 on 2 and 4 nodes and half lost on 8, weak 0.53): subnormal arithmetic on 76 ranks, not the network
-  (with flush to zero 0.93-1.0, "Where a step's time goes"); a GPU node is 11-14 times faster than a CPU node on the
+  (with flush to zero 0.93-1.0, "Where a step's time goes"); a GPU node is 11-16 times faster than a CPU node on the
   uniform 3-D flows (11.9 and 12.6 on the grid-study grids, 11.4 on 2a with `-mdaz-ftz`, 16.3 before it, 13.8 on the
-  channel).
+  channel, 16.2 at HEAD with `-mdaz-ftz`: see "A GPU node against a CPU node").
 - **The per-cell cost does not depend on the flow state** (0.5 %, "State independence" below): cold-started cases and
   developed ones are comparable.
 
@@ -621,7 +625,7 @@ Measured with the matrix; recorded as the baselines of the optimisation work, no
 
 | Leg | Uniform | Frozen AMR grid | Runtime AMR |
 |---|---|---|---|
-| 1 step (2-D, WENO-7, SSP-54) | 5.83 | 5.75 | 5.72 |
+| 1 step (2-D, WENO-7, SSP-54) | 5.83 (5.67 with `-mdaz-ftz`: 1.223 s, job 1370499, against the C4 tree's 0.2156) | 5.75 | 5.72 |
 | 2 sphere (3-D, WENO-5, IB, SSP-33) | 16.3 | 12.2 | 10.9 |
 | 3 channel (3-D, hybrid-kep-weno, viscous, SSP-54) | 13.8 | 15.5 | 16.7 |
 
@@ -1096,6 +1100,7 @@ never (leg 3): a flow with more churn pays more regrid.
 | `results/2026-11-26-i156-l2b/` | #156 lever 2, second part: the ceiling (both eikonal exchanges skipped, measurement only; `jobs/ceiling-C-vs-B.diff`), the no-body floor, part 2 with BC and blend in full (D) and final (E): the phase-timer reports, the bitwise logs of the sphere, the job logs, plans and scripts (`apply_phase_timer_l2b.py`: the phase timer on the part-2 tree, FNL only) |
 | `results/2026-11-26-i157-c4/` | #157 C4: the sphere on SpaceHPC (`spacehpc/`: analyze.py summaries of A = 80582712 and B = C4, the job logs and scripts of 184727-184729, 184742, 184743) and the nine cases on medooza (`medooza/`: the same for jobs 1370470, 1370471, 1370477; `medooza-b4fix/`: the step leg with A, B and C = B4's scratch persistent, job 1370492); the step and the channel on SpaceHPC (`spacehpc-legs/`: analyze.py summaries of A and B, the job logs of 184907-184912 and `sp-leg.pbs`) |
 | `results/2026-11-26-remeasure-l2/` | the sphere re-measured at HEAD 0984b5f5 after #156 lever 2: medooza (`medooza/`: the analyze.py summaries of the work tree `speedup-133/l2` and of the CPU rerun `l2-cpu2`, the job logs and scripts) and ESA SpaceHPC (`spacehpc/`: the final analyze.py summary of the work tree `speedup-133/l2` on SpaceHPC, jobs 184703-184706 and 184730) |
+| `results/2026-11-27-i160-medooza-cpu/` | #160 step 1.3: the medooza CPU windows of 3a and 1a with `-mdaz-ftz` at HEAD 5b200ffa (analyze.py summary; job 1370499: the build and the windows, its script and toolchain record; the in-job git commit of the tarball tree failed, so `run.info` says `commit=HEAD`, `src_modified=yes`: the tree is 5b200ffa) and the 3a A/B against the 2026-11-18 build (job 1370519 and its script) |
 | `results/2026-11-25-spacehpc/` | the H100 runs: summaries, phase reports, job logs with the GPU health, the node reconnaissance (`recon.pbs`) and the bandwidth tests (`netbw.sh`), the plans, `fetch.sh` |
 | `build.sh` | builds one backend from a clean tree into `exe/<backend>/` (it still calls backends "legs") |
 | `templates/sphere-legacy.ini` | the removed matrix's sphere input, a record (stale, does not run) |

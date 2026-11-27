@@ -1,0 +1,14 @@
+start 2026-11-27T10:01:38+01:00 on gnode20.e4-cluster.lan, job 1370519
+10:07:02 A r1-n10 rc 0 wall 324.1 loop 32.6166, steps 32.5764, regrid 0.0534,
+10:08:03 B r1-n10 rc 0 wall 60.5 loop 35.1068, steps 34.8526, regrid 0.9368,
+10:16:22 A r1-n110 rc 0 wall 499.1 loop 351.0715, steps 350.6730, regrid 2.5644,
+10:23:20 B r1-n110 rc 0 wall 418.4 loop 387.7998, steps 382.6913, regrid 11.0553,
+10:25:09 A r2-n10 rc 0 wall 108.5 loop 31.9795, steps 31.9439, regrid 0.2394,
+10:26:14 B r2-n10 rc 0 wall 64.3 loop 34.2377, steps 33.6996, regrid 1.3328,
+10:35:05 A r2-n110 rc 0 wall 531.5 loop 357.8061, steps 357.3963, regrid 0.5415,
+10:43:14 B r2-n110 rc 0 wall 488.9 loop 401.6860, steps 398.2849, regrid 12.3657,
+10:44:06 A r3-n10 rc 0 wall 51.7 loop 31.4164, steps 31.3736, regrid 0.0481,
+10:45:02 B r3-n10 rc 0 wall 55.3 loop 35.3612, steps 34.9797, regrid 0.7345,
+10:53:04 A r3-n110 rc 0 wall 481.9 loop 357.6758, steps 357.2580, regrid 0.4187,
+11:00:32 B r3-n110 rc 0 wall 448.4 loop 387.4208, steps 382.9321, regrid 10.3823,
+I160-AB3A-DONE 2026-11-27T11:00:32+01:00
