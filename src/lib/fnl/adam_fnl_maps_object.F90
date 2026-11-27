@@ -63,6 +63,8 @@ type :: maps_fnl_object
    ! kernels gather and scatter the cross-rank seam cells through them.
    integer(I4P), pointer :: seam_mpi_send_cell_gpu(:,:) => null() !< Cross-rank send rows [rank, b, i, j, k].
    integer(I4P), pointer :: seam_mpi_recv_cell_gpu(:,:) => null() !< Cross-rank receive rows [rank, b, i, j, k].
+   real(R8P),    pointer :: seam_mpi_send_rho_gpu(:)    => null() !< Clamped density per send row (its kind-4 rows): the
+                                                                   !< seam fill guard's part once per ghost (#157 B4).
    ! Intra-realm coarse->fine seam ghost fill (issue #21 N2 / #22 F3): host-side
    ! mirror of `maps_object%seam_ghost_fill`, the active fill regime consumed by
    ! the flag-4 branches of the ghost kernels (passed as a scalar kernel
@@ -87,6 +89,7 @@ contains
    type(maps_object),      intent(in)           :: maps     !< Realm-local CPU maps; was the `maps` singleton.
    logical,                intent(in), optional :: verbose  !< Flag to activate verbose mode.
    logical                                      :: verbose_ !< Flag to activate verbose mode, local var.
+   integer(I4P)                                 :: ierr     !< Allocation status.
 
    verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
    if (verbose_) call mpih_fnl%print_message('maps_fnl_object%copy_cpu_gpu start')
@@ -228,8 +231,19 @@ contains
       if (verbose_) call mpih_fnl%print_message('skip seam_local_recv_buf_gpu (CPU map not allocated)')
    endif
    ! Cross-rank seam rows (issue #40): allocated only on ranks that have cross-rank seam rows.
+   if (associated(self%seam_mpi_send_rho_gpu)) then
+      call dev_free(self%seam_mpi_send_rho_gpu, mydev)
+      nullify(self%seam_mpi_send_rho_gpu)
+   endif
    if (allocated(maps%seam_mpi_send_cell)) then
       call dev_assign_to_device(dst=self%seam_mpi_send_cell_gpu, src=maps%seam_mpi_send_cell)
+      ! the guard scratch of the seam pack, one value per send row (#157 B4): allocated here, not per pack
+      if (size(maps%seam_mpi_send_cell, dim=1) > 0) then
+         call dev_alloc(fptr_dev=self%seam_mpi_send_rho_gpu, lbounds=[1], &
+                        ubounds=[size(maps%seam_mpi_send_cell, dim=1)], ierr=ierr)
+         if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': maps_fnl_object%copy_cpu_gpu: failed to allocate '// &
+                                                         'seam_mpi_send_rho_gpu')
+      endif
       if (verbose_) call mpih_fnl%print_message('copy seam_mpi_send_cell done')
    elseif (associated(self%seam_mpi_send_cell_gpu)) then
       call dev_free(self%seam_mpi_send_cell_gpu, mydev)
@@ -309,6 +323,10 @@ contains
    if (associated(self%seam_mpi_recv_cell_gpu)) then
       call dev_free(self%seam_mpi_recv_cell_gpu, mydev)
       nullify(self%seam_mpi_recv_cell_gpu)
+   endif
+   if (associated(self%seam_mpi_send_rho_gpu)) then
+      call dev_free(self%seam_mpi_send_rho_gpu, mydev)
+      nullify(self%seam_mpi_send_rho_gpu)
    endif
    endsubroutine destroy
 

@@ -102,7 +102,8 @@ contains
    enddo
    endsubroutine unpack_blocks_transposed_dev
 
-   subroutine pack_seam_rows_dev(row_start, row_count, nv, ngc, regime, rows_gpu, q_gpu, buf_gpu, density_var, ratio)
+   subroutine pack_seam_rows_dev(row_start, row_count, nv, ngc, regime, rows_gpu, q_gpu, buf_gpu, density_var, ratio, &
+                                 rho_gpu)
    !< Pack the ghost values of the seam send rows `[rank, b, i, j, k, kind, meta]` `row_start..row_start+row_count-1`
    !< from `q_gpu` into `buf_gpu`, `nv` values per row in row order (issues #40, #52), the device twin of
    !< `adam_seam_exchange%pack_seam_rows`: kind 1 copies the cell, kind 4 interpolates the fine ghost around the coarse
@@ -111,9 +112,10 @@ contains
    !< are the values of `adam_seam_exchange` SEAM_ROW_*.
    !<
    !< With the seam fill guard on (#101), the guard's part that is the same for every variable of a fine ghost (its
-   !< interpolated density, clamped) is computed once per kind-4 row by a first kernel, into a scratch value per row, and
-   !< read back per variable (#157 B4, as the local fill, B2, and the MPI pack, B3): the arithmetic of the per-row form
-   !< (`interp_seam_ghost_gpu_dev`), bitwise. With the guard off, or under injection, the per-row form.
+   !< interpolated density, clamped) is computed once per kind-4 row by a first kernel, into `rho_gpu` at that row (the
+   !< maps' persistent scratch, `maps_fnl_object%seam_mpi_send_rho_gpu`), and read back per variable (#157 B4, as the
+   !< local fill, B2, and the MPI pack, B3): the arithmetic of the per-row form (`interp_seam_ghost_gpu_dev`), bitwise.
+   !< With the guard off, or under injection, the per-row form.
    integer(I4P), intent(in)    :: row_start                         !< First row.
    integer(I4P), intent(in)    :: row_count                         !< Number of rows.
    integer(I4P), intent(in)    :: nv                                !< Variables number.
@@ -124,22 +126,19 @@ contains
    real(R8P),    intent(inout) :: buf_gpu(1:)                       !< Packed values.
    integer(I4P), intent(in)    :: density_var                       !< Seam fill density guard (`maps%seam_density_var`).
    integer(I4P), intent(in)    :: ratio(1:3)                        !< Refinement ratio per axis (`maps%refine_ratio`).
+   real(R8P),    intent(inout) :: rho_gpu(1:)                       !< Clamped density per send row (scratch, guard on).
    integer(I4P)                :: c, v, row                         !< Counters.
    integer(I4P)                :: b, i, j, k                        !< Cell.
    integer(I4P)                :: ic, jc, kc                        !< 2x2x2 counters.
    real(R8P)                   :: total                             !< Restriction sum.
    integer(I4P)                :: ri, rj, rk                        !< Refinement ratio per axis.
    real(R8P)                   :: mean_factor                       !< 1 / (ri rj rk), exact.
-   real(R8P), pointer          :: rho_gpu(:)                        !< Clamped density per row (guard on, kind-4 rows).
    integer(I4P)                :: meta                              !< Seam metadata of a row.
    real(R8P)                   :: value_, rho, interpolant          !< Guard temporaries (distinct: nvfortran 26.9).
-   integer(I4P)                :: ierr                              !< Allocation status.
 
    ri = ratio(1) ; rj = ratio(2) ; rk = ratio(3)
    mean_factor = 1._R8P / real(ri * rj * rk, R8P)
    if (density_var > 0_I4P .and. regime /= SEAM_FILL_INJECTION) then
-      call dev_alloc(fptr_dev=rho_gpu, lbounds=[1], ubounds=[row_count], ierr=ierr)
-      if (ierr /= 0_I4P) error stop 'pack_seam_rows_dev: failed to allocate the guard scratch rho_gpu'
       ! the guard's part of every kind-4 row, once: it reads real donor cells only
       !$acc parallel loop independent gang vector DEVICEVAR(rows_gpu,q_gpu,rho_gpu) &
       !$acc& firstprivate(row_start,row_count,ngc,regime,density_var) private(row,b,i,j,k,meta,value_,rho)
@@ -153,7 +152,7 @@ contains
                                             b_send=b, i_send=i, j_send=j, k_send=k)
          rho = seam_guard_density_gpu_dev(meta=meta, ngc=ngc, q_gpu=q_gpu, b_send=b, i_send=i, j_send=j, k_send=k, &
                                           density_var=density_var, rho_in=value_)
-         rho_gpu(c) = rho
+         rho_gpu(row) = rho
       enddo
       !$acc parallel loop independent gang vector collapse(2) DEVICEVAR(rows_gpu,q_gpu,buf_gpu,rho_gpu) &
       !$acc& firstprivate(row_start,row_count,nv,ngc,regime,density_var,ri,rj,rk,mean_factor) &
@@ -171,7 +170,7 @@ contains
             if (v /= density_var) interpolant = interp_seam_value_gpu_dev(regime=regime, meta=meta, ngc=ngc, &
                                                                           q_gpu=q_gpu, v=v, b_send=b, i_send=i, &
                                                                           j_send=j, k_send=k)
-            rho = rho_gpu(c)
+            rho = rho_gpu(row)
             value_ = seam_guard_value_gpu_dev(meta=meta, ngc=ngc, q_gpu=q_gpu, v=v, b_send=b, i_send=i, j_send=j, &
                                               k_send=k, density_var=density_var, rho=rho, value_in=interpolant)
             buf_gpu(nv*(c-1)+v) = value_
@@ -190,7 +189,6 @@ contains
          endif
       enddo
       enddo
-      call dev_free(rho_gpu, mydev)
       return
    endif
    !$acc parallel loop independent gang vector collapse(2) DEVICEVAR(rows_gpu,q_gpu,buf_gpu) &

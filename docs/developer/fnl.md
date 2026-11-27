@@ -217,6 +217,8 @@ communication tables to the device, so ghost packing and unpacking need no CPU s
 | `comm_map_recv_ghost_cell_gpu` | 6 | `(buf_idx, b_dst, i, j, k, v_offset)` |
 | `send_buffer_ghost_gpu`, `recv_buffer_ghost_gpu` | — | Packed MPI buffers |
 | `local_map_bc_crown_gpu` | — | Boundary-condition crown map |
+| `seam_mpi_send_cell_gpu`, `seam_mpi_recv_cell_gpu` | 7, 5 | Cross-rank inter-realm seam rows: send `[rank, b, i, j, k, kind, meta]`, receive `[rank, b, i, j, k]` (issues #40, #52) |
+| `seam_mpi_send_rho_gpu` | — | Scratch of the seam pack, one value per send row: the clamped density of each `kind = 4` row (the guard's part, once per fine ghost); allocated with the rows at `copy_cpu_gpu`, not per pack |
 
 `mode = 1`: one-to-one cells (same level); `mode = 8`: fine → coarse restriction at an AMR interface (the mean of the
 2×2×2 fine cells, or the 6-point Lagrange or WENO restriction coded in `meta`); `mode = 4`: coarse → fine interpolation

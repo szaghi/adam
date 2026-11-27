@@ -1,0 +1,4 @@
+leg,case,role,backend,np,repetitions,step_cost_s,spread,steps_cost_s,regrid_cost_s,seam_cost_s,cells_mean,ns_per_cell_step,reduced,commit,notes,kind,series,cells_per_device,strong_ref_np,strong_efficiency,weak_group,weak_ref_np,weak_efficiency
+1,1a-step-uniform,uniform,fnl-nvf,4,3,0.216478,0.0008453514906826039,0.216002,0.00062,0.0007250000000000001,4128768.0,209.7264849950397,0,80582712,,matrix,step,1032192.0,,,step 1.03 M/dev,,
+1,1b-step-fixed,frozen,fnl-nvf,4,3,0.155018,0.0008579648814974163,0.15485600000000002,0.000577,0.001444,2603520.0,238.16678957718779,0,80582712,,matrix,,650880.0,,,,,
+1,1c-step-runtime,runtime,fnl-nvf,4,3,0.206889,0.007496773632237696,0.160016,0.047188,0.001351,2602782.72,317.9504741755777,0,80582712,,matrix,,650695.68,,,,,

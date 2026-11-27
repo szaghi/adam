@@ -870,7 +870,43 @@ agree within 0.1 ms).
   unchanged (#149).
 - In 2c's forest timing the reflux reduction takes 2.9 s of a 10.7 s 110-step loop (27 %): not a ghost-fill cost, a
   lever of its own.
-- The A30 legs (medooza, A against B on all nine cases) are queued (`speedup-133/i157c`); they will be added here.
+
+The nine cases on **4 A30** (medooza; A = HEAD 80582712, B = the C4 tree, alternated run by run from the matrix's window
+dumps, 3 repetitions each; jobs 1370470, 1370471, 1370477 on gnode21, gnode18, gnode19; `results/2026-11-26-i157-c4/medooza/`):
+
+| Case, 4 A30 | A (s/step) | B (s/step) | Change | Steps A -> B | Spread A, B |
+|---|---|---|---|---|---|
+| 1a step uniform | 0.2161 | 0.2156 | -0.2 % | 0.2159 -> 0.2154 | 0.5 %, 0.2 % |
+| 1b step frozen | 0.1552 | 0.1552 | 0.0 % | 0.1548 -> 0.1548 | 0.5 %, 0.1 % |
+| 1c step runtime | 0.2072 | 0.2078 | +0.3 % | 0.1596 -> 0.1598 | 0.9 %, 1.0 % |
+| 2a sphere uniform | 0.5743 | 0.5544 | **-3.5 %** | 0.5734 -> 0.5535 | 0.6 %, 0.4 % |
+| 2b sphere runtime | 0.4219 | 0.4060 | **-3.8 %** | 0.2808 -> 0.2639 | 0.7 %, 0.0 % |
+| 2c sphere frozen | 0.1986 | 0.1926 | **-3.0 %** | 0.1983 -> 0.1923 | 0.1 %, 0.1 % |
+| 3a channel uniform | 0.2286 | 0.2219 | **-2.9 %** | 0.2281 -> 0.2213 | 1.1 %, 0.8 % |
+| 3b channel runtime | 0.1830 | 0.1786 | **-2.4 %** | 0.1403 -> 0.1372 | 0.2 %, 0.4 % |
+| 3c channel frozen | 0.1410 | 0.1376 | **-2.4 %** | 0.1406 -> 0.1373 | 0.1 %, 0.1 % |
+
+- **The sphere and the channel gain 2.4-3.8 % on the A30**, every case beyond its spread; the runtime sphere 6.0 % on
+  its time steps (its regrid unchanged). The sphere's grid efficiency stays at 0.71-0.72: C4 makes the uniform and the
+  AMR step cheaper alike.
+- **The step is unchanged** (within 0.3 %, inside its spread): a 2-D forest of small blocks, launch-bound (the
+  series' regime, H1), where the copies were never the cost.
+- In the same runs the step's **seam fills** (the cross-rank inter-realm packs) rose by 0.22-0.25 ms per step (1a
+  0.75 -> 0.97 ms): #157 B4, the guard once per fine ghost in the seam pack, which runs two launches where the pack
+  ran one. A re-run with a third executable (job 1370492, gnode18; A HEAD, B the C4 tree, C the C4 tree with B4's
+  scratch persistent in the FNL maps instead of allocated per pack; `results/2026-11-26-i157-c4/medooza-b4fix/`):
+
+  | Seam fills, ms per step | A | B | C |
+  |---|---|---|---|
+  | 1a step uniform | 0.725 | 0.938 | 0.898 |
+  | 1b step frozen | 1.444 | 1.687 | 1.666 |
+  | 1c step runtime | 1.351 | 1.604 | 1.578 |
+
+  The persistent scratch takes back 0.02-0.04 ms: the allocation was not the cost (the runtime pools device
+  allocations). The cost is the second launch: a pack of the step holds ~1000 rows (4,470,400 rows in 4,400 fills of
+  realm 2), and its time per fill goes from ~8 to ~10.7 us. At that size the per-row form, which recomputes the
+  guarded density for each variable, is cheaper than a second launch; B4 pays only on seams of many rows, which no
+  measured case has. The step cost stays within 0.3 % in all three builds.
 
 ### Device memory (phase 4.3)
 
@@ -1038,7 +1074,7 @@ never (leg 3): a flow with more churn pays more regrid.
 | `results/2026-11-25-i157/` | the AMR legs before and after #157 (the guard once per ghost): the medooza and SpaceHPC summaries per executable, `ab_table.py` (the before/after tables), `acc_table.py` (the kernel table from `NVCOMPILER_ACC_TIME` logs, interleaving-proof), the job scripts, the logs and the compressed kernel-time logs |
 | `results/2026-11-25-i156/` | #156 lever 2, first part (no exchange after the last eikonal sweep) on SpaceHPC: the sphere windows' summaries per executable, the phase-timer reports of `wg-l4b38` (1 and 8 nodes) and 2a (8 nodes), the medooza bitwise gate jobs, the SpaceHPC jobs and plans, the updated `apply_phase_timer.py`, `fetch.sh`, the logs |
 | `results/2026-11-26-i156-l2b/` | #156 lever 2, second part: the ceiling (both eikonal exchanges skipped, measurement only; `jobs/ceiling-C-vs-B.diff`), the no-body floor, part 2 with BC and blend in full (D) and final (E): the phase-timer reports, the bitwise logs of the sphere, the job logs, plans and scripts (`apply_phase_timer_l2b.py`: the phase timer on the part-2 tree, FNL only) |
-| `results/2026-11-26-i157-c4/` | #157 C4 on the sphere: SpaceHPC (`spacehpc/`: analyze.py summaries of A = 80582712 and B = C4, the job logs and scripts of 184727-184729, 184742, 184743) |
+| `results/2026-11-26-i157-c4/` | #157 C4: the sphere on SpaceHPC (`spacehpc/`: analyze.py summaries of A = 80582712 and B = C4, the job logs and scripts of 184727-184729, 184742, 184743) and the nine cases on medooza (`medooza/`: the same for jobs 1370470, 1370471, 1370477; `medooza-b4fix/`: the step leg with A, B and C = B4's scratch persistent, job 1370492) |
 | `results/2026-11-26-remeasure-l2/` | the sphere re-measured at HEAD 0984b5f5 after #156 lever 2: medooza (`medooza/`: the analyze.py summaries of the work tree `speedup-133/l2` and of the CPU rerun `l2-cpu2`, the job logs and scripts) and ESA SpaceHPC (`spacehpc/`: the final analyze.py summary of the work tree `speedup-133/l2` on SpaceHPC, jobs 184703-184706 and 184730) |
 | `results/2026-11-25-spacehpc/` | the H100 runs: summaries, phase reports, job logs with the GPU health, the node reconnaissance (`recon.pbs`) and the bandwidth tests (`netbw.sh`), the plans, `fetch.sh` |
 | `build.sh` | builds one backend from a clean tree into `exe/<backend>/` (it still calls backends "legs") |

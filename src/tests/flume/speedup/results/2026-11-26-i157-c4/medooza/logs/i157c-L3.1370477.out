@@ -1,0 +1,44 @@
+22:43:19 start on gnode19.e4-cluster.lan, job 1370477
+0, NVIDIA A30, 545.23.08, 24576 MiB, 24056 MiB
+1, NVIDIA A30, 545.23.08, 24576 MiB, 24056 MiB
+2, NVIDIA A30, 545.23.08, 24576 MiB, 24056 MiB
+3, NVIDIA A30, 545.23.08, 24576 MiB, 24056 MiB
+22:43:32 A 3a-channel-uniform np4 r1-n10: rc 0 wall 13.044 loop 2.3437, steps 2.3355,
+22:43:44 B 3a-channel-uniform np4 r1-n10: rc 0 wall 11.933 loop 2.2666, steps 2.2604,
+22:44:19 A 3a-channel-uniform np4 r1-n110: rc 0 wall 34.234 loop 25.0786, steps 25.0182,
+22:44:53 B 3a-channel-uniform np4 r1-n110: rc 0 wall 33.773 loop 24.3413, steps 24.2735,
+22:45:05 A 3a-channel-uniform np4 r2-n10: rc 0 wall 11.561 loop 2.3408, steps 2.3346,
+22:45:16 B 3a-channel-uniform np4 r2-n10: rc 0 wall 11.731 loop 2.2896, steps 2.2841,
+22:45:51 A 3a-channel-uniform np4 r2-n110: rc 0 wall 34.463 loop 25.2056, steps 25.1453,
+22:46:25 B 3a-channel-uniform np4 r2-n110: rc 0 wall 33.909 loop 24.4779, steps 24.4150,
+22:46:37 A 3a-channel-uniform np4 r3-n10: rc 0 wall 11.589 loop 2.3669, steps 2.3605,
+22:46:49 B 3a-channel-uniform np4 r3-n10: rc 0 wall 11.755 loop 2.2802, steps 2.2728,
+22:47:24 A 3a-channel-uniform np4 r3-n110: rc 0 wall 34.438 loop 25.3501, steps 25.2907,
+22:47:58 B 3a-channel-uniform np4 r3-n110: rc 0 wall 34.050 loop 24.5286, steps 24.4551,
+22:48:10 A 3b-channel-runtime np4 r1-n10: rc 0 wall 11.354 loop 1.9231, steps 1.4852,
+22:48:20 B 3b-channel-runtime np4 r1-n10: rc 0 wall 10.619 loop 1.8643, steps 1.4434,
+22:48:49 A 3b-channel-runtime np4 r1-n110: rc 0 wall 28.953 loop 20.2476, steps 15.5111,
+22:49:18 B 3b-channel-runtime np4 r1-n110: rc 0 wall 28.513 loop 19.7225, steps 15.1685,
+22:49:29 A 3b-channel-runtime np4 r2-n10: rc 0 wall 10.634 loop 1.9189, steps 1.4806,
+22:49:40 B 3b-channel-runtime np4 r2-n10: rc 0 wall 10.587 loop 1.8593, steps 1.4414,
+22:50:09 A 3b-channel-runtime np4 r2-n110: rc 0 wall 28.915 loop 20.2099, steps 15.4994,
+22:50:38 B 3b-channel-runtime np4 r2-n110: rc 0 wall 28.625 loop 19.7878, steps 15.1488,
+22:50:49 A 3b-channel-runtime np4 r3-n10: rc 0 wall 10.720 loop 1.9115, steps 1.4784,
+22:51:00 B 3b-channel-runtime np4 r3-n10: rc 0 wall 10.569 loop 1.8526, steps 1.4299,
+22:51:29 A 3b-channel-runtime np4 r3-n110: rc 0 wall 28.957 loop 20.2068, steps 15.5116,
+22:51:57 B 3b-channel-runtime np4 r3-n110: rc 0 wall 28.561 loop 19.7130, steps 15.1463,
+22:52:08 A 3c-channel-fixed np4 r1-n10: rc 0 wall 10.376 loop 1.4886, steps 1.4851,
+22:52:18 B 3c-channel-fixed np4 r1-n10: rc 0 wall 10.218 loop 1.4424, steps 1.4390,
+22:52:43 A 3c-channel-fixed np4 r1-n110: rc 0 wall 24.337 loop 15.5851, steps 15.5481,
+22:53:07 B 3c-channel-fixed np4 r1-n110: rc 0 wall 24.046 loop 15.2103, steps 15.1748,
+22:53:18 A 3c-channel-fixed np4 r2-n10: rc 0 wall 10.154 loop 1.4796, steps 1.4759,
+22:53:28 B 3c-channel-fixed np4 r2-n10: rc 0 wall 10.254 loop 1.4458, steps 1.4420,
+22:53:53 A 3c-channel-fixed np4 r2-n110: rc 0 wall 24.275 loop 15.5794, steps 15.5429,
+22:54:17 B 3c-channel-fixed np4 r2-n110: rc 0 wall 24.028 loop 15.2058, steps 15.1701,
+22:54:27 A 3c-channel-fixed np4 r3-n10: rc 0 wall 10.160 loop 1.4710, steps 1.4674,
+22:54:38 B 3c-channel-fixed np4 r3-n10: rc 0 wall 10.224 loop 1.4458, steps 1.4422,
+22:55:02 A 3c-channel-fixed np4 r3-n110: rc 0 wall 24.220 loop 15.5572, steps 15.5221,
+22:55:26 B 3c-channel-fixed np4 r3-n110: rc 0 wall 23.926 loop 15.1953, steps 15.1587,
+22:55:27 analyze A rc 0
+22:55:27 analyze B rc 0
+22:55:27 I157C-L3-DONE
