@@ -133,9 +133,9 @@ for performance; their timings are kept as baselines ("The accuracy-first paths"
 
 The factor is not one number: on the same flow it is 11.4-12.6 with the grid and the build (16.3 for 2a before the CPU
 build flushed subnormals). The channel's 16.2 (#160 step 1.3, job 1370499, spread 6.7 %) is not flush to zero: on one
-node (A/B job 1370519, 3 pairs alternated) the HEAD build costs 3.53 s per step against 3.26 for the 2026-11-18 build
-of the 3.17 row, +8.3 % (time steps +6.9 %), a slowdown of the CPU channel between the two builds, not yet located (a
-follow-up issue); at the 2026-11-18 cost the factor would be 14.7.
+node (A/B job 1370519, 3 pairs alternated) the HEAD build costs 3.53 s per step against 3.26 for the #133 matrix build
+of the 3.17 row (2026-11-23), +8.3 % (time steps +6.9 %), a slowdown of the CPU channel between the two builds, not
+yet located ([#161](https://github.com/szaghi/adam/issues/161)); at the #133 build's cost the factor would be 14.7.
 
 **The same on the H100 node** (ESA SpaceHPC, #160 step 1.2, 2026-11-27): the CPU node and the GPU node are one machine,
 2 x AMD EPYC 9454 (96 cores, 4 NUMA domains) and its 4 H100. CPU: HEAD 5b200ffa, gfortran 16.2.0 + Open MPI 5.0.11 with
@@ -1125,7 +1125,7 @@ never (leg 3): a flow with more churn pays more regrid.
 | `results/2026-11-26-i156-l2b/` | #156 lever 2, second part: the ceiling (both eikonal exchanges skipped, measurement only; `jobs/ceiling-C-vs-B.diff`), the no-body floor, part 2 with BC and blend in full (D) and final (E): the phase-timer reports, the bitwise logs of the sphere, the job logs, plans and scripts (`apply_phase_timer_l2b.py`: the phase timer on the part-2 tree, FNL only) |
 | `results/2026-11-26-i157-c4/` | #157 C4: the sphere on SpaceHPC (`spacehpc/`: analyze.py summaries of A = 80582712 and B = C4, the job logs and scripts of 184727-184729, 184742, 184743) and the nine cases on medooza (`medooza/`: the same for jobs 1370470, 1370471, 1370477; `medooza-b4fix/`: the step leg with A, B and C = B4's scratch persistent, job 1370492); the step and the channel on SpaceHPC (`spacehpc-legs/`: analyze.py summaries of A and B, the job logs of 184907-184912 and `sp-leg.pbs`) |
 | `results/2026-11-26-remeasure-l2/` | the sphere re-measured at HEAD 0984b5f5 after #156 lever 2: medooza (`medooza/`: the analyze.py summaries of the work tree `speedup-133/l2` and of the CPU rerun `l2-cpu2`, the job logs and scripts) and ESA SpaceHPC (`spacehpc/`: the final analyze.py summary of the work tree `speedup-133/l2` on SpaceHPC, jobs 184703-184706 and 184730) |
-| `results/2026-11-27-i160-medooza-cpu/` | #160 step 1.3: the medooza CPU windows of 3a and 1a with `-mdaz-ftz` at HEAD 5b200ffa (analyze.py summary; job 1370499: the build and the windows, its script and toolchain record; the in-job git commit of the tarball tree failed, so `run.info` says `commit=HEAD`, `src_modified=yes`: the tree is 5b200ffa) and the 3a A/B against the 2026-11-18 build (job 1370519 and its script) |
+| `results/2026-11-27-i160-medooza-cpu/` | #160 step 1.3: the medooza CPU windows of 3a and 1a with `-mdaz-ftz` at HEAD 5b200ffa (analyze.py summary; job 1370499: the build and the windows, its script and toolchain record; the in-job git commit of the tarball tree failed, so `run.info` says `commit=HEAD`, `src_modified=yes`: the tree is 5b200ffa) and the 3a A/B against the #133 matrix build of 2026-11-23 (job 1370519 and its script) |
 | `results/2026-11-27-i160-spacehpc-cpu/` | #160 step 1.2: the CPU node of the H100 node (2a, 3a, 1a on 96 EPYC cores; analyze.py summary; job 185046, the toolchain job 184997, the plan, the toolchain record) |
 | `results/2026-11-25-spacehpc/` | the H100 runs: summaries, phase reports, job logs with the GPU health, the node reconnaissance (`recon.pbs`) and the bandwidth tests (`netbw.sh`), the plans, `fetch.sh` |
 | `build.sh` | builds one backend from a clean tree into `exe/<backend>/` (it still calls backends "legs") |

@@ -45,7 +45,7 @@ T(CPU node) / T(GPU node) on the uniform grids:
 | Case | Grid | Blocks | GPU node / CPU node |
 |---|---|---|---|
 | 2a sphere (3-D, WENO-5, IB, SSP-33) | 56.6 M cells, L4 | 4096 of 24³ | 13.8 since #156 lever 2 (11.4 before it; 16.3 before the CPU build flushed subnormals) |
-| 3a channel (3-D, hybrid, viscous, SSP-54) | 6.29 M cells, L3 | 512 of 32×24×16 | 16.2 with the CPU flushing subnormals at HEAD (13.8 before; 14.7 at the CPU cost of the 2026-11-18 build, see below) |
+| 3a channel (3-D, hybrid, viscous, SSP-54) | 6.29 M cells, L3 | 512 of 32×24×16 | 16.2 with the CPU flushing subnormals at HEAD (13.8 before; 14.7 at the CPU cost of the #133 matrix build of 2026-11-23, see below) |
 | sphere, grid study | 7.08 M cells, L3 | 512 of 24³ | 11.9 |
 | sphere, grid study | 28.1 M cells, L3 | 512 of 38³ | 12.6 |
 
@@ -56,7 +56,7 @@ not the GPU ([What does not scale](#what-does-not-scale-and-why)): with flush to
 grid 8.81–9.54. The two grid-study grids load the GPU node with 1.8 and 7.0 M cells per A30, below 2a's
 14.2 M ([what a cell costs](#what-a-cell-costs-on-one-a30)). Larger blocks make both nodes cheaper per cell.
 The channel's CPU node is 8 % slower per step at HEAD than with the build of the first table (the same node, the two
-executables alternated: 3.53 against 3.26 s; time steps +6.9 %), a slowdown of the CPU channel path not yet located;
+executables alternated: 3.53 against 3.26 s; time steps +6.9 %), a slowdown of the CPU channel path not yet located ([#161](https://github.com/szaghi/adam/issues/161));
 the step case did not slow down (1.26 → 1.22 s with flush to zero).
 
 **On the H100 node** (ESA SpaceHPC; [#160](https://github.com/szaghi/adam/issues/160)): the same comparison inside one
