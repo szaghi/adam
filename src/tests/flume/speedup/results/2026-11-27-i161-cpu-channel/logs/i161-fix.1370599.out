@@ -1,0 +1,34 @@
+start 2026-11-27T16:52:50+01:00 on gnode06.e4-cluster.lan, job 1370599
+16:56:10 BUILD fixB rc 0 158 s; e8ac01f5f34887731245e168476047de39ca7d98 + b8641a59's CPU hunk reverted (two barriers); lflags: "-O2 -mdaz-ftz"; unresolved 0; sha256 914b5271b69237a6
+16:56:30 BUILD fixA rc 0 178 s; e8ac01f5f34887731245e168476047de39ca7d98 + #161 fix A (one barrier before the posts, working tree); lflags: "-O2 -mdaz-ftz"; unresolved 0; sha256 ece2fda427c1d6dc
+start 2026-11-27T16:56:30+01:00 on gnode06.e4-cluster.lan, job 1370599, case 3a-channel-uniform, labels b516ftz fixA fixB 82c7, pairs 3
+exe b516ftz /ifs/hpc/home/szaghi/adam-tests/speedup-133/i161/trees/b516ftz/src/tests/flume/speedup/exe/cpu/adam_flume_cpu sha256 44dd6ea3b5ab7745
+exe fixA /ifs/hpc/home/szaghi/adam-tests/speedup-133/i161/trees/fixA/src/tests/flume/speedup/exe/cpu/adam_flume_cpu sha256 ece2fda427c1d6dc
+exe fixB /ifs/hpc/home/szaghi/adam-tests/speedup-133/i161/trees/fixB/src/tests/flume/speedup/exe/cpu/adam_flume_cpu sha256 914b5271b69237a6
+exe 82c7 /ifs/hpc/home/szaghi/adam-tests/speedup-133/i161/trees/82c7/src/tests/flume/speedup/exe/cpu/adam_flume_cpu sha256 b408a22080269248
+17:02:52 b516ftz r1-n10 rc 0 wall 381.3 loop 33.1016, steps 33.0635, regrid 0.0537,
+17:11:12 fixA r1-n10 rc 0 wall 499.5 loop 34.0230, steps 33.9868, regrid 0.2287,
+17:14:52 fixB r1-n10 rc 0 wall 220.4 loop 31.5815, steps 31.5324, regrid 0.0351,
+17:17:57 82c7 r1-n10 rc 0 wall 184.5 loop 36.5026, steps 36.0687, regrid 1.0739,
+17:27:59 b516ftz r1-n110 rc 0 wall 602.0 loop 346.2627, steps 345.8284, regrid 0.4310,
+17:34:19 fixA r1-n110 rc 0 wall 379.8 loop 355.0800, steps 354.6714, regrid 2.6760,
+17:46:55 fixB r1-n110 rc 0 wall 755.8 loop 356.4054, steps 355.8980, regrid 0.4255,
+17:53:43 82c7 r1-n110 rc 0 wall 408.1 loop 388.2576, steps 382.6959, regrid 11.2095,
+18:03:26 fixA r2-n10 rc 0 wall 582.3 loop 33.2567, steps 33.2001, regrid 0.0639,
+18:04:50 fixB r2-n10 rc 0 wall 83.9 loop 31.6433, steps 31.6064, regrid 0.0833,
+18:12:20 82c7 r2-n10 rc 0 wall 450.0 loop 36.0935, steps 35.9620, regrid 0.7243,
+18:13:33 b516ftz r2-n10 rc 0 wall 73.2 loop 31.5890, steps 31.5506, regrid 0.0406,
+18:19:57 fixA r2-n110 rc 0 wall 384.1 loop 348.7275, steps 348.2918, regrid 1.2768,
+18:26:29 fixB r2-n110 rc 0 wall 391.8 loop 356.7037, steps 356.3081, regrid 2.6938,
+18:34:38 82c7 r2-n110 rc 0 wall 488.3 loop 396.5214, steps 393.0900, regrid 10.7610,
+18:43:23 b516ftz r2-n110 rc 0 wall 525.4 loop 346.9757, steps 346.5810, regrid 0.4184,
+18:48:15 fixB r3-n10 rc 0 wall 292.1 loop 31.5756, steps 31.5393, regrid 0.0648,
+18:49:36 82c7 r3-n10 rc 0 wall 80.9 loop 35.2227, steps 35.1565, regrid 1.3772,
+18:54:25 b516ftz r3-n10 rc 0 wall 288.1 loop 32.2396, steps 32.2024, regrid 0.2382,
+18:57:56 fixA r3-n10 rc 0 wall 211.3 loop 32.4725, steps 32.4340, regrid 0.0507,
+19:08:23 fixB r3-n110 rc 0 wall 626.6 loop 345.9010, steps 345.4449, regrid 0.3796,
+19:16:49 82c7 r3-n110 rc 0 wall 506.2 loop 425.1160, steps 421.4629, regrid 20.2669,
+19:26:56 b516ftz r3-n110 rc 0 wall 606.2 loop 354.8805, steps 354.4799, regrid 2.5109,
+19:37:30 fixA r3-n110 rc 0 wall 634.0 loop 346.7082, steps 346.2470, regrid 0.6602,
+I161-AB-DONE 2026-11-27T19:37:30+01:00
+I161-FIX-DONE 2026-11-27T19:37:30+01:00

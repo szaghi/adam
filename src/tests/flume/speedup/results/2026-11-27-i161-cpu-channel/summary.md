@@ -1,4 +1,4 @@
-# #161: the FLUME CPU channel slowdown, located (phase 1)
+# #161: the FLUME CPU channel slowdown, located and fixed
 
 Issue [#161](https://github.com/szaghi/adam/issues/161), steps 1.1-1.3 and G1. medooza prod-gn CPU nodes (2 x 32 cores,
 gfortran 16.2.0 + Open MPI 5.0.11, `iac_gnu`), 64 ranks, the 3a windows of #160 (the uniform channel, 6.29 M cells,
@@ -98,3 +98,33 @@ at the input check, rc 1, an error of the job script; its 2a part is valid.)
 
 The #133 README held the same signal and read it as spread: "Skipping the barriers on the CPU brings nothing (one node:
 1150 against 974 ms without the body, 1367 against 1266 with it; single runs, inside the CPU node's spread or worse)".
+
+## The fix (D1, 2.1)
+
+D1 = A, on the CPU path only: `update_ghost_mpi` (`src/lib/common/adam_field_object.F90`, the CPU exchange) calls one
+`MPI_Barrier` before its posts, so every rank enters the transfer together; the FNL exchange `update_ghost_mpi_gpu`
+keeps none (its gain, 0.4-1.3 %, was measured on GPUs). Two candidates, built from HEAD e8ac01f5 (= 5b200ffa on the CPU
+path; job 1370599, `logs/i161-fix.slurm`): fixA (one barrier, before the posts) and fixB (b8641a59's CPU hunk
+reverted: two barriers, after the wait and after the unpack).
+
+| Case, job | Executable | Pairs | Median | vs reference | Wait (s/step) |
+|---|---|---|---|---|---|
+| 3a, 1370599 | b516ftz | 3.132 / 3.154 / 3.226 | 3.154 | reference | 0.004 / 0.004 / 0.023 |
+| | **fixA** | 3.211 / 3.155 / 3.142 | **3.155** | **+0.0 %** | 0.024 / 0.012 / 0.006 |
+| | fixB | 3.248 / 3.251 / 3.143 | 3.248 | +3.0 % | 0.004 / 0.026 / 0.003 |
+| | 82c7 (HEAD) | 3.518 / 3.604 / 3.899 | 3.604 | +14.3 % | 0.101 / 0.100 / 0.189 |
+| 1a, 1370620 | 0f75ftz | 1.245 / 1.268 | 1.256 | reference | 0.004 |
+| | fixA | 1.257 / 1.284 | 1.270 | +1.1 % | 0.004 |
+| | 82c7 | 1.248 / 1.307 | 1.278 | +1.7 % | 0.004 |
+| 2a, 1370601 (the #133 matrix's 2a dumps) | 82c7 | 8.068 / 7.792 | 7.930 | reference | 0.443 / 0.211 |
+| | fixA | 7.701 / 7.669 | 7.685 | -3.1 % | 0.042 / 0.036 |
+
+fixA restores the #133 cost of the channel (3.155 against 3.154) and is no slower than fixB: it is the fix. The sphere
+was slowed too (the step-end wait 0.2-0.4 s per step at HEAD) and gains 3.1 %; the step does not move.
+
+**Gate (job 1370600, `logs/i161-gate-cpu.slurm`), base = HEAD, fix = HEAD + fixA, clean builds of flume-cpu-gnu(-fft),
+prism-cpu-gnu, ripple-cpu-gnu and the RIPPLE criterion test:** FLUME CPU suite FAIL 0 SKIP 0; PRISM CPU suite fails only
+rmf-hyperbolic (the known pre-existing mismatch), SKIP 10; RIPPLE oracles PASSED; DV-1 (empty ranks: the exchange is
+collective again) PASSED at np 2 and 4 (10 legs each); the A/B of every FLUME and PRISM case base against fix: 91
+bitwise, pic-periodic and pic-slab-pulse not completing on the CPU with either executable (as in the #157 night's A/B).
+The comment in the fix was reworded after these jobs; the code they built is the committed one.

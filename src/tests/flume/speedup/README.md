@@ -134,8 +134,24 @@ for performance; their timings are kept as baselines ("The accuracy-first paths"
 The factor is not one number: on the same flow it is 11.4-12.6 with the grid and the build (16.3 for 2a before the CPU
 build flushed subnormals). The channel's 16.2 (#160 step 1.3, job 1370499, spread 6.7 %) is not flush to zero: on one
 node (A/B job 1370519, 3 pairs alternated) the HEAD build costs 3.53 s per step against 3.26 for the #133 matrix build
-of the 3.17 row (2026-11-23), +8.3 % (time steps +6.9 %), a slowdown of the CPU channel between the two builds, not
-yet located ([#161](https://github.com/szaghi/adam/issues/161)); at the #133 build's cost the factor would be 14.7.
+of the 3.17 row (2026-11-23), +8.3 % (time steps +6.9 %), a slowdown of the CPU channel between the two builds,
+located and fixed in [#161](https://github.com/szaghi/adam/issues/161): see "Fixed: the CPU channel" below; at the #133
+build's cost the factor would be 14.7.
+
+**Fixed: the CPU channel** ([#161](https://github.com/szaghi/adam/issues/161), 2026-11-27,
+`results/2026-11-27-i161-cpu-channel/`). The six commits on the CPU path between the #133 build (b516b303, rebuilt to its
+executable byte for byte) and 5b200ffa, each built and timed on one node against it (3 pairs alternated, 64 ranks):
+every build from b8641a59 on is 9-20 % slower per step (b8641a59 +17.2 %, its parent +4.2 % within the node's noise),
+with the wait at the step-end allreduce 0.04-0.17 s per step instead of 0.001-0.006. b8641a59 removed the two
+`MPI_Barrier` of the ghost exchange (item 4 of the ranked list). Timed per rank inside `update_ghost_mpi`: the ranks'
+own work is unchanged, the exchange's `MPI_WAITALL` takes 44-52 s per 110-step run instead of 8-15 s with the barriers.
+The messages (hundreds of kB per neighbour) go by rendezvous over the shared-memory transport, which advances only while
+both ranks are inside MPI: with the barrier every rank enters the transfer together. `update_ghost_mpi` (the CPU
+exchange) has one barrier again, before its posts; the FNL exchange keeps none. Timed on one node against the #133
+build's code (job 1370599, 3 pairs): the fix 3.155 s per step, b516b303 (with `-mdaz-ftz`) 3.154, b8641a59's two
+barriers restored 3.248, HEAD 3.604; the step (1a) unchanged (+1.1 %, job 1370620), the sphere (2a) 3.1 % faster than
+HEAD (job 1370601). Results bitwise: the FLUME and PRISM CPU suites and the A/B of every case against HEAD (job 1370600).
+On the EPYC node of SpaceHPC the barriers' removal cost nothing and the fix is neutral (job 185266, "ESA SpaceHPC").
 
 **The same on the H100 node** (ESA SpaceHPC, #160 step 1.2, 2026-11-27): the CPU node and the GPU node are one machine,
 2 x AMD EPYC 9454 (96 cores, 4 NUMA domains) and its 4 H100. CPU: HEAD 5b200ffa, gfortran 16.2.0 + Open MPI 5.0.11 with
@@ -393,7 +409,9 @@ flush to zero): the "14.4 against 11.2 us" of "9.2.4" was this. The CPU numbers 
 developed state) carry the subnormal slowdown, so the GPU node / CPU node factor 16.3 on 2a is inflated (11.4 with the
 flag, applied below); the grid-study factors (11.9, 12.6, cold grids) are the clean ones. Skipping the barriers on the
 CPU brings nothing (one node: 1150 against 974 ms without the body, 1367 against 1266 with it; single runs, inside the
-CPU node's spread or worse).
+CPU node's spread or worse). **That reading was wrong** ([#161](https://github.com/szaghi/adam/issues/161), 2026-11-27):
+the +18 % and +8 % were the cost of skipping them, which the removal of 2026-11-25 (item 4 below) then put into every
+CPU run, and the CPU exchange has its barrier back (one, before the posts).
 
 **Ranked, with the measured or estimated gain** (proposals; item 1 applied 2026-11-24, see below):
 
@@ -402,7 +420,7 @@ CPU node's spread or worse).
 | 1 | subnormal arithmetic | CPU, developed states | -35 % (1 node) to -47 % (8 nodes) on 2a | **applied**: the GNU optimized builds link with `-mdaz-ftz` (below) |
 | 2 | GPU halo between nodes at 1.5 GB/s | FNL, multi-node | up to ~9 ms of the ~12 ms per exchange (estimate at 23.5 GB/s host path plus the two device copies) | stage the inter-node halo through pinned host buffers; or GPUDirect RDMA on medooza (`nvidia_peermem`, admins); on the H100 nodes, which have GPUDirect RDMA, an exchange between nodes waits 0.9-1.4 ms ("ESA SpaceHPC"), so the cluster fix is the answer: host staging in the code was declined as medooza-specific (#156) |
 | 3 | 12 ghost exchanges per step with the immersed body | both backends | up to 9 of the 12 exchanges per step | the eikonal iterations exchange only the variables and blocks they need, or iterate inside a wider ghost band between exchanges; on one H100 node the body's cost is the local fills, BC and pack/unpack, on 8 H100 nodes the MPI exchange is its largest part (15 of 37 ms per step) and the body takes the strong efficiency from 0.955 to 0.829, so the restriction must cover all of them (#156 L2). **Applied** (2026-11-25/26, bitwise): no exchange after the last eikonal sweep (12 -> 9), then the two remaining eikonal exchanges restricted to the cells the sweeps read: the step -11 % (4 H100) to -19 % (32 H100) more, the body's multi-node loss gone ("ESA SpaceHPC") |
-| 4 | the two `MPI_Barrier` per ghost exchange | both | 0.4-1.2 % (A30), 1.3 % (8 H100 nodes), none (CPU) | **applied** (2026-11-25): removed from `update_ghost_mpi` / `update_ghost_mpi_gpu`, the suites bitwise (medooza jobs 1369786, 1369787) |
+| 4 | the two `MPI_Barrier` per ghost exchange | FNL | 0.4-1.2 % (A30), 1.3 % (8 H100 nodes); on the CPU a loss, not a gain | **applied** to the FNL exchange (2026-11-25, `update_ghost_mpi_gpu`, the suites bitwise: medooza jobs 1369786, 1369787); **reverted on the CPU** (#161, 2026-11-27): without them the CPU channel was 9-20 % slower per step (the exchange's `MPI_WAITALL`, not the ranks' work), so `update_ghost_mpi` keeps one barrier before its posts ("Fixed: the CPU channel" below) |
 | 5 | across-the-pairs link in a node (17.7 GB/s) | FNL, 4 A30 | the 13-30 % of "Grid size" | rank order that keeps neighbours in an NVLink pair (medooza only: the H100 nodes are NV6 all-to-all, no such step) |
 
 **Applied (2026-11-24): `-mdaz-ftz`.** The GNU optimized template links with `-mdaz-ftz` (`fobos.d/templates.fobos`,
@@ -1127,6 +1145,7 @@ never (leg 3): a flow with more churn pays more regrid.
 | `results/2026-11-26-remeasure-l2/` | the sphere re-measured at HEAD 0984b5f5 after #156 lever 2: medooza (`medooza/`: the analyze.py summaries of the work tree `speedup-133/l2` and of the CPU rerun `l2-cpu2`, the job logs and scripts) and ESA SpaceHPC (`spacehpc/`: the final analyze.py summary of the work tree `speedup-133/l2` on SpaceHPC, jobs 184703-184706 and 184730) |
 | `results/2026-11-27-i160-medooza-cpu/` | #160 step 1.3: the medooza CPU windows of 3a and 1a with `-mdaz-ftz` at HEAD 5b200ffa (analyze.py summary; job 1370499: the build and the windows, its script and toolchain record; the in-job git commit of the tarball tree failed, so `run.info` says `commit=HEAD`, `src_modified=yes`: the tree is 5b200ffa) and the 3a A/B against the #133 matrix build of 2026-11-23 (job 1370519 and its script) |
 | `results/2026-11-27-i160-spacehpc-cpu/` | #160 step 1.2: the CPU node of the H100 node (2a, 3a, 1a on 96 EPYC cores; analyze.py summary; job 185046, the toolchain job 184997, the plan, the toolchain record) |
+| `results/2026-11-27-i161-cpu-channel/` | #161: the CPU channel slowdown located (the six CPU-path commits between the #133 build and 5b200ffa built and timed on one node, jobs 1370554-1370557; the exchange timed per rank, job 1370596, `logs/instrument.py`) and fixed (the fix against HEAD and the #133 build) |
 | `results/2026-11-25-spacehpc/` | the H100 runs: summaries, phase reports, job logs with the GPU health, the node reconnaissance (`recon.pbs`) and the bandwidth tests (`netbw.sh`), the plans, `fetch.sh` |
 | `build.sh` | builds one backend from a clean tree into `exe/<backend>/` (it still calls backends "legs") |
 | `templates/sphere-legacy.ini` | the removed matrix's sphere input, a record (stale, does not run) |

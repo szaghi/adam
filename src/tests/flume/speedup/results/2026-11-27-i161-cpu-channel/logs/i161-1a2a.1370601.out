@@ -1,0 +1,35 @@
+start 2026-11-27T17:44:45+01:00 on gnode12.e4-cluster.lan, job 1370601, case 1a-step-uniform, labels 0f75ftz b864 fixA 82c7, pairs 2
+exe 0f75ftz /ifs/hpc/home/szaghi/adam-tests/speedup-133/i161/trees/0f75ftz/src/tests/flume/speedup/exe/cpu/adam_flume_cpu sha256 f1fca2ad9041452c
+exe b864 /ifs/hpc/home/szaghi/adam-tests/speedup-133/i161/trees/b864/src/tests/flume/speedup/exe/cpu/adam_flume_cpu sha256 51c6c205131ce344
+exe fixA /ifs/hpc/home/szaghi/adam-tests/speedup-133/i161/trees/fixA/src/tests/flume/speedup/exe/cpu/adam_flume_cpu sha256 ece2fda427c1d6dc
+exe 82c7 /ifs/hpc/home/szaghi/adam-tests/speedup-133/i161/trees/82c7/src/tests/flume/speedup/exe/cpu/adam_flume_cpu sha256 b408a22080269248
+17:45:51 0f75ftz r1-n10 rc 1 wall 64.9  
+17:50:17 b864 r1-n10 rc 1 wall 265.7  
+17:50:56 fixA r1-n10 rc 1 wall 39.0  
+17:51:15 82c7 r1-n10 rc 1 wall 18.4  
+17:51:24 0f75ftz r1-n110 rc 1 wall 8.4  
+17:51:33 b864 r1-n110 rc 1 wall 8.4  
+17:52:19 fixA r1-n110 rc 1 wall 45.4  
+17:53:26 82c7 r1-n110 rc 1 wall 67.1  
+17:54:27 b864 r2-n10 rc 1 wall 59.7  
+17:57:26 fixA r2-n10 rc 1 wall 178.7  
+17:58:22 82c7 r2-n10 rc 1 wall 55.2  
+18:00:19 0f75ftz r2-n10 rc 1 wall 117.0  
+18:00:43 b864 r2-n110 rc 1 wall 23.6  
+18:01:07 fixA r2-n110 rc 1 wall 23.6  
+18:01:42 82c7 r2-n110 rc 1 wall 34.0  
+18:02:31 0f75ftz r2-n110 rc 1 wall 49.2  
+I161-AB-DONE 2026-11-27T18:02:31+01:00
+start 2026-11-27T18:02:31+01:00 on gnode12.e4-cluster.lan, job 1370601, case 2a-sphere-uniform, labels 82c7 fixA, pairs 2
+exe 82c7 /ifs/hpc/home/szaghi/adam-tests/speedup-133/i161/trees/82c7/src/tests/flume/speedup/exe/cpu/adam_flume_cpu sha256 b408a22080269248
+exe fixA /ifs/hpc/home/szaghi/adam-tests/speedup-133/i161/trees/fixA/src/tests/flume/speedup/exe/cpu/adam_flume_cpu sha256 ece2fda427c1d6dc
+18:04:09 82c7 r1-n10 rc 0 wall 97.0 loop 77.4560, steps 77.2371, regrid 0.8041,
+18:06:35 fixA r1-n10 rc 0 wall 146.4 loop 78.5860, steps 78.3424, regrid 0.7116,
+18:21:41 82c7 r1-n110 rc 0 wall 905.5 loop 884.2277, steps 883.0372, regrid 45.0652,
+18:38:19 fixA r1-n110 rc 0 wall 998.1 loop 848.6923, steps 847.3779, regrid 4.9399,
+18:40:09 fixA r2-n10 rc 0 wall 110.1 loop 83.5266, steps 83.3924, regrid 2.4035,
+18:42:28 82c7 r2-n10 rc 0 wall 138.7 loop 80.5163, steps 80.3843, regrid 4.0752,
+18:57:21 fixA r2-n110 rc 0 wall 892.5 loop 850.4334, steps 849.3630, regrid 6.0444,
+19:14:31 82c7 r2-n110 rc 0 wall 1029.7 loop 859.6969, steps 858.5964, regrid 25.2251,
+I161-AB-DONE 2026-11-27T19:14:31+01:00
+I161-1A2A-DONE 2026-11-27T19:14:31+01:00

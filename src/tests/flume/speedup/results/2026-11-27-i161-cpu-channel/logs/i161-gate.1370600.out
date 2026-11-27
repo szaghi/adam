@@ -1,0 +1,32 @@
+start 15:04:46 on gnode21.e4-cluster.lan, job 1370600; GNU Fortran (GCC) 16.2.0
+              MCA btl sm: parameter "btl_sm_rndv_eager_limit" (current value: "32768", data source: default, level: 4 tuner/basic, type: size_t, synonyms: btl_vader_rndv_eager_limit)
+                          Size (in bytes, including header) of "phase 1" fragment sent for all large messages (must be >= 0 and <= eager_limit)
+              MCA btl sm: parameter "btl_sm_eager_limit" (current value: "4096", data source: default, level: 4 tuner/basic, type: size_t, synonyms: btl_vader_eager_limit)
+              MCA btl sm: parameter "btl_sm_accelerator_max_send_size" (current value: "0", data source: default, level: 4 tuner/basic, type: size_t, synonyms: btl_vader_accelerator_max_send_size)
+              MCA btl sm: parameter "btl_sm_max_send_size" (current value: "32768", data source: default, level: 4 tuner/basic, type: size_t, synonyms: btl_vader_max_send_size)
+                MCA smsc: cma (MCA v2.1.0, API v1.0.0, Component v5.0.11)
+                MCA smsc: xpmem (MCA v2.1.0, API v1.0.0, Component v5.0.11)
+           MCA smsc base: ---------------------------------------------------
+           MCA smsc base: parameter "smsc" (current value: "", data source: default, level: 2 user/detail, type: string)
+           MCA smsc base: ---------------------------------------------------
+           MCA smsc base: parameter "smsc_base_verbose" (current value: "error", data source: default, level: 8 dev/detail, type: int)
+            MCA smsc cma: ---------------------------------------------------
+            MCA smsc cma: parameter "smsc_cma_priority" (current value: "37", data source: default, level: 3 user/all, type: int)
+15:08:02 BUILD base flume-cpu-gnu exit 0 after 124 s
+15:10:21 BUILD base flume-cpu-gnu-fft exit 0 after 139 s
+15:12:25 BUILD base prism-cpu-gnu exit 0 after 124 s
+15:13:33 BUILD base ripple-cpu-gnu exit 0 after 68 s
+15:13:36 BUILD base test-ripple-crest-criterion-cpu-gnu exit 0 after 3 s
+15:16:36 BUILD fix flume-cpu-gnu exit 0 after 123 s
+15:17:51 BUILD fix flume-cpu-gnu-fft exit 0 after 75 s
+15:19:19 BUILD fix prism-cpu-gnu exit 0 after 88 s
+15:20:28 BUILD fix ripple-cpu-gnu exit 0 after 69 s
+15:20:31 BUILD fix test-ripple-crest-criterion-cpu-gnu exit 0 after 3 s
+SUITE_flume rc 0 after 274 s: FAIL: 0 SKIP: 0 
+SUITE_prism rc 1 after 63 s: SKIP: 10 Failed cases: rmf-hyperbolic 
+FAIL [rmf-hyperbolic/cpu] field digest mismatch
+RIPPLE rc 0 after 127 s: PASS [r6 conservation] PASS [r6 unregistered] RIPPLE oracles (r1,r2,r3,r5,r6) PASSED 
+RANKS np 2 rc 0 after 221 s: 0 PASS, 0 FAIL; DV-1 PASSED (adam_flume_cpu, np 2, legs: repro euler mhd-none mhd-glm mhd-eglm limiter balanced hlld amr split)
+RANKS np 4 rc 0 after 183 s: 0 PASS, 0 FAIL; DV-1 PASSED (adam_flume_cpu, np 4, legs: repro euler mhd-none mhd-glm mhd-eglm limiter balanced hlld amr split)
+AB after 595 s: AB-ALL: 91 bitwise, 2 other RESULT prism/pic-periodic rc 3 RESULT prism/pic-slab-pulse rc 3 
+GATE-CPU-DONE 15:44:57

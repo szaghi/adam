@@ -1522,6 +1522,14 @@ contains
    endif
 
    if (do_step(2)) then
+      ! One barrier before the posts (issue #161): every rank enters the transfer together. The ghost messages (hundreds
+      ! of kB per neighbour) go by rendezvous, which advances only while both ranks are inside MPI; without the barrier
+      ! (b8641a59, #156 L1) a rank waits in MPI_WAITALL for peers still computing: on the FLUME CPU channel (3a, 64
+      ! ranks on one node) a typical 110-step run spent 44-52 s per rank waiting in the exchange instead of 8-15 s, and
+      ! the step was 9-20 % slower, with the ranks' own work unchanged. The FNL exchange (update_ghost_mpi_gpu) keeps
+      ! none: GPU-direct, its cost was measured without them. The barrier makes the exchange collective: every caller
+      ! calls it on every rank, in the same order.
+      call MPI_Barrier(MPI_COMM_WORLD, error)
       ! receive
       do p=0, procs_number - 1_I4P
          ptr_start = comm_map_recv_ptr_ghost(p) + 1
@@ -1544,10 +1552,10 @@ contains
    endif
 
    if (do_step(3)) then
-      ! No barrier before or after (issue #156 L1): once MPI_WAITALL returns, this rank's receives are filled and its send
+      ! No barrier after the wait (issue #156 L1): once MPI_WAITALL returns, this rank's receives are filled and its send
       ! buffer is free; the next exchange reuses tag 100, and MPI's non-overtaking rule (same source, tag and
-      ! communicator) matches each message to the receive of its own exchange. The exchange is not collective: a rank
-      ! with no message posts nothing and waits on null requests.
+      ! communicator) matches each message to the receive of its own exchange. A rank with no message posts nothing and
+      ! waits on null requests.
       call MPI_WAITALL(procs_number * 2, req_send_recv, MPI_STATUSES_IGNORE, error)
       if (allocated(maps%comm_map_recv_ghost_cell)) then
          do rf=1, size(maps%comm_map_recv_ghost_cell, dim=1)

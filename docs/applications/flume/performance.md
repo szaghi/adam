@@ -56,7 +56,8 @@ not the GPU ([What does not scale](#what-does-not-scale-and-why)): with flush to
 grid 8.81–9.54. The two grid-study grids load the GPU node with 1.8 and 7.0 M cells per A30, below 2a's
 14.2 M ([what a cell costs](#what-a-cell-costs-on-one-a30)). Larger blocks make both nodes cheaper per cell.
 The channel's CPU node is 8 % slower per step at HEAD than with the build of the first table (the same node, the two
-executables alternated: 3.53 against 3.26 s; time steps +6.9 %), a slowdown of the CPU channel path not yet located ([#161](https://github.com/szaghi/adam/issues/161));
+executables alternated: 3.53 against 3.26 s; time steps +6.9 %): the CPU ghost exchange without its barrier, located and
+fixed in [#161](https://github.com/szaghi/adam/issues/161) (see [What does not scale](#what-does-not-scale-and-why), lever 4);
 the step case did not slow down (1.26 → 1.22 s with flush to zero).
 
 **On the H100 node** (ESA SpaceHPC; [#160](https://github.com/szaghi/adam/issues/160)): the same comparison inside one
@@ -190,7 +191,7 @@ GB/s**, against **23.5 GB/s** for the same messages from host memory over the sa
 UCX setting tried exceeds 1.9 GB/s). Inside a node, GPU to GPU is 88.5 GB/s across an NVLink pair and 17.7 GB/s between
 the pairs. The immersed body makes it worse: its eikonal extension refreshes the ghosts 4 times per stage, 12 exchanges
 per step instead of 3, so with the sphere on 8 nodes the ghost update is 49 % of the step, more than the face fluxes.
-The two global barriers of each exchange cost 0.4–1.2 %.
+The two global barriers of each exchange cost 0.4–1.2 % on the GPU.
 
 **On the CPU the culprit is subnormal arithmetic, not the exchange.** The developed state of the sphere holds 745,771
 subnormal values (below 2.2 · 10⁻³⁰⁸, in the transverse momenta ahead of the shock) on 76 of 512 ranks. x86 cores handle
@@ -207,7 +208,7 @@ with the CPU build flushing subnormals it is 11.4.
 | 1 | subnormal arithmetic (CPU) | −35 to −47 % per step on developed states | **applied**: the GNU builds link with `-mdaz-ftz`, flush to zero from the start ([build notes](/start/install)) |
 | 2 | GPU halo between nodes at 1.5 GB/s | up to ~9 ms of the ~12 ms per exchange (estimate) | GPUDirect RDMA on the cluster: on the H100 nodes, which have it, an exchange between nodes waits 0.9–1.4 ms ([below](#another-machine-h100-nodes-with-gpudirect-rdma)); host staging in the code was declined as specific to medooza |
 | 3 | 12 ghost exchanges per step with an immersed body | up to 9 of the 12 | **applied** (2026-11-25/26, bitwise): no exchange after the last eikonal sweep (12 → 9), then the two remaining eikonal exchanges restricted to the ghost cells the sweeps read; over both, the step −16 % on 4 H100 and −26 % on 32, the sphere −39 % on 32, and the body no longer costs a multi-node loss (on one H100 node those, not MPI, carry the body's cost; on 8 H100 nodes the MPI exchange is its largest part); [#156](https://github.com/szaghi/adam/issues/156) |
-| 4 | two global barriers per ghost exchange | 0.4–1.2 % on the A30 nodes, 0.1–2.5 % on the H100 nodes (timed off on 8 nodes: −1.3 %) | **applied** (2026-11-25): removed from `update_ghost_mpi` and `update_ghost_mpi_gpu`; FLUME, PRISM and RIPPLE suites bitwise on both backends |
+| 4 | two global barriers per ghost exchange | 0.4–1.2 % on the A30 nodes, 0.1–2.5 % on the H100 nodes (timed off on 8 nodes: −1.3 %); on the CPU a loss | **applied** to the GPU exchange (2026-11-25, `update_ghost_mpi_gpu`; suites bitwise). **Reverted on the CPU** ([#161](https://github.com/szaghi/adam/issues/161), 2026-11-27): without them the CPU channel was 9–20 % slower per step, the time spent in the exchange's `MPI_WAITALL` (its messages go by rendezvous, which advances only while both ranks are inside MPI), so `update_ghost_mpi` keeps one barrier before its posts |
 | 5 | the link between the NVLink pairs (17.7 GB/s) | part of the 13–30 % of the third and fourth A30 | place neighbouring subdomains on the same NVLink pair (medooza only: the H100 nodes join every pair by NVLink and show no such step) |
 
 ## Another machine: H100 nodes with GPUDirect RDMA
@@ -242,7 +243,7 @@ is nvfortran 26.3 with CUDA 12.9; every job checked first that no GPU was thrott
   exchanges left around the sweeps now fill only the ghost cells the sweeps read (a few block faces next to the body).
   On 8 nodes the body's extra cost fell from 36 to 2 ms per step, and the 225 M-cell grid keeps 0.959 of one node's
   throughput on 32 H100 instead of 0.837; the step is 16 % cheaper on one node and 26 % on 8, the sphere 39 % on 8.
-- **Neither barriers nor adapters are the limit**: the two barriers per exchange, already removed from the code, cost
+- **Neither barriers nor adapters are the limit**: the two barriers per exchange, already removed from the GPU exchange, cost
   1.3 % on 8 nodes (as on the A30 nodes); using all four network adapters instead of the site's two changes nothing.
 
 The tables, the jobs and the method are in the speedup README's "ESA SpaceHPC" section.
