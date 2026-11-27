@@ -126,12 +126,41 @@ for performance; their timings are kept as baselines ("The accuracy-first paths"
 |---|---|---|---|---|---|
 | 2a sphere (3-D, WENO-5, IB, SSP-33) | 56.6 M | 4096 of 24^3 | 12.7 | 0.780 | 16.3 |
 | 2a sphere, CPU linked with `-mdaz-ftz` (2026-11-24) | 56.6 M | 4096 of 24^3 | 8.917 | 0.780 | **11.4** |
-| 3a channel (3-D, hybrid-kep-weno, viscous, SSP-54) | 6.29 M | 512 of 32x24x16 | 3.17 | 0.230 | 13.8 |
+| 3a channel (3-D, hybrid-kep-weno, viscous, SSP-54), before `-mdaz-ftz` | 6.29 M | 512 of 32x24x16 | 3.17 | 0.230 | 13.8 |
+| 3a channel, CPU with `-mdaz-ftz`, HEAD 5b200ffa (2026-11-27; GPU: the C4 tree) | 6.29 M | 512 of 32x24x16 | 3.59 | 0.2219 | **16.2** |
 | `wg-b24` sphere, L3 (2026-11-24) | 7.08 M | 512 of 24^3 | 1.366 | 0.1147 | 11.9 |
 | `wg-b38` sphere, L3 (2026-11-24) | 28.1 M | 512 of 38^3 | 4.458 | 0.355 | 12.6 |
 
 The factor is not one number: on the same flow it is 11.4-12.6 with the grid and the build (16.3 for 2a before the CPU
-build flushed subnormals). On the CPU node 2a costs 14.4 us per
+build flushed subnormals). The channel's 16.2 (#160 step 1.3, job 1370499, spread 6.7 %) is not flush to zero: on one
+node (A/B job 1370519, 3 pairs alternated) the HEAD build costs 3.53 s per step against 3.26 for the #133 matrix build
+of the 3.17 row (2026-11-23), +8.3 % (time steps +6.9 %), a slowdown of the CPU channel between the two builds, not
+yet located ([#161](https://github.com/szaghi/adam/issues/161)); at the #133 build's cost the factor would be 14.7.
+
+**The same on the H100 node** (ESA SpaceHPC, #160 step 1.2, 2026-11-27): the CPU node and the GPU node are one machine,
+2 x AMD EPYC 9454 (96 cores, 4 NUMA domains) and its 4 H100. CPU: HEAD 5b200ffa, gfortran 16.2.0 + Open MPI 5.0.11 with
+`-mdaz-ftz` (the toolchain of medooza's CPU leg), 96 ranks bound to cores (job 185046, gpu-005); the windows start from
+the dumps of the H100 values (2a: `matrix/dumps/leg2`, the H100 re-measure's; 1a and 3a: medooza's `work/dumps`, the
+H100 legs' windows; `results/2026-11-27-i160-spacehpc-cpu/`). GPU: the C4 tree (the H100 tables of "#157 C4" below),
+as the medooza column:
+
+| Case | CPU node, 96 EPYC cores (s) | GPU node, 4 H100 (s) | GPU node / CPU node | medooza (64 Xeon / 4 A30) |
+|---|---|---|---|---|
+| 2a sphere | 3.902 (spread 4.5 %) | 0.1874 | **20.8** | 14.2 |
+| 3a channel | 1.564 (6.0 %) | 0.0609 | **25.7** | 16.2 |
+| 1a step (2-D) | 0.578 (4.4 %) | 0.0863 | **6.7** | 5.7 |
+
+- **The H100 node outruns its own CPUs 21-26 times on the 3-D flows** (14-16 on medooza): the H100 is 2.5-3.6 times
+  the A30, the EPYC node 2.0-2.3 times the Xeon node (1.35-1.53 per core: Zen 4 against Ice Lake; the GNU builds are `-O2`
+  without `-march`, the same generic x86-64 code on both).
+- With the GPU costs before C4 (the paper's table): 20.0, 24.5 and 6.7 on SpaceHPC, 13.7, 15.6 and 5.7 on medooza.
+- The channel's CPU cost carries the 8 % slowdown found on medooza (the same build): its two factors are high by
+  about that much.
+- Per socket, the cell updates per second: 7.26, 2.01 and 3.57 M on an EPYC (48 cores), 3.58, 0.88 and 1.69 M on a
+  Xeon (32 cores), for 2a, 3a and 1a.
+- On 2a the CPU node books 0.41 s per step (10 %) in the step-end wait for the slowest rank (the forest's "regrid"
+  timer, since b8641a59): 96 ranks of 589,824 cells; which ranks are slower is not measured here.
+ On the CPU node 2a costs 14.4 us per
 cell-step per core, against 12.4 for `wg-b24` (8 blocks per rank) and 10.2 for `wg-b38` (job 1369687; spreads 5.3 and
 0.7 %). The 2a figure is inflated by subnormal arithmetic in its developed state, which slows the CPU ranks that hold it
 and not the A30 ("Where a step's time goes" below): with flush to zero 2a costs 8.74 us per cell-step per core, the cold
@@ -195,9 +224,9 @@ top of one node's, against 14.2). In throughput the two 8-node runs are equal: 2
   more per cell than at 14.2 M.
 - **The CPU node scales to 8 nodes since the GNU builds flush subnormals** (`-mdaz-ftz`: 2a strong 0.91, weak 1.01;
   before it, 0.98 on 2 and 4 nodes and half lost on 8, weak 0.53): subnormal arithmetic on 76 ranks, not the network
-  (with flush to zero 0.93-1.0, "Where a step's time goes"); a GPU node is 11-14 times faster than a CPU node on the
+  (with flush to zero 0.93-1.0, "Where a step's time goes"); a GPU node is 11-16 times faster than a CPU node on the
   uniform 3-D flows (11.9 and 12.6 on the grid-study grids, 11.4 on 2a with `-mdaz-ftz`, 16.3 before it, 13.8 on the
-  channel).
+  channel, 16.2 at HEAD with `-mdaz-ftz`: see "A GPU node against a CPU node").
 - **The per-cell cost does not depend on the flow state** (0.5 %, "State independence" below): cold-started cases and
   developed ones are comparable.
 
@@ -621,7 +650,7 @@ Measured with the matrix; recorded as the baselines of the optimisation work, no
 
 | Leg | Uniform | Frozen AMR grid | Runtime AMR |
 |---|---|---|---|
-| 1 step (2-D, WENO-7, SSP-54) | 5.83 | 5.75 | 5.72 |
+| 1 step (2-D, WENO-7, SSP-54) | 5.83 (5.67 with `-mdaz-ftz`: 1.223 s, job 1370499, against the C4 tree's 0.2156) | 5.75 | 5.72 |
 | 2 sphere (3-D, WENO-5, IB, SSP-33) | 16.3 | 12.2 | 10.9 |
 | 3 channel (3-D, hybrid-kep-weno, viscous, SSP-54) | 13.8 | 15.5 | 16.7 |
 
@@ -1089,12 +1118,15 @@ never (leg 3): a flow with more churn pays more regrid.
 | `matrix_plot.py` | the summary figures from `summary.csv`: backend speedup per case, AMR decomposition per leg, grind time (matplotlib; `--theme both` writes the docs' dark twins) |
 | `jobs/medooza-{cpu,fnl}.slurm` | the medooza jobs: one run.sh stage per job, outputs on `/ifs` |
 | `jobs/spacehpc-build.pbs`, `jobs/spacehpc-fnl.pbs` | the ESA SpaceHPC (PBS) jobs: the fnl-nvf build on a CPU node; a plan of run.sh stages behind a GPU health guard |
+| `jobs/spacehpc-gnu-toolchain.pbs`, `jobs/spacehpc-cpu.pbs` | the CPU leg on ESA SpaceHPC (#160): Open MPI 5.0.11, `gnu.sh` and HDF5 with gfortran 16.2.0 on a CPU node; a plan of build, run.sh and analyze lines on the 96 cores of an H100 node |
 | `jobs/noib-exe.sh` | a `run.sh --exe` wrapper that drops the sphere's `[solids]`/`[solid_N]` sections (the runs without the body) |
 | `results/2026-11-25-i157/` | the AMR legs before and after #157 (the guard once per ghost): the medooza and SpaceHPC summaries per executable, `ab_table.py` (the before/after tables), `acc_table.py` (the kernel table from `NVCOMPILER_ACC_TIME` logs, interleaving-proof), the job scripts, the logs and the compressed kernel-time logs |
 | `results/2026-11-25-i156/` | #156 lever 2, first part (no exchange after the last eikonal sweep) on SpaceHPC: the sphere windows' summaries per executable, the phase-timer reports of `wg-l4b38` (1 and 8 nodes) and 2a (8 nodes), the medooza bitwise gate jobs, the SpaceHPC jobs and plans, the updated `apply_phase_timer.py`, `fetch.sh`, the logs |
 | `results/2026-11-26-i156-l2b/` | #156 lever 2, second part: the ceiling (both eikonal exchanges skipped, measurement only; `jobs/ceiling-C-vs-B.diff`), the no-body floor, part 2 with BC and blend in full (D) and final (E): the phase-timer reports, the bitwise logs of the sphere, the job logs, plans and scripts (`apply_phase_timer_l2b.py`: the phase timer on the part-2 tree, FNL only) |
 | `results/2026-11-26-i157-c4/` | #157 C4: the sphere on SpaceHPC (`spacehpc/`: analyze.py summaries of A = 80582712 and B = C4, the job logs and scripts of 184727-184729, 184742, 184743) and the nine cases on medooza (`medooza/`: the same for jobs 1370470, 1370471, 1370477; `medooza-b4fix/`: the step leg with A, B and C = B4's scratch persistent, job 1370492); the step and the channel on SpaceHPC (`spacehpc-legs/`: analyze.py summaries of A and B, the job logs of 184907-184912 and `sp-leg.pbs`) |
 | `results/2026-11-26-remeasure-l2/` | the sphere re-measured at HEAD 0984b5f5 after #156 lever 2: medooza (`medooza/`: the analyze.py summaries of the work tree `speedup-133/l2` and of the CPU rerun `l2-cpu2`, the job logs and scripts) and ESA SpaceHPC (`spacehpc/`: the final analyze.py summary of the work tree `speedup-133/l2` on SpaceHPC, jobs 184703-184706 and 184730) |
+| `results/2026-11-27-i160-medooza-cpu/` | #160 step 1.3: the medooza CPU windows of 3a and 1a with `-mdaz-ftz` at HEAD 5b200ffa (analyze.py summary; job 1370499: the build and the windows, its script and toolchain record; the in-job git commit of the tarball tree failed, so `run.info` says `commit=HEAD`, `src_modified=yes`: the tree is 5b200ffa) and the 3a A/B against the #133 matrix build of 2026-11-23 (job 1370519 and its script) |
+| `results/2026-11-27-i160-spacehpc-cpu/` | #160 step 1.2: the CPU node of the H100 node (2a, 3a, 1a on 96 EPYC cores; analyze.py summary; job 185046, the toolchain job 184997, the plan, the toolchain record) |
 | `results/2026-11-25-spacehpc/` | the H100 runs: summaries, phase reports, job logs with the GPU health, the node reconnaissance (`recon.pbs`) and the bandwidth tests (`netbw.sh`), the plans, `fetch.sh` |
 | `build.sh` | builds one backend from a clean tree into `exe/<backend>/` (it still calls backends "legs") |
 | `templates/sphere-legacy.ini` | the removed matrix's sphere input, a record (stale, does not run) |
@@ -1186,6 +1218,28 @@ it stops (exit 42) if any GPU of the job shows a hardware slowdown, thermal or p
 (the Xall campaign met a power-braked node, `gpu-015`, 4.3x slower), and it logs every GPU's SM clock each second; the
 job log ends with the busy mean and minimum clock per GPU. `jobs/noib-exe.sh` (a `run.sh --exe` wrapper, `NOIB_EXE` =
 the executable) runs the sphere without its immersed body.
+
+**ESA SpaceHPC, `cpu` on the H100 node** (2026-11-27, [#160](https://github.com/szaghi/adam/issues/160)): the CPU
+backend on a `gpu4_std` node (2 x AMD EPYC 9454: 96 cores, SMT off, 4 NUMA domains of 24 cores), for a same-node CPU
+against GPU ratio as on medooza. The toolchain is medooza's CPU leg's: gfortran 16.2.0, medooza's install copied as is
+to `~/gnu/gcc-16.2.0` (both clusters run RHEL 8, glibc 2.28; the same compiler binaries), Open MPI 5.0.11 and HDF5
+2.3.0 (`ab5df552`) built with it on a `cpu_std` node by `jobs/spacehpc-gnu-toolchain.pbs` (Open MPI without UCX or PBS
+TM: one node, shared memory), which also writes `~/gnu/gnu.sh`; the varset `spacehpc_gnu`. The nodes carry Mellanox
+hcoll and Open MPI builds its `coll/hcoll` on them: it segfaults in `MPI_Finalize` (exit 139 after a correct run), as
+on medooza, so `gnu.sh` and the job's launcher turn it off.
+
+```bash
+qsub -q cpu_std -l select=1:ncpus=32:mem=96gb -l walltime=02:00:00 jobs/spacehpc-gnu-toolchain.pbs
+qsub -q gpu4_std -l select=1:ngpus=4:ncpus=96:mpiprocs=96:mem=700gb -l place=excl -l walltime=08:00:00 \
+     -v PLAN=<plan file>,SPEEDUP_DIR=$HOME/adam-i160/src/tests/flume/speedup jobs/spacehpc-cpu.pbs
+```
+
+`jobs/spacehpc-cpu.pbs` runs a plan like the FNL job: `build` (build.sh cpu with `spacehpc_gnu`; it reports the
+`-mdaz-ftz` of `builds/cpu/build.txt`), `run.sh` lines (96 ranks bound to cores, mapped core by core) and `analyze
+<work>` lines. `ncpus=96` is the whole node (`ncpus=192` is refused: "Insufficient amount of resource: qlist"); the GPUs
+are requested only to land on the node and stay idle; the block pool is capped by the job's memory cgroup. The windows
+start from the dumps of the H100 values: `cpu/dumps/leg2 -> matrix/dumps/leg2` (the 2a of the H100 re-measure),
+`leg1` and `leg3` copied from medooza's `work/dumps` (the dumps of the H100 step and channel legs' windows).
 
 **AMD node, `fnl-amd`** (Giacomo Rossi). The windows start from the dumps written on medooza, so every backend times
 the same bits (D3):

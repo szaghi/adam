@@ -182,3 +182,9 @@ $NVF_CC      = cc90
 $HDF5_PREFIX = lib/hdf5/develop/spacehpc/nvf/26.3
 $NVF_CC      = cc90,cuda12.9
 $NVF_LTO     = ,lto
+
+[varset:spacehpc_gnu]
+# ESA SpaceHPC, the CPU backend on a gpu4_std node (2 x AMD EPYC 9454; issue #160): gfortran 16.2.0 (medooza's build,
+# copied: both clusters run RHEL 8, glibc 2.28) and Open MPI 5.0.11 built with it in $HOME (no UCX: one node, shared
+# memory), loaded by ~/gnu/gnu.sh there; HDF5 2.3.0 (develop ab5df552) built with that toolchain on the cluster.
+$HDF5_PREFIX = lib/hdf5/develop/spacehpc/gnu/16.2.0/openmpi-5.0.11

@@ -1,0 +1,97 @@
+job 185046.pbs 2026-11-27T11:03:44+01:00 gpu-005 plan /lustre/projects/1026/CALCOLI/adam/speedup-133/plans/plan-i160-cpu.txt; GNU Fortran (GCC) 16.2.0; mpirun (Open MPI) 5.0.11
+Thread(s) per core:  1
+Core(s) per socket:  48
+Socket(s):           2
+Model name:          AMD EPYC 9454 48-Core Processor
+NUMA node0 CPU(s):   0-23
+NUMA node1 CPU(s):   24-47
+NUMA node2 CPU(s):   48-71
+NUMA node3 CPU(s):   72-95
+cpuset of the job: 96 logical CPUs, 0-95
+# night 2026-11-27-i160-spacehpc-cpu (#160 1.1 + 1.2): build, plumbing (reduced 2a, 8 ranks), the windows of 2a, 3a, 1a on 96 ranks
+build
+chain --reduced --cases 2a --np 8 --work $W/cpu-plumb
+analyze $W/cpu-plumb
+windows --cases 2a,3a,1a --work $W/cpu
+analyze $W/cpu
+=== 2026-11-27T11:03:44+01:00 build
+build.sh: flume-cpu-gnu built in 50 s -> /lustre/home/u10260003/adam-i160/src/tests/flume/speedup/exe/cpu/adam_flume_cpu; toolchain in /lustre/home/u10260003/adam-i160/src/tests/flume/speedup/builds/cpu/toolchain.md
+build.txt: -mdaz-ftz 1 times
+=== 2026-11-27T11:04:34+01:00 chain --reduced --cases 2a --np 8 --work $W/cpu-plumb
+>> warm-up, leg2: 2a-sphere-uniform -> dumps/leg2/warmup
+   dumps/leg2/warmup: wall 14.900 s, exit 0
+      forest timing (max over ranks, s): loop     0.1433, steps     0.1260, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   dump at step 4
+>> windows, cpu, 8 ranks: 2a-sphere-uniform -> windows/cpu-np8
+   /lustre/projects/1026/CALCOLI/adam/speedup-133/cpu-plumb/dumps/leg2/warmup/sphere-restart: step 4, time 0.012142696826423948, 64 blocks on 8 ranks [8, 8, 8, 8, 8, 8, 8, 8], ratio 8, also .reference
+      -> /lustre/projects/1026/CALCOLI/adam/speedup-133/cpu-plumb/windows/cpu-np8/2a-sphere-uniform/dump/sphere-restart: 8 ranks, rule siblings, blocks per rank [8, 8, 8, 8, 8, 8, 8, 8]
+   windows/cpu-np8/2a-sphere-uniform/r1-n2: wall 14.551 s, exit 0
+      forest timing (max over ranks, s): loop     0.0541, steps     0.0540, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/cpu-np8/2a-sphere-uniform/r1-n4: wall 14.400 s, exit 0
+      forest timing (max over ranks, s): loop     0.1036, steps     0.1029, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/cpu-np8/2a-sphere-uniform/r2-n2: wall 14.511 s, exit 0
+      forest timing (max over ranks, s): loop     0.0542, steps     0.0536, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/cpu-np8/2a-sphere-uniform/r2-n4: wall 14.419 s, exit 0
+      forest timing (max over ranks, s): loop     0.1038, steps     0.1028, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/cpu-np8/2a-sphere-uniform/r3-n2: wall 14.377 s, exit 0
+      forest timing (max over ranks, s): loop     0.0537, steps     0.0533, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/cpu-np8/2a-sphere-uniform/r3-n4: wall 14.436 s, exit 0
+      forest timing (max over ranks, s): loop     0.1037, steps     0.1027, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+run.sh: done (chain, cpu, 8 ranks, work /lustre/projects/1026/CALCOLI/adam/speedup-133/cpu-plumb)
+=== 2026-11-27T11:06:18+01:00 analyze $W/cpu-plumb
+analyze: 1 windows, 0 AMR ratio rows, 0 backend speedups -> /lustre/projects/1026/CALCOLI/adam/speedup-133/cpu-plumb/results/summary.md, /lustre/projects/1026/CALCOLI/adam/speedup-133/cpu-plumb/results/summary.csv
+=== 2026-11-27T11:06:18+01:00 windows --cases 2a,3a,1a --work $W/cpu
+>> windows, cpu, 96 ranks: 1a-step-uniform 2a-sphere-uniform 3a-channel-uniform -> windows/cpu-np96
+   /lustre/projects/1026/CALCOLI/adam/speedup-133/cpu/dumps/leg1/warmup/step-A-restart: step 34672, time 2.0, 256 blocks on 4 ranks [64, 64, 64, 64], ratio 4, also .reference
+      -> /lustre/projects/1026/CALCOLI/adam/speedup-133/cpu/windows/cpu-np96/1a-step-uniform/dump/step-A-restart: 96 ranks, rule siblings, blocks per rank [3, 3, 2, 3, 3, 2, 3, 3, 2, 3, 3, 2, 3, 3, 2, 3, 3, 2, 3, 3, 2, 3, 3, 2, 3, 3, 2, 3, 3, 2, 3, 3, 2, 3, 3, 2, 3, 3, 2, 3, 3, 2, 3, 3, 2, 3, 3, 2, 3, 3, 2, 3, 3, 2, 3, 3, 2, 3, 3, 2, 3, 3, 2, 3, 3, 2, 3, 3, 2, 3, 3, 2, 3, 3, 2, 3, 3, 2, 3, 3, 2, 3, 3, 2, 3, 3, 2, 3, 3, 2, 3, 3, 2, 3, 3, 2]
+   /lustre/projects/1026/CALCOLI/adam/speedup-133/cpu/dumps/leg1/warmup/step-B-restart: step 34672, time 2.0, 256 blocks on 4 ranks [64, 64, 64, 64], ratio 4, also .reference
+      -> /lustre/projects/1026/CALCOLI/adam/speedup-133/cpu/windows/cpu-np96/1a-step-uniform/dump/step-B-restart: 96 ranks, rule siblings, blocks per rank [3, 3, 2, 3, 3, 2, 3, 3, 2, 3, 3, 2, 3, 3, 2, 3, 3, 2, 3, 3, 2, 3, 3, 2, 3, 3, 2, 3, 3, 2, 3, 3, 2, 3, 3, 2, 3, 3, 2, 3, 3, 2, 3, 3, 2, 3, 3, 2, 3, 3, 2, 3, 3, 2, 3, 3, 2, 3, 3, 2, 3, 3, 2, 3, 3, 2, 3, 3, 2, 3, 3, 2, 3, 3, 2, 3, 3, 2, 3, 3, 2, 3, 3, 2, 3, 3, 2, 3, 3, 2, 3, 3, 2, 3, 3, 2]
+   /lustre/projects/1026/CALCOLI/adam/speedup-133/cpu/dumps/leg1/warmup/step-C-restart: step 34672, time 2.0, 256 blocks on 4 ranks [64, 64, 64, 64], ratio 4, also .reference
+      -> /lustre/projects/1026/CALCOLI/adam/speedup-133/cpu/windows/cpu-np96/1a-step-uniform/dump/step-C-restart: 96 ranks, rule siblings, blocks per rank [3, 3, 2, 3, 3, 2, 3, 3, 2, 3, 3, 2, 3, 3, 2, 3, 3, 2, 3, 3, 2, 3, 3, 2, 3, 3, 2, 3, 3, 2, 3, 3, 2, 3, 3, 2, 3, 3, 2, 3, 3, 2, 3, 3, 2, 3, 3, 2, 3, 3, 2, 3, 3, 2, 3, 3, 2, 3, 3, 2, 3, 3, 2, 3, 3, 2, 3, 3, 2, 3, 3, 2, 3, 3, 2, 3, 3, 2, 3, 3, 2, 3, 3, 2, 3, 3, 2, 3, 3, 2, 3, 3, 2, 3, 3, 2]
+   /lustre/projects/1026/CALCOLI/adam/speedup-133/cpu/dumps/leg2/warmup/sphere-restart: step 663, time 0.15, 4096 blocks on 4 ranks [1024, 1024, 1024, 1024], ratio 8, also .reference
+      -> /lustre/projects/1026/CALCOLI/adam/speedup-133/cpu/windows/cpu-np96/2a-sphere-uniform/dump/sphere-restart: 96 ranks, rule siblings, blocks per rank [43, 43, 42, 43, 43, 42, 43, 43, 42, 43, 43, 42, 43, 43, 42, 43, 43, 42, 43, 43, 42, 43, 43, 42, 43, 43, 42, 43, 43, 42, 43, 43, 42, 43, 43, 42, 43, 43, 42, 43, 43, 42, 43, 43, 42, 43, 43, 42, 43, 43, 42, 43, 43, 42, 43, 43, 42, 43, 43, 42, 43, 43, 42, 43, 43, 42, 43, 43, 42, 43, 43, 42, 43, 43, 42, 43, 43, 42, 43, 43, 42, 43, 43, 42, 43, 43, 42, 43, 43, 42, 43, 43, 42, 43, 43, 42]
+   /lustre/projects/1026/CALCOLI/adam/speedup-133/cpu/dumps/leg3/warmup/channel-restart: step 51626, time 150.0, 512 blocks on 4 ranks [128, 128, 128, 128], ratio 8, also .reference
+      -> /lustre/projects/1026/CALCOLI/adam/speedup-133/cpu/windows/cpu-np96/3a-channel-uniform/dump/channel-restart: 96 ranks, rule siblings, blocks per rank [6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5]
+   windows/cpu-np96/1a-step-uniform/r1-n10: wall 8.437 s, exit 0
+      forest timing (max over ranks, s): loop     6.2289, steps     6.2172, imbalance before reflux     0.4072, reflux reduce     0.0127, reflux apply     0.0007, seam imbalance     1.6629, seam wait     0.0043; 32 register faces
+   windows/cpu-np96/1a-step-uniform/r1-n110: wall 66.240 s, exit 0
+      forest timing (max over ranks, s): loop    63.5448, steps    63.4336, imbalance before reflux     3.7955, reflux reduce     0.1670, reflux apply     0.0061, seam imbalance    14.3435, seam wait     0.1149; 32 register faces
+   windows/cpu-np96/2a-sphere-uniform/r1-n10: wall 43.444 s, exit 0
+      forest timing (max over ranks, s): loop    40.5505, steps    40.4501, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/cpu-np96/2a-sphere-uniform/r1-n110: wall 433.631 s, exit 0
+      forest timing (max over ranks, s): loop   430.7069, steps   429.9168, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/cpu-np96/3a-channel-uniform/r1-n10: wall 18.130 s, exit 0
+      forest timing (max over ranks, s): loop    16.2504, steps    16.1691, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/cpu-np96/3a-channel-uniform/r1-n110: wall 178.973 s, exit 0
+      forest timing (max over ranks, s): loop   176.8595, steps   176.4564, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/cpu-np96/1a-step-uniform/r2-n10: wall 9.176 s, exit 0
+      forest timing (max over ranks, s): loop     6.0787, steps     6.0681, imbalance before reflux     0.3217, reflux reduce     0.0137, reflux apply     0.0006, seam imbalance     1.5624, seam wait     0.0420; 32 register faces
+   windows/cpu-np96/1a-step-uniform/r2-n110: wall 66.277 s, exit 0
+      forest timing (max over ranks, s): loop    63.8661, steps    63.7434, imbalance before reflux     3.5290, reflux reduce     0.3510, reflux apply     0.0093, seam imbalance    14.7870, seam wait     0.0734; 32 register faces
+   windows/cpu-np96/2a-sphere-uniform/r2-n10: wall 38.353 s, exit 0
+      forest timing (max over ranks, s): loop    35.2837, steps    34.8453, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/cpu-np96/2a-sphere-uniform/r2-n110: wall 418.488 s, exit 0
+      forest timing (max over ranks, s): loop   415.4558, steps   414.8162, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/cpu-np96/3a-channel-uniform/r2-n10: wall 18.950 s, exit 0
+      forest timing (max over ranks, s): loop    17.1630, steps    17.1480, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/cpu-np96/3a-channel-uniform/r2-n110: wall 176.207 s, exit 0
+      forest timing (max over ranks, s): loop   173.5741, steps   173.4344, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/cpu-np96/1a-step-uniform/r3-n10: wall 9.547 s, exit 0
+      forest timing (max over ranks, s): loop     6.1955, steps     6.1864, imbalance before reflux     0.3958, reflux reduce     0.0216, reflux apply     0.0005, seam imbalance     1.6364, seam wait     0.0132; 32 register faces
+   windows/cpu-np96/1a-step-uniform/r3-n110: wall 68.398 s, exit 0
+      forest timing (max over ranks, s): loop    66.0591, steps    65.9367, imbalance before reflux     4.2158, reflux reduce     0.1485, reflux apply     0.0057, seam imbalance    16.7531, seam wait     0.0514; 32 register faces
+   windows/cpu-np96/2a-sphere-uniform/r3-n10: wall 37.905 s, exit 0
+      forest timing (max over ranks, s): loop    34.8158, steps    34.4910, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/cpu-np96/2a-sphere-uniform/r3-n110: wall 435.321 s, exit 0
+      forest timing (max over ranks, s): loop   432.4624, steps   431.8007, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/cpu-np96/3a-channel-uniform/r3-n10: wall 17.134 s, exit 0
+      forest timing (max over ranks, s): loop    15.2705, steps    15.2536, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/cpu-np96/3a-channel-uniform/r3-n110: wall 168.506 s, exit 0
+      forest timing (max over ranks, s): loop   166.5135, steps   165.7289, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+run.sh: done (windows, cpu, 96 ranks, work /lustre/projects/1026/CALCOLI/adam/speedup-133/cpu)
+=== 2026-11-27T11:43:28+01:00 analyze $W/cpu
+analyze: 3 windows, 0 AMR ratio rows, 0 backend speedups -> /lustre/projects/1026/CALCOLI/adam/speedup-133/cpu/results/summary.md, /lustre/projects/1026/CALCOLI/adam/speedup-133/cpu/results/summary.csv
+   warning: cpu np 96 1a-step-uniform: spread 4.4% above 2%
+   warning: cpu np 96 2a-sphere-uniform: spread 4.5% above 2%
+   warning: cpu np 96 3a-channel-uniform: spread 6.0% above 2%
+CPU-PLAN-DONE status 0 2026-11-27T11:43:28+01:00

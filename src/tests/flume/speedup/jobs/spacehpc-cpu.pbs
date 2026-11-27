@@ -1,0 +1,50 @@
+#!/bin/bash
+# FLUME speedup matrix, CPU backend (cpu) on ESA SpaceHPC: the CPU node that holds the 4 H100 (gpu4_std: 2 x AMD EPYC
+# 9454, 96 cores, 4 NUMA domains), so that the CPU node and the GPU node are the same machine (issue #160).
+#
+# PBS passes no arguments to a job script, so the job runs a plan, as spacehpc-fnl.pbs: a file of run.sh invocations, one
+# per line (the stage and its options; --backend cpu, --np and --launcher are set here); `build` builds the cpu leg of
+# the tree (build.sh cpu --varset spacehpc_gnu); `analyze <work>` runs analyze.py on a work tree; '#' starts a comment.
+# Lines are expanded by the shell ($HOME, $W...).
+#
+#   qsub -q gpu4_std -l select=1:ngpus=4:ncpus=96:mpiprocs=96:mem=700gb -l place=excl -l walltime=08:00:00 \
+#        -v PLAN=/lustre/.../plan-cpu.txt,SPEEDUP_DIR=$HOME/adam-i160/src/tests/flume/speedup jobs/spacehpc-cpu.pbs
+#
+# The ranks: one per core (96: SMT is off, ncpus=96 is the whole node), bound to it, mapped core by core; the block pool
+# is capped by the job's memory cgroup (mem=700gb of the node's ~740 GB). The toolchain: gfortran 16.2.0 + Open MPI
+# 5.0.11 in $HOME (jobs/spacehpc-gnu-toolchain.pbs), as medooza's CPU leg. The GPUs are requested only to land on a
+# gpu4_std node; they stay idle.
+#PBS -N adam-cpu
+#PBS -j oe
+#PBS -o /lustre/projects/1026/CALCOLI/adam/speedup-133/logs/
+set -uo pipefail
+module purge
+module load python/3.11.14-cnapenc
+# shellcheck source=/dev/null
+source "$HOME/gnu/gnu.sh"
+export PATH=$HOME/.venv-fobis-3.19/bin:$PATH # FoBiS (installed offline from wheels: the login node has no internet)
+SPEEDUP_DIR=${SPEEDUP_DIR:-$HOME/adam/src/tests/flume/speedup}
+export W=${W:-/lustre/projects/1026/CALCOLI/adam/speedup-133} # the work root the plans name
+NP=${NP:-96}
+[[ -n ${PLAN:-} && -r $PLAN ]] || { echo "spacehpc-cpu.pbs: PLAN (a readable plan file) is required" >&2 ; exit 2 ; }
+echo "job $PBS_JOBID $(date -Is) $(hostname) plan $PLAN; $(gfortran --version | head -1); $(mpirun --version | head -1)"
+lscpu | grep -E '^(Model name|Socket|Core|Thread|NUMA node[0-9]* CPU)' || true
+echo "cpuset of the job: $(nproc) logical CPUs, $(taskset -cp $$ | sed 's/.*: //')"
+cat "$PLAN"
+LAUNCH="mpirun --bind-to core --map-by core --report-bindings --mca coll_hcoll_enable 0 -x ADAM_SEAM_TIMING -x PATH -x LD_LIBRARY_PATH -np"
+status=0
+while IFS= read -r line <&3; do
+   [[ -z ${line// } || $line == \#* ]] && continue
+   echo "=== $(date -Is) $line"
+   eval "set -- $line"
+   case "$1" in
+      build)   (cd "$SPEEDUP_DIR" && ./build.sh cpu --varset spacehpc_gnu --jobs 48) || status=1
+               ldd "$SPEEDUP_DIR/exe/cpu/adam_flume_cpu" | grep -q 'not found' && { echo "unresolved libraries" >&2 ; status=1 ; }
+               echo "build.txt: -mdaz-ftz $(grep -c -- -mdaz-ftz "$SPEEDUP_DIR/builds/cpu/build.txt") times" ;;
+      analyze) python3 -I "$SPEEDUP_DIR/analyze.py" --work "$2" --out "$2/results" || status=1 ;;
+      *)       "$SPEEDUP_DIR/run.sh" "$1" --backend cpu --np "$NP" --launcher "$LAUNCH" "${@:2}" < /dev/null || status=1 ;;
+   esac
+   [[ $status -eq 0 ]] || { echo "spacehpc-cpu.pbs: stopped at: $line" >&2 ; break ; }
+done 3< "$PLAN"
+echo "CPU-PLAN-DONE status $status $(date -Is)"
+exit $status

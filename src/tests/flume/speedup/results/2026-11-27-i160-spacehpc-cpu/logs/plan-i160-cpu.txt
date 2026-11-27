@@ -1,0 +1,6 @@
+# night 2026-11-27-i160-spacehpc-cpu (#160 1.1 + 1.2): build, plumbing (reduced 2a, 8 ranks), the windows of 2a, 3a, 1a on 96 ranks
+build
+chain --reduced --cases 2a --np 8 --work $W/cpu-plumb
+analyze $W/cpu-plumb
+windows --cases 2a,3a,1a --work $W/cpu
+analyze $W/cpu

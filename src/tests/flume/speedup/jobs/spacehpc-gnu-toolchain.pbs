@@ -1,0 +1,80 @@
+#!/bin/bash
+# The GNU toolchain of the CPU leg on ESA SpaceHPC (issue #160): Open MPI 5.0.11 and HDF5 2.3.0 (develop ab5df552) built
+# with gfortran 16.2.0, the toolchain of medooza's CPU leg, so that the two clusters' CPU nodes run the same compiler.
+#
+#   qsub -q cpu_std -l select=1:ncpus=32:mem=96gb -l walltime=02:00:00 jobs/spacehpc-gnu-toolchain.pbs
+#
+# Inputs (the login node has no internet; copied from medooza and WSL beforehand):
+#   ~/gnu/gcc-16.2.0                    medooza's GCC 16.2.0 install (/ifs/hpc/home/szaghi/gnu/gcc-16.2.0), copied as is:
+#                                       both clusters run RHEL 8 (glibc 2.28), and a GCC install is relocatable
+#   ~/gnu/src/openmpi-5.0.11.tar.bz2    the tarball medooza's Open MPI was built from
+#   ~/adam-build-src/hdf5src/           hdf5.tar.gz (develop ab5df552), zlib.tar.gz, szip.zip (as for spacehpc_nvf)
+# Outputs:
+#   ~/gnu/openmpi-5.0.11-gcc16.2.0      internal PMIx/PRRTE/hwloc/libevent, no UCX, no PBS TM: the CPU leg runs on one
+#                                       node, over shared memory, launched by mpirun on that node
+#   ~/gnu/gnu.sh                        the environment (source it after `module purge`), as medooza's gnu.sh
+#   ~/adam/lib/hdf5/develop/spacehpc/gnu/16.2.0/openmpi-5.0.11   the HDF5 of the varset spacehpc_gnu (fobos)
+#PBS -N adam-gnu
+#PBS -j oe
+#PBS -o /lustre/projects/1026/CALCOLI/adam/speedup-133/logs/
+set -euo pipefail
+module purge
+module load cmake/3.30.5-gcc-8.5.0-nkwoi4e
+G=$HOME/gnu
+GCC_ROOT=$G/gcc-16.2.0
+OMPI_ROOT=$G/openmpi-5.0.11-gcc16.2.0
+P=$HOME/adam/lib/hdf5/develop/spacehpc/gnu/16.2.0/openmpi-5.0.11
+SRC=$HOME/adam-build-src/hdf5src
+J=${NCPUS:-32}
+B=/tmp/gnu-build-${PBS_JOBID%%.*}
+stamp() { echo "=== $(date +%T) $*"; }
+echo "job ${PBS_JOBID:-} $(date -Is) $(hostname) $(lscpu | sed -n 's/^Model name: *//p')"
+[[ -x $GCC_ROOT/bin/gfortran ]] || { echo "no $GCC_ROOT (copy medooza's install first)" >&2; exit 2; }
+export PATH=$GCC_ROOT/bin:$PATH LD_LIBRARY_PATH=$GCC_ROOT/lib64
+gfortran --version | head -1
+rm -rf "$B" && mkdir -p "$B" && trap 'rm -rf "$B"' EXIT
+
+stamp "Open MPI 5.0.11"
+cd "$B" && tar -xjf "$G/src/openmpi-5.0.11.tar.bz2" && mkdir ompi && cd ompi
+../openmpi-5.0.11/configure --prefix="$OMPI_ROOT" CC=gcc CXX=g++ FC=gfortran LDFLAGS="-Wl,-rpath,$GCC_ROOT/lib64" \
+   --without-ucx --without-tm --with-pmix=internal --with-prrte=internal --with-hwloc=internal \
+   --with-libevent=internal > configure.log 2>&1 || { tail -40 configure.log; exit 3; }
+make -j"$J" > make.log 2>&1 || { grep -n -i -m20 error make.log; tail -40 make.log; exit 3; }
+make install > install.log 2>&1 || { tail -40 install.log; exit 3; }
+"$OMPI_ROOT/bin/ompi_info" | grep -E "Open MPI:|Fort use mpi_f08:|MCA btl:" || true
+
+stamp "gnu.sh"
+cat > "$G/gnu.sh" <<EOS
+# shellcheck shell=bash
+# GCC 16.2.0 (medooza's install, copied) + Open MPI 5.0.11 on ESA SpaceHPC: SOURCE this file after \`module purge\`.
+# Written by src/tests/flume/speedup/jobs/spacehpc-gnu-toolchain.pbs (ADAM, issue #160).
+PATH=$OMPI_ROOT/bin:$GCC_ROOT/bin:\$PATH
+LD_LIBRARY_PATH=$OMPI_ROOT/lib:$GCC_ROOT/lib64\${LD_LIBRARY_PATH:+:\$LD_LIBRARY_PATH}
+export PATH LD_LIBRARY_PATH
+export CC=gcc CXX=g++ FC=gfortran F77=gfortran F90=gfortran
+# Open MPI found the nodes' Mellanox hcoll and built coll/hcoll: it segfaults in MPI_Finalize (exit 139 after a correct
+# run), as on medooza's compute nodes; Open MPI's own collectives take over.
+export OMPI_MCA_coll_hcoll_enable=0
+EOS
+# shellcheck source=/dev/null
+source "$G/gnu.sh"
+mpifort --version | head -1
+
+stamp "HDF5 (szip, zlib, parallel HDF5 with Fortran, static)"
+rm -rf "$P" && mkdir -p "$P" && cd "$B"
+tar xzf $SRC/hdf5.tar.gz && mv hdf5-* hdf5; tar xzf $SRC/zlib.tar.gz && mv zlib-* zlib; unzip -q $SRC/szip.zip && mv szip-master szip
+( cd szip && CFLAGS='-O3' ./configure --prefix=$P/szip > ../szip.log 2>&1 && make -j 8 >> ../szip.log 2>&1 && make install >> ../szip.log 2>&1 )
+( cd zlib && CFLAGS='-O3 -fPIC' ./configure --prefix=$P/zlib > ../zlib.log 2>&1 && make -j 8 >> ../zlib.log 2>&1 && make install >> ../zlib.log 2>&1 )
+mkdir -p hdf5/build && cd hdf5/build
+CFLAGS="-fPIC" FCFLAGS="-fPIC" CC=mpicc FC=mpifort cmake ../ \
+   -DCMAKE_INSTALL_PREFIX:PATH=$P -DCMAKE_INSTALL_LIBDIR=lib -DCMAKE_BUILD_TYPE:STRING=Release \
+   -DBUILD_SHARED_LIBS:BOOL=OFF -DBUILD_STATIC_LIBS:BOOL=ON -DHDF5_ENABLE_PARALLEL:BOOL=ON -DHDF5_BUILD_FORTRAN:BOOL=ON \
+   -DZLIB_LIBRARY:FILEPATH=$P/zlib/lib/libz.a -DZLIB_INCLUDE_DIR:PATH=$P/zlib/include -DZLIB_USE_EXTERNAL:BOOL=OFF \
+   -DSZIP_LIBRARY:FILEPATH=$P/szip/lib/libsz.a -DSZIP_INCLUDE_DIR:PATH=$P/szip/include \
+   -Dlibaec_LIBRARY:FILEPATH=$P/szip/lib/libsz.a -Dlibaec_INCLUDE_DIR:PATH=$P/szip/include -DSZIP_USE_EXTERNAL:BOOL=OFF \
+   > ../../cmake.log 2>&1 || { tail -40 ../../cmake.log; exit 4; }
+cmake --build . --config Release -j "$J" > ../../build.log 2>&1 || { tail -40 ../../build.log; exit 4; }
+make install > ../../install.log 2>&1 || { tail -20 ../../install.log; exit 4; }
+cp "$B"/*.log "$P"/ 2>/dev/null || true
+grep -E "HDF5 Version|Fortran Compiler:|Parallel HDF5" "$P/lib/libhdf5.settings" | head -5
+stamp "GNU-TOOLCHAIN-DONE"

@@ -1,0 +1,47 @@
+start 2026-11-27T09:04:31+01:00 on gnode20.e4-cluster.lan, job 1370499; GNU Fortran (GCC) 16.2.0
+Thread(s) per core:  1
+Core(s) per socket:  32
+Socket(s):           2
+Model name:          Intel(R) Xeon(R) Gold 6338 CPU @ 2.00GHz
+error: gpg failed to sign the data
+fatal: failed to write commit object
+BUILD rc 0 after 153 s; mdaz-ftz in build.txt: 1
+>> windows, cpu, 64 ranks: 1a-step-uniform 3a-channel-uniform -> windows/cpu-np64
+   /ifs/hpc/home/szaghi/adam-tests/speedup-133/i160/work/dumps/leg1/warmup/step-A-restart: step 34672, time 2.0, 256 blocks on 4 ranks [64, 64, 64, 64], ratio 4, also .reference
+      -> /ifs/hpc/home/szaghi/adam-tests/speedup-133/i160/work/windows/cpu-np64/1a-step-uniform/dump/step-A-restart: 64 ranks, rule siblings, blocks per rank [4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4]
+   /ifs/hpc/home/szaghi/adam-tests/speedup-133/i160/work/dumps/leg1/warmup/step-B-restart: step 34672, time 2.0, 256 blocks on 4 ranks [64, 64, 64, 64], ratio 4, also .reference
+      -> /ifs/hpc/home/szaghi/adam-tests/speedup-133/i160/work/windows/cpu-np64/1a-step-uniform/dump/step-B-restart: 64 ranks, rule siblings, blocks per rank [4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4]
+   /ifs/hpc/home/szaghi/adam-tests/speedup-133/i160/work/dumps/leg1/warmup/step-C-restart: step 34672, time 2.0, 256 blocks on 4 ranks [64, 64, 64, 64], ratio 4, also .reference
+      -> /ifs/hpc/home/szaghi/adam-tests/speedup-133/i160/work/windows/cpu-np64/1a-step-uniform/dump/step-C-restart: 64 ranks, rule siblings, blocks per rank [4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4]
+   /ifs/hpc/home/szaghi/adam-tests/speedup-133/i160/work/dumps/leg3/warmup/channel-restart: step 51626, time 150.0, 512 blocks on 4 ranks [128, 128, 128, 128], ratio 8, also .reference
+      -> /ifs/hpc/home/szaghi/adam-tests/speedup-133/i160/work/windows/cpu-np64/3a-channel-uniform/dump/channel-restart: 64 ranks, rule siblings, blocks per rank [8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8]
+   windows/cpu-np64/1a-step-uniform/r1-n10: wall 56.187 s, exit 0
+      forest timing (max over ranks, s): loop    12.7192, steps    12.6775, imbalance before reflux     0.1664, reflux reduce     0.0125, reflux apply     0.0008, seam imbalance     0.7362, seam wait     0.0026; 32 register faces
+   windows/cpu-np64/1a-step-uniform/r1-n110: wall 250.406 s, exit 0
+      forest timing (max over ranks, s): loop   133.1020, steps   132.6451, imbalance before reflux     0.5812, reflux reduce     0.1161, reflux apply     0.0089, seam imbalance     2.2573, seam wait     0.0264; 32 register faces
+   windows/cpu-np64/3a-channel-uniform/r1-n10: wall 51.430 s, exit 0
+      forest timing (max over ranks, s): loop    35.2012, steps    35.1213, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/cpu-np64/3a-channel-uniform/r1-n110: wall 437.898 s, exit 0
+      forest timing (max over ranks, s): loop   392.5084, steps   387.1041, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/cpu-np64/1a-step-uniform/r2-n10: wall 191.580 s, exit 0
+      forest timing (max over ranks, s): loop    12.4917, steps    12.4543, imbalance before reflux     0.1204, reflux reduce     0.0131, reflux apply     0.0008, seam imbalance     0.5117, seam wait     0.0024; 32 register faces
+   windows/cpu-np64/1a-step-uniform/r2-n110: wall 160.251 s, exit 0
+      forest timing (max over ranks, s): loop   134.8081, steps   134.3266, imbalance before reflux     0.9116, reflux reduce     0.1225, reflux apply     0.0092, seam imbalance     3.4506, seam wait     0.0333; 32 register faces
+   windows/cpu-np64/3a-channel-uniform/r2-n10: wall 522.162 s, exit 0
+      forest timing (max over ranks, s): loop    35.6966, steps    35.6272, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/cpu-np64/3a-channel-uniform/r2-n110: wall 451.710 s, exit 0
+      forest timing (max over ranks, s): loop   416.9243, steps   412.3846, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/cpu-np64/1a-step-uniform/r3-n10: wall 90.683 s, exit 0
+      forest timing (max over ranks, s): loop    12.5671, steps    12.5265, imbalance before reflux     0.1375, reflux reduce     0.0130, reflux apply     0.0008, seam imbalance     0.5774, seam wait     0.0022; 32 register faces
+   windows/cpu-np64/1a-step-uniform/r3-n110: wall 174.811 s, exit 0
+      forest timing (max over ranks, s): loop   138.5439, steps   138.0697, imbalance before reflux     1.8766, reflux reduce     0.1136, reflux apply     0.0096, seam imbalance     7.4937, seam wait     0.0348; 32 register faces
+   windows/cpu-np64/3a-channel-uniform/r3-n10: wall 67.290 s, exit 0
+      forest timing (max over ranks, s): loop    35.4573, steps    34.9489, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/cpu-np64/3a-channel-uniform/r3-n110: wall 501.757 s, exit 0
+      forest timing (max over ranks, s): loop   394.4681, steps   388.5056, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+run.sh: done (windows, cpu, 64 ranks, work /ifs/hpc/home/szaghi/adam-tests/speedup-133/i160/work)
+WINDOWS rc 0 after 3003 s
+ANALYZE rc 0
+| 1 | 1a-step-uniform | U | cpu | 64 | 1.223 | 4.6% (!) | 1.219 | 0.004113 | 0.00073 | 4,128,768 | 64,512 | 1.9e+04 |
+| 3 | 3a-channel-uniform | U | cpu | 64 | 3.59 | 6.7% (!) | 3.536 | 0.1288 | 0 | 6,291,456 | 98,304 | 3.65e+04 |
+I160-MDZ-DONE 2026-11-27T09:58:37+01:00
