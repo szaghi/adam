@@ -69,8 +69,9 @@
    !$acc& private(qsx,qsy,qsz,qac,flo,dlt,qb,dsrc,s_lo,s_hi,dc,qt,ds,w,rb,eb,er,ee,r1,e1,t,lc,dtdx,nf,isnf,sl,cc)     &
    !$acc& private(gfr,gfl,gfc,cs2)
    !$omp OMPLOOP collapse(4) reduction(+:bad,nonfinite) &
+   !$omp& map(to:g,is_null) &
    !$omp& DEVICEPTR(dxyz_gpu,q_gpu,q_aux_gpu,flx_gpu,fly_gpu,flz_gpu,gc_gpu,lam_gpu,phi_gpu) &
-   !$omp& firstprivate(ni,nj,nk,blocks_number,gamma,ch,damping,hs,dt,g,is_null,has_phi) &
+   !$omp& firstprivate(ni,nj,nk,blocks_number,gamma,ch,damping,hs,dt,has_phi) &
    !$omp& private(qsx,qsy,qsz,qac,flo,dlt,qb,dsrc,s_lo,s_hi,dc,qt,ds,w,rb,eb,er,ee,r1,e1,t,lc,dtdx,nf,isnf,sl,cc) &
    !$omp& private(gfr,gfl,gfc,cs2)
    do k=1, nk

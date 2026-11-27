@@ -40,8 +40,9 @@
    !$acc& firstprivate(d,di,dj,dk,ni,nj,nk,blocks_number,gamma,ch,is_characteristic,weno_zeps,weno_sigma,cc,tau) &
    !$acc& private(qs,qas,fint,er,mu,vp,vm,wr,vr,qL,qR,fr,fc,wmin,sensor,fallback)
    !$omp OMPLOOP collapse(4) reduction(+:fallbacks) &
+   !$omp& map(to:cc) &
    !$omp& DEVICEPTR(q_gpu,q_aux_gpu,fl_gpu)                                  &
-   !$omp& firstprivate(d,di,dj,dk,ni,nj,nk,blocks_number,gamma,ch,is_characteristic,weno_zeps,weno_sigma,cc,tau) &
+   !$omp& firstprivate(d,di,dj,dk,ni,nj,nk,blocks_number,gamma,ch,is_characteristic,weno_zeps,weno_sigma,tau) &
    !$omp& private(qs,qas,fint,er,mu,vp,vm,wr,vr,qL,qR,fr,fc,wmin,sensor,fallback)
    do k=1-dk, nk
    do j=1-dj, nj

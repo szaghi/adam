@@ -883,8 +883,9 @@ contains
    !$acc& firstprivate(wall_velocity,wall_temperature,nr_par,sg_par,g,has_phi) &
    !$acc& private(b,c,i,j,k,idelta,jdelta,kdelta,bc_type,fec,face,iref,jref,kref,qd,qw,i1,j1,k1,dd,q1,ws,gs)
    !$omp OMPLOOP DEVICEPTR(local_map_bc_crown_gpu,bc_rows_gpu,q_inflow_gpu,wall_sign_gpu,dxyz_gpu,x_cell_gpu,q_gpu,phi_gpu) &
-   !$omp& firstprivate(ni,nj,nk,nv,nv_mhd,nv_entropy,crown,pass,face_kind,gamma,R,psi_energy) &
-   !$omp& firstprivate(wall_velocity,wall_temperature,nr_par,sg_par,g,has_phi) &
+   !$omp& map(to:face_kind,wall_velocity,wall_temperature,nr_par,sg_par,g) &
+   !$omp& firstprivate(ni,nj,nk,nv,nv_mhd,nv_entropy,crown,pass,gamma,R,psi_energy) &
+   !$omp& firstprivate(has_phi) &
    !$omp& private(b,c,i,j,k,idelta,jdelta,kdelta,bc_type,fec,face,iref,jref,kref,qd,qw,i1,j1,k1,dd,q1,ws,gs)
    do row=row_first, row_last
       c = bc_rows_gpu(row,crown)
@@ -1047,7 +1048,8 @@ contains
    !$acc& firstprivate(ni,nj,nk,blocks_number,n_nodes,t_nodes,l_nodes,alpha,y_nodes,gamma,R,dy_rate,dt)             &
    !$acc& private(ke,e,e_new) reduction(+:s1)
    !$omp OMPLOOP collapse(4) DEVICEPTR(dxyz_gpu,q_gpu)                                                                &
-   !$omp& firstprivate(ni,nj,nk,blocks_number,n_nodes,t_nodes,l_nodes,alpha,y_nodes,gamma,R,dy_rate,dt)             &
+   !$omp& map(to:t_nodes,l_nodes,alpha,y_nodes) &
+   !$omp& firstprivate(ni,nj,nk,blocks_number,n_nodes,gamma,R,dy_rate,dt) &
    !$omp& private(ke,e,e_new) reduction(+:s1)
    do k=1, nk
    do j=1, nj
@@ -1096,7 +1098,8 @@ contains
    !$acc& firstprivate(ni,nj,nk,blocks_number,n_nodes,t_nodes,l_nodes,alpha,y_nodes,gamma,R,dy_rate,dt)             &
    !$acc& private(ke,e,e_new) reduction(+:s1)
    !$omp OMPLOOP collapse(4) DEVICEPTR(dxyz_gpu,q_gpu)                                                                &
-   !$omp& firstprivate(ni,nj,nk,blocks_number,n_nodes,t_nodes,l_nodes,alpha,y_nodes,gamma,R,dy_rate,dt)             &
+   !$omp& map(to:t_nodes,l_nodes,alpha,y_nodes) &
+   !$omp& firstprivate(ni,nj,nk,blocks_number,n_nodes,gamma,R,dy_rate,dt) &
    !$omp& private(ke,e,e_new) reduction(+:s1)
    do k=1, nk
    do j=1, nj
@@ -1143,7 +1146,8 @@ contains
    !$acc& firstprivate(ni,nj,nk,blocks_number,n_nodes,t_nodes,l_nodes,alpha,gamma,R,particle_mass)                   &
    !$acc& private(e,lambda) reduction(min:tc)
    !$omp OMPLOOP collapse(4) DEVICEPTR(q_gpu)                                                                         &
-   !$omp& firstprivate(ni,nj,nk,blocks_number,n_nodes,t_nodes,l_nodes,alpha,gamma,R,particle_mass)                   &
+   !$omp& map(to:t_nodes,l_nodes,alpha) &
+   !$omp& firstprivate(ni,nj,nk,blocks_number,n_nodes,gamma,R,particle_mass) &
    !$omp& private(e,lambda) reduction(min:tc)
    do k=1, nk
    do j=1, nj

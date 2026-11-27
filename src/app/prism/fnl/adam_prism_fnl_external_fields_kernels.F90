@@ -433,8 +433,9 @@ contains
       !$acc&              displacement_scale) &
       !$acc& private(idx,sample,sign_D,sign_B,value,coord,x,y,r,theta,phase,br,bt,c,s,axis,m)
       !$omp OMPLOOP collapse(3) &
+      !$omp& map(to:faces,naxis) &
       !$omp& DEVICEPTR(q_gpu,x_cell_gpu,y_cell_gpu,z_cell_gpu) &
-      !$omp& firstprivate(b,faces,field_kind,factor,time_stage,alpha,beta,gamma,uniform_axis,omega,d_amp,b_amp,rmf_amp,naxis, &
+      !$omp& firstprivate(b,field_kind,factor,time_stage,alpha,beta,gamma,uniform_axis,omega,d_amp,b_amp,rmf_amp, &
       !$omp&              displacement_scale) &
       !$omp& private(idx,sample,sign_D,sign_B,value,coord,x,y,r,theta,phase,br,bt,c,s,axis,m)
       do k=1-ngc,nk+ngc

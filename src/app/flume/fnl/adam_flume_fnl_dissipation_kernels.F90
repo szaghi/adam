@@ -61,7 +61,8 @@ contains
    !$acc& firstprivate(d,di,dj,dk,ni,nj,nk,blocks_number,mu0,k0,tref,suth, omega_mu,omega_k,iw,s1,s2,s3,w1,w2,w3)       &
    !$acc& private(ot,rdx,wl,wr,g,wf,h)
    !$omp OMPLOOP collapse(4) DEVICEPTR(dxyz_gpu,q_aux_gpu,fl_gpu)                                                   &
-   !$omp& firstprivate(d,di,dj,dk,ni,nj,nk,blocks_number,mu0,k0,tref,suth, omega_mu,omega_k,iw,s1,s2,s3,w1,w2,w3)       &
+   !$omp& map(to:iw) &
+   !$omp& firstprivate(d,di,dj,dk,ni,nj,nk,blocks_number,mu0,k0,tref,suth, omega_mu,omega_k,s1,s2,s3,w1,w2,w3) &
    !$omp& private(ot,rdx,wl,wr,g,wf,h)
    do k=1-dk, nk
    do j=1-dj, nj
@@ -141,7 +142,8 @@ contains
    !$acc& firstprivate(d,di,dj,dk,ni,nj,nk,blocks_number,mu0,k0,tref,suth, omega_mu,omega_k,iw,s1,s2,s3,w1,w2,w3)       &
    !$acc& private(ot,c,rdx,wm,dm,g,gm,wf,h,hc)
    !$omp OMPLOOP collapse(4) DEVICEPTR(dxyz_gpu,q_aux_gpu,fl_gpu)                                                   &
-   !$omp& firstprivate(d,di,dj,dk,ni,nj,nk,blocks_number,mu0,k0,tref,suth, omega_mu,omega_k,iw,s1,s2,s3,w1,w2,w3)       &
+   !$omp& map(to:iw) &
+   !$omp& firstprivate(d,di,dj,dk,ni,nj,nk,blocks_number,mu0,k0,tref,suth, omega_mu,omega_k,s1,s2,s3,w1,w2,w3) &
    !$omp& private(ot,c,rdx,wm,dm,g,gm,wf,h,hc)
    do k=1-dk, nk
    do j=1-dj, nj
@@ -262,7 +264,8 @@ contains
    !$acc& firstprivate(d,di,dj,dk,ni,nj,nk,blocks_number,cp_prt,iw,s1,s2,s3,w1,w2,w3)       &
    !$acc& private(mf,ot,rdx,wl,wr,g,wf,h)
    !$omp OMPLOOP collapse(4) DEVICEPTR(dxyz_gpu,q_aux_gpu,mu_t_gpu,fl_gpu)                                                   &
-   !$omp& firstprivate(d,di,dj,dk,ni,nj,nk,blocks_number,cp_prt,iw,s1,s2,s3,w1,w2,w3)       &
+   !$omp& map(to:iw) &
+   !$omp& firstprivate(d,di,dj,dk,ni,nj,nk,blocks_number,cp_prt,s1,s2,s3,w1,w2,w3) &
    !$omp& private(mf,ot,rdx,wl,wr,g,wf,h)
    do k=1-dk, nk
    do j=1-dj, nj
@@ -348,7 +351,8 @@ contains
    !$acc& firstprivate(d,di,dj,dk,ni,nj,nk,blocks_number,cp_prt,iw,s1,s2,s3,w1,w2,w3)       &
    !$acc& private(mf,ot,c,rdx,wm,dm,g,gm,wf,h,hc)
    !$omp OMPLOOP collapse(4) DEVICEPTR(dxyz_gpu,q_aux_gpu,mu_t_gpu,fl_gpu)                                                   &
-   !$omp& firstprivate(d,di,dj,dk,ni,nj,nk,blocks_number,cp_prt,iw,s1,s2,s3,w1,w2,w3)       &
+   !$omp& map(to:iw) &
+   !$omp& firstprivate(d,di,dj,dk,ni,nj,nk,blocks_number,cp_prt,s1,s2,s3,w1,w2,w3) &
    !$omp& private(mf,ot,c,rdx,wm,dm,g,gm,wf,h,hc)
    do k=1-dk, nk
    do j=1-dj, nj
@@ -616,7 +620,8 @@ contains
    !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(dxyz_gpu,q_aux_gpu,fl_gpu) &
    !$acc& firstprivate(d,di,dj,dk,ni,nj,nk,blocks_number,eta,ib,s1,s2,s3,w1,w2,w3) private(ot,rdx,bl,br,g,bf,h)
    !$omp OMPLOOP collapse(4) DEVICEPTR(dxyz_gpu,q_aux_gpu,fl_gpu) &
-   !$omp& firstprivate(d,di,dj,dk,ni,nj,nk,blocks_number,eta,ib,s1,s2,s3,w1,w2,w3) private(ot,rdx,bl,br,g,bf,h)
+   !$omp& map(to:ib) &
+   !$omp& firstprivate(d,di,dj,dk,ni,nj,nk,blocks_number,eta,s1,s2,s3,w1,w2,w3) private(ot,rdx,bl,br,g,bf,h)
    do k=1-dk, nk
    do j=1-dj, nj
    do i=1-di, ni
@@ -696,7 +701,8 @@ contains
    !$acc& firstprivate(d,di,dj,dk,ni,nj,nk,blocks_number,eta,ib,s1,s2,s3,w1,w2,w3)                          &
    !$acc& private(ot,c,rdx,bm,dm,g,gm,bf,h,hc)
    !$omp OMPLOOP collapse(4) DEVICEPTR(dxyz_gpu,q_aux_gpu,fl_gpu)                                             &
-   !$omp& firstprivate(d,di,dj,dk,ni,nj,nk,blocks_number,eta,ib,s1,s2,s3,w1,w2,w3)                          &
+   !$omp& map(to:ib) &
+   !$omp& firstprivate(d,di,dj,dk,ni,nj,nk,blocks_number,eta,s1,s2,s3,w1,w2,w3) &
    !$omp& private(ot,c,rdx,bm,dm,g,gm,bf,h,hc)
    do k=1-dk, nk
    do j=1-dj, nj

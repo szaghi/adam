@@ -46,7 +46,8 @@
    !$acc& firstprivate(d,di,dj,dk,nd,n1,n2,blocks_number,gamma,ch,is_characteristic,weno_zeps,weno_sigma,cc,tau, &
    !$acc& ir,gd) private(qs,qas,fint,er,mu,vp,vm,wr,vr,qL,qR,fr,fc,wmin,sensor,fm,fallback,fd,cd,i,j,k)
    !$omp OMPLOOP collapse(3) DEVICEPTR(q_gpu,q_aux_gpu,gc_gpu)                                  &
-   !$omp& firstprivate(d,di,dj,dk,nd,n1,n2,blocks_number,gamma,ch,is_characteristic,weno_zeps,weno_sigma,cc,tau,ir,gd) &
+   !$omp& map(to:cc) &
+   !$omp& firstprivate(d,di,dj,dk,nd,n1,n2,blocks_number,gamma,ch,is_characteristic,weno_zeps,weno_sigma,tau,ir,gd) &
    !$omp& private(qs,qas,fint,er,mu,vp,vm,wr,vr,qL,qR,fr,fc,wmin,sensor,fm,fallback,fd,cd,i,j,k)
    do t2=1, n2
    do t1=1, n1
