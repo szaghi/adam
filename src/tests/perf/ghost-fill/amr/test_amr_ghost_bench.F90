@@ -1,161 +1,16 @@
 !< AMR ghost-fill benchmark (2:1 neighbourhoods): ADAM's local ghost fill on a real 2:1 grid against descriptor kernels.
-program test_amr_ghost_bench
-!< AMR ghost-fill benchmark (2:1 neighbourhoods, 2026-11-25): ADAM's local ghost fill on a real 2:1 grid, built by
-!< ADAM's own tree, grid and maps objects, against kernels that run over ADAM's descriptor table instead of its
-!< per-cell rows. The uniform benchmark (`../ghost_fill_bench.F90`) showed the per-cell map costs a factor 3-5.5 on
-!< same-level copies; this one asks whether that holds where a row is an interpolation or a restriction stencil.
-!<
-!< The grid: the unit cube, octree, blocks of b^3 cells (5 variables, ngc 3), refined uniformly to level `base`, then one
-!< more level on every block inside the box [0,s]^3 (s = `box`): 2:1 faces, edges and corners around the box. Domain
-!< boundaries are not exchanged (their ghosts are boundary-condition rows, not local ones). The density guard of the
-!< seam fill (#101, `maps%seam_density_var` = 1) is on, as in FLUME. The field is smooth and positive.
-!<
-!< ADAM builds a table `maps%local_map_ghost(f, 1:13)`: one descriptor per (receiver block, donor block, region), its
-!< ranges, its index shifts and its refinement relation (`portion`: 0 same level, > 0 finer donor, < 0 coarser donor),
-!< then expands it into `maps%local_map_ghost_cell`, one row per ghost cell with its seam metadata, deduplicated so the
-!< last descriptor covering a ghost wins (#22 F1). Only the rows go to the GPU. Variants:
-!<   V0   update_ghost_local_gpu_dev on the rows: today, the real kernel, one launch over ADAM's rows (since #157 A1 the
-!<        rows are sorted by kind, and since #157 B2 the density guard's part of every fine ghost is computed once, by a
-!<        first kernel over the prolongation rows);
-!<   V0p  the kernel before #157 B2 on the same rows: the guard recomputed for every (fine ghost, variable) by a
-!<        verbatim copy of interp_seam_ghost_gpu_dev at b8641a59 (interp_seam_ghost_b8641a59, below); the before of B2
-!<        in the same run, and its bitwise check;
-!<   V0s  the same kernel on the rows split by kind, one launch per kind (copy / prolongation / restriction): how much
-!<        of today's cost is the mixing (warp divergence between a copy and a 216-point stencil);
-!<   D1   one kernel per kind over the descriptors: the work items of each descriptor decoded from its ranges, the seam
-!<        metadata computed on the device by ADAM's own pure routines, the value by ADAM's own operators
-!<        (interp_seam_ghost_gpu_dev, restrict_seam_high_order_gpu_dev, the mean as in V0);
-!<   D2   D1 with the descriptors batched into shape classes (same kind, ranges and shifts: only the blocks differ), the
-!<        member innermost so that consecutive threads touch consecutive blocks (the uniform benchmark's V3/V5 layout);
-!<   V0ng V0 with the density guard off (timing of the interpolation alone, and the reference of D3);
-!<   D3   prolongation per coarse anchor (tricubic only, guard off): the union of its children's 4^3 footprints gathered
-!<        once, then every child interpolated by ADAM's seam_interpolate_tricubic on its slice: the reads the 8 children
-!<        of one anchor share are made once; bitwise equal to V0ng's prolongation.
-!< Overlapping descriptors: an owner mask (int32 per stored cell of every block, built on the host from the descriptor
-!< order) gives each ghost the descriptor that wins; D1/D2 write a ghost only from its owner. This is ADAM's
-!< last-writer rule, so every variant must equal V0 bit for bit; each is checked after its timing.
-!<
-!< Usage: test_amr_ghost_bench b base box fill restriction nrep mem_gb [fields]
-!<   fields: the block-sized fields realm_object%initialize budgets per block (default 170, its own default): the
-!<   block capacity is 0.85 mem_gb / (fields x block bytes); a larger grid needs fewer fields or more memory
-!<   fill:        tricubic | quintic | weno6 | quintic-mp        restriction: mean | lagrange6 | weno6
-!< Output: the grid and its descriptor and row counts by kind, then per variant the median time of a fill (and per kind
-!< for V0s, D1, D2), and the bitwise check.
-
-#include "fundal.H"
-use :: adam_common_library,             only : realm_object
-use :: adam_parameters,                 only : TO_BE_REFINED, TO_NOT_TOUCH
-use :: adam_mpih_global,                only : mpih
-use :: adam_fnl_field_object,           only : field_fnl_object
-use :: adam_fnl_field_kernels,          only : update_ghost_local_copy_gpu_dev
-use :: adam_fnl_field_kernels,          only : update_ghost_local_gpu_dev, interp_seam_ghost_gpu_dev, &
-                                               interp_seam_value_gpu_dev, seam_guard_density_gpu_dev,  &
-                                               seam_guard_value_gpu_dev, restrict_seam_high_order_gpu_dev
-use :: adam_fnl_mpih_global,            only : mpih_fnl
-use :: adam_seam_interpolation_library, only : SEAM_FILL_TRICUBIC, seam_interpolate_tricubic, SEAM_DENSITY_GUARD, &
-                                               seam_meta_unpack, seam_mp_bound, seam_bracket_nodes, seam_bracket_range
-use :: adam_seam_interpolation_library, only : SEAM_RESTRICT_MEAN, SEAM_SUB_COINCIDENT, seam_shift_anchor_pos,      &
-                                               seam_tricubic_centered_pos, seam_compatible_centered_pos,            &
-                                               seam_quintic_centered_pos, seam_meta_pack, seam_restriction_code,   &
-                                               seam_restriction_meta_pack
-use :: fundal
-use :: iso_c_binding,                   only : c_ptr, c_loc, c_f_pointer
-use :: mpi
-use :: penf,                            only : I4P, I8P, R8P, str
+module amr_ghost_bench_kernels
+!< The benchmark's own device routines, in a module: flang does not lower a call to an internal procedure (a `contains` of
+!< the program) from inside a target region ("'fir.call' op using value defined outside the region"), see
+!< docs/developer/fnl.md; nvfortran accepts both forms.
+use :: adam_fnl_field_kernels,          only : interp_seam_value_gpu_dev
+use :: adam_seam_interpolation_library, only : SEAM_DENSITY_GUARD, SEAM_SUB_COINCIDENT, seam_meta_unpack, seam_mp_bound, &
+                                               seam_bracket_nodes, seam_bracket_range
+use :: penf,                            only : I4P, R8P
 
 implicit none
-
-integer(I4P), parameter :: NV = 5_I4P              !< Variables (FLUME Euler).
-integer(I4P), parameter :: KCOPY = 0_I4P           !< Kind: same-level copy.
-integer(I4P), parameter :: KREST = 1_I4P           !< Kind: fine->coarse restriction (finer donor).
-integer(I4P), parameter :: KPROL = 2_I4P           !< Kind: coarse->fine prolongation (coarser donor).
-character(len=13), parameter :: KNAME(0:2) = [character(len=13) :: 'copy', 'restriction', 'prolongation']
-
-type(realm_object)          :: realm                !< The realm.
-type(field_fnl_object)      :: field_fnl            !< FNL field helper.
-real(R8P), pointer          :: q_gpu(:,:,:,:,:)     !< Device field (b, i, j, k, v).
-real(R8P),    allocatable   :: q(:,:,:,:,:)         !< Host field (v, i, j, k, b).
-real(R8P),    allocatable   :: q_t(:,:,:,:,:)       !< Host transposed field (b, i, j, k, v), the initial state.
-real(R8P),    allocatable   :: q_ref(:,:,:,:,:)     !< V0's result (b, i, j, k, v).
-real(R8P),    allocatable   :: q_chk(:,:,:,:,:)     !< A variant's result.
-integer(I4P)                :: b, nb, ngc, n, base, nrep, ri, rj, rk, fill, restr, ierr, nfields
-real(R8P)                   :: box, mem_gb
-character(len=32)           :: arg, fill_name, restr_name
-character(:), allocatable   :: filename
-! descriptors (from maps%local_map_ghost), host and device
-integer(I4P)                :: nf                   !< Descriptors.
-integer(I4P), allocatable   :: dbr(:), dbs(:), dkind(:), dlo(:,:), dhi(:,:), ddl(:,:)
-integer(I4P), allocatable   :: owner(:,:,:,:)       !< Winning descriptor per stored cell of every block (0: none).
-! D1: per kind, the descriptor list and the prefix of its work items
-integer(I4P)                :: d1n(0:2)             !< Descriptors per kind.
-integer(I4P), allocatable   :: d1l(:), d1p(:)       !< Concatenated lists and prefixes (kind segments).
-integer(I4P)                :: d1o(0:3)             !< Segment offsets into d1l.
-integer(I4P)                :: d1w(0:2)             !< Work items per kind.
-integer(I4P), allocatable   :: d3p(:)               !< D3: prefix of the anchors of the prolongation descriptors.
-integer(I4P)                :: d3w                  !< D3: anchors.
-! D2: shape classes
-integer(I4P)                :: ncls                 !< Classes.
-integer(I4P), allocatable   :: crep(:), cnm(:), cmo(:), cmem(:), cpre(:) !< Representative, members, member offset, members, prefix.
-integer(I4P)                :: c2o(0:3)             !< Class segment offsets per kind.
-integer(I4P)                :: c2w(0:2)             !< Work items per kind.
-! V0s: rows split by kind
-integer(I8P), pointer       :: rows_k0(:,:) => null(), rows_k1(:,:) => null(), rows_k2(:,:) => null()
-integer(I4P)                :: nrows_k(0:2)
-real(R8P),    pointer       :: rho_k(:) => null()   !< The guard's scratch of rows_k2 (V0s).
-integer(I4P), pointer       :: prol_k(:) => null()  !< The flag-4 rows of rows_k2: all of them (V0s).
-integer(I4P), pointer       :: no_rows(:) => null() !< No flag-4 rows (V0s copy and restriction launches, V0ng).
-! V0k: ADAM's rows sorted by kind (copy, restriction, prolongation), stably
-integer(I8P), pointer       :: rows_kind(:,:) => null()
-integer(I4P), pointer       :: prol_kind(:) => null()
-real(R8P),    pointer       :: rho_kind(:) => null()
-! C (#157 C): compact rows, three int32 per row: the donor and receiver cell offsets in one variable plane of q_gpu
-! (b fastest), and 0 for a copy or the row's index in ADAM's map for a restriction or a prolongation (its stencil reads
-! the full row); in ADAM's order (Ca) and sorted by receiver offset, so that the receiving block runs fastest (Cb)
-integer(I4P), pointer       :: ca_s(:) => null(), ca_r(:) => null(), ca_x(:) => null()
-integer(I4P), pointer       :: cb_s(:) => null(), cb_r(:) => null(), cb_x(:) => null()
-integer(I4P), pointer       :: cc_s(:) => null(), cc_r(:) => null(), cc_x(:) => null()
-integer(I4P), pointer       :: ce_s(:) => null(), ce_r(:) => null(), ce_x(:) => null() !< Ce: prolongations, restrictions,
-                                                                                     !< then copies, block fastest.
-integer(I4P), pointer       :: cf_s(:) => null(), cf_r(:) => null(), cf_x(:) => null() !< Cf: the heavy rows in ADAM's
-                                                                                     !< order, then the copies, block fastest.
-integer(I4P), pointer       :: cg_s(:) => null(), cg_r(:) => null(), cg_x(:) => null() !< Cg: the copies, block fastest, then
-                                                                                     !< the heavy rows in ADAM's order.
-real(R8P),    pointer       :: q_flat(:) => null()  !< q_gpu seen as one array (the same device memory).
-integer(I4P), pointer       :: hh_s(:) => null(), hh_r(:) => null(), hh_x(:) => null() !< The heavy rows alone, ADAM's
-                                                                                     !< order (Ch's first launch).
-integer(I4P), pointer       :: kp(:,:) => null()          !< Kp: the copy rows as (donor b, donor ijk, receiver b,
-                                                          !< receiver ijk), ijk packed 10 bits each (+512), sorted as Kb.
-integer(I8P), pointer       :: heavy_rows(:,:) => null() !< Ci: ADAM's rows without the copies, ADAM's order.
-integer(I4P), pointer       :: full_prol(:) => null()    !< C*: the flag-4 rows of ADAM's full map (since #157 C4 the
-real(R8P),    pointer       :: full_rho(:) => null()     !< maps' own list and scratch index its heavy rows), scratch.
-integer(I4P), pointer       :: heavy_prol(:) => null()   !< Ci: its flag-4 rows.
-real(R8P),    pointer       :: heavy_rho(:) => null()    !< Ci: the guard's scratch per row.
-integer(I4P), pointer       :: ka_s(:) => null(), ka_r(:) => null() !< The copy rows alone, ADAM's order (Ka).
-integer(I4P), pointer       :: kb_s(:) => null(), kb_r(:) => null() !< The copy rows alone, receiver block fastest (Kb).
-integer(I4P), pointer       :: kd_s(:) => null(), kd_r(:) => null() !< The copy rows alone, donor block fastest (Kd).
-integer(I4P)                :: plane                !< Cells of one variable plane of q_gpu (with the ghosts).
-real(R8P),    allocatable   :: t(:)
-
-call mpih%initialize(do_mpi_init=.true., do_device_init=.false.)
-call mpih_fnl%initialize(do_mpi_init=.false., do_device_init=.true.)
-call get_args()
-call build_realm()
-call describe()
-call build_device_state()
-allocate(t(nrep))
-
-call time_v0()
-call build_compact()
-call time_c()
-call time_k()
-call time_v0p()
-call time_v0k()
-call time_v0s()
-call time_d(2_I4P)
-call time_d(1_I4P)
-call time_v0ng_d3()
-call time_parts()
-call mpih%finalize
+private
+public :: interp_seam_ghost_b8641a59, guard_density_nomp, guard_value_nomp
 
 contains
    pure function interp_seam_ghost_b8641a59(regime, meta, ngc, q_gpu, v, b_send, i_send, j_send, k_send, density_var) &
@@ -256,6 +111,223 @@ contains
       endif
    endif
    endfunction interp_seam_ghost_b8641a59
+
+   pure function guard_density_nomp(meta, ngc_, qd, b, i, j, k, rho_in) result(rho)
+   !< seam_guard_density_gpu_dev without the MP bound (diagnostic): the density clamped to its bracketing cells' range.
+   integer(I4P), intent(in) :: meta, ngc_, b, i, j, k
+   real(R8P),    intent(in) :: qd(1:,1-ngc_:,1-ngc_:,1-ngc_:,1:)
+   real(R8P),    intent(in) :: rho_in
+   real(R8P)                :: rho, fp(1:4,1:4,1:4), lo, hi
+   integer(I4P)             :: sub(3), p4(3), p3(3), p6(3), n2(3), b_lo(3), b_hi(3), ii, jj, kk
+   logical                  :: edge(3)
+   !$acc routine seq
+   !$omp declare target
+
+   call seam_meta_unpack(meta=meta, sub=sub, p4=p4, p3=p3, p6=p6)
+   call seam_bracket_nodes(sub=sub, anchor_pos=p4, n2=n2, edge=edge, b_lo=b_lo, b_hi=b_hi)
+   fp = 0._R8P
+   fp(p4(1),p4(2),p4(3)) = qd(b, i, j, k, 1)
+   do kk=b_lo(3), b_hi(3) ; do jj=b_lo(2), b_hi(2) ; do ii=b_lo(1), b_hi(1)
+      fp(ii,jj,kk) = qd(b, i+ii-p4(1), j+jj-p4(2), k+kk-p4(3), 1)
+   enddo ; enddo ; enddo
+   call seam_bracket_range(footprint=fp, anchor_pos=p4, b_lo=b_lo, b_hi=b_hi, lo=lo, hi=hi)
+   rho = rho_in
+   if (rho < lo) rho = lo
+   if (rho > hi) rho = hi
+   endfunction guard_density_nomp
+
+   pure function guard_value_nomp(meta, ngc_, qd, v, b, i, j, k, rho, value_in) result(value_)
+   !< seam_guard_value_gpu_dev without the MP bound (diagnostic): a velocity clamped to its bracketing cells' range.
+   integer(I4P), intent(in) :: meta, ngc_, v, b, i, j, k
+   real(R8P),    intent(in) :: qd(1:,1-ngc_:,1-ngc_:,1-ngc_:,1:)
+   real(R8P),    intent(in) :: rho, value_in
+   real(R8P)                :: value_, fp(1:4,1:4,1:4), lo, hi, u
+   integer(I4P)             :: sub(3), p4(3), p3(3), p6(3), n2(3), b_lo(3), b_hi(3), ii, jj, kk
+   logical                  :: edge(3)
+   !$acc routine seq
+   !$omp declare target
+
+   value_ = value_in
+   if (.not.(rho > SEAM_DENSITY_GUARD * qd(b, i, j, k, 1))) then
+      value_ = qd(b, i, j, k, v)
+   elseif (v == 1) then
+      value_ = rho
+   elseif (v <= 4) then
+      call seam_meta_unpack(meta=meta, sub=sub, p4=p4, p3=p3, p6=p6)
+      call seam_bracket_nodes(sub=sub, anchor_pos=p4, n2=n2, edge=edge, b_lo=b_lo, b_hi=b_hi)
+      u = value_in / rho
+      fp = 0._R8P
+      do kk=b_lo(3), b_hi(3) ; do jj=b_lo(2), b_hi(2) ; do ii=b_lo(1), b_hi(1)
+         fp(ii,jj,kk) = qd(b, i+ii-p4(1), j+jj-p4(2), k+kk-p4(3), v) / qd(b, i+ii-p4(1), j+jj-p4(2), k+kk-p4(3), 1)
+      enddo ; enddo ; enddo
+      call seam_bracket_range(footprint=fp, anchor_pos=p4, b_lo=b_lo, b_hi=b_hi, lo=lo, hi=hi)
+      if (u < lo) u = lo
+      if (u > hi) u = hi
+      value_ = rho * u
+   endif
+   endfunction guard_value_nomp
+endmodule amr_ghost_bench_kernels
+
+program test_amr_ghost_bench
+!< AMR ghost-fill benchmark (2:1 neighbourhoods, 2026-11-25): ADAM's local ghost fill on a real 2:1 grid, built by
+!< ADAM's own tree, grid and maps objects, against kernels that run over ADAM's descriptor table instead of its
+!< per-cell rows. The uniform benchmark (`../ghost_fill_bench.F90`) showed the per-cell map costs a factor 3-5.5 on
+!< same-level copies; this one asks whether that holds where a row is an interpolation or a restriction stencil.
+!<
+!< The grid: the unit cube, octree, blocks of b^3 cells (5 variables, ngc 3), refined uniformly to level `base`, then one
+!< more level on every block inside the box [0,s]^3 (s = `box`): 2:1 faces, edges and corners around the box. Domain
+!< boundaries are not exchanged (their ghosts are boundary-condition rows, not local ones). The density guard of the
+!< seam fill (#101, `maps%seam_density_var` = 1) is on, as in FLUME. The field is smooth and positive.
+!<
+!< ADAM builds a table `maps%local_map_ghost(f, 1:13)`: one descriptor per (receiver block, donor block, region), its
+!< ranges, its index shifts and its refinement relation (`portion`: 0 same level, > 0 finer donor, < 0 coarser donor),
+!< then expands it into `maps%local_map_ghost_cell`, one row per ghost cell with its seam metadata, deduplicated so the
+!< last descriptor covering a ghost wins (#22 F1). Only the rows go to the GPU. Variants:
+!<   V0   update_ghost_local_gpu_dev on the rows: today, the real kernel, one launch over ADAM's rows (since #157 A1 the
+!<        rows are sorted by kind, and since #157 B2 the density guard's part of every fine ghost is computed once, by a
+!<        first kernel over the prolongation rows);
+!<   V0p  the kernel before #157 B2 on the same rows: the guard recomputed for every (fine ghost, variable) by a
+!<        verbatim copy of interp_seam_ghost_gpu_dev at b8641a59 (interp_seam_ghost_b8641a59, below); the before of B2
+!<        in the same run, and its bitwise check;
+!<   V0s  the same kernel on the rows split by kind, one launch per kind (copy / prolongation / restriction): how much
+!<        of today's cost is the mixing (warp divergence between a copy and a 216-point stencil);
+!<   D1   one kernel per kind over the descriptors: the work items of each descriptor decoded from its ranges, the seam
+!<        metadata computed on the device by ADAM's own pure routines, the value by ADAM's own operators
+!<        (interp_seam_ghost_gpu_dev, restrict_seam_high_order_gpu_dev, the mean as in V0);
+!<   D2   D1 with the descriptors batched into shape classes (same kind, ranges and shifts: only the blocks differ), the
+!<        member innermost so that consecutive threads touch consecutive blocks (the uniform benchmark's V3/V5 layout);
+!<   V0ng V0 with the density guard off (timing of the interpolation alone, and the reference of D3);
+!<   D3   prolongation per coarse anchor (tricubic only, guard off): the union of its children's 4^3 footprints gathered
+!<        once, then every child interpolated by ADAM's seam_interpolate_tricubic on its slice: the reads the 8 children
+!<        of one anchor share are made once; bitwise equal to V0ng's prolongation.
+!< Overlapping descriptors: an owner mask (int32 per stored cell of every block, built on the host from the descriptor
+!< order) gives each ghost the descriptor that wins; D1/D2 write a ghost only from its owner. This is ADAM's
+!< last-writer rule, so every variant must equal V0 bit for bit; each is checked after its timing.
+!<
+!< Usage: test_amr_ghost_bench b base box fill restriction nrep mem_gb [fields]
+!<   fields: the block-sized fields realm_object%initialize budgets per block (default 170, its own default): the
+!<   block capacity is 0.85 mem_gb / (fields x block bytes); a larger grid needs fewer fields or more memory
+!<   fill:        tricubic | quintic | weno6 | quintic-mp        restriction: mean | lagrange6 | weno6
+!< Output: the grid and its descriptor and row counts by kind, then per variant the median time of a fill (and per kind
+!< for V0s, D1, D2), and the bitwise check.
+
+#include "fundal.H"
+use :: adam_common_library,             only : realm_object
+use :: adam_parameters,                 only : TO_BE_REFINED, TO_NOT_TOUCH
+use :: adam_mpih_global,                only : mpih
+use :: adam_fnl_field_object,           only : field_fnl_object
+use :: adam_fnl_field_kernels,          only : update_ghost_local_copy_gpu_dev
+use :: adam_fnl_field_kernels,          only : update_ghost_local_gpu_dev, interp_seam_ghost_gpu_dev, &
+                                               interp_seam_value_gpu_dev, seam_guard_density_gpu_dev,  &
+                                               seam_guard_value_gpu_dev, restrict_seam_high_order_gpu_dev
+use :: adam_fnl_mpih_global,            only : mpih_fnl
+use :: adam_seam_interpolation_library, only : SEAM_FILL_TRICUBIC, seam_interpolate_tricubic, SEAM_DENSITY_GUARD, &
+                                               seam_meta_unpack, seam_mp_bound, seam_bracket_nodes, seam_bracket_range
+use :: adam_seam_interpolation_library, only : SEAM_RESTRICT_MEAN, SEAM_SUB_COINCIDENT, seam_shift_anchor_pos,      &
+                                               seam_tricubic_centered_pos, seam_compatible_centered_pos,            &
+                                               seam_quintic_centered_pos, seam_meta_pack, seam_restriction_code,   &
+                                               seam_restriction_meta_pack
+use :: amr_ghost_bench_kernels,         only : interp_seam_ghost_b8641a59, guard_density_nomp, guard_value_nomp
+use :: fundal
+use :: iso_c_binding,                   only : c_ptr, c_loc, c_f_pointer
+use :: mpi
+use :: penf,                            only : I4P, I8P, R8P, str
+
+implicit none
+
+integer(I4P), parameter :: NV = 5_I4P              !< Variables (FLUME Euler).
+integer(I4P), parameter :: KCOPY = 0_I4P           !< Kind: same-level copy.
+integer(I4P), parameter :: KREST = 1_I4P           !< Kind: fine->coarse restriction (finer donor).
+integer(I4P), parameter :: KPROL = 2_I4P           !< Kind: coarse->fine prolongation (coarser donor).
+character(len=13), parameter :: KNAME(0:2) = [character(len=13) :: 'copy', 'restriction', 'prolongation']
+
+type(realm_object)          :: realm                !< The realm.
+type(field_fnl_object)      :: field_fnl            !< FNL field helper.
+real(R8P), pointer          :: q_gpu(:,:,:,:,:)     !< Device field (b, i, j, k, v).
+real(R8P),    allocatable   :: q(:,:,:,:,:)         !< Host field (v, i, j, k, b).
+real(R8P),    allocatable   :: q_t(:,:,:,:,:)       !< Host transposed field (b, i, j, k, v), the initial state.
+real(R8P),    allocatable   :: q_ref(:,:,:,:,:)     !< V0's result (b, i, j, k, v).
+real(R8P),    allocatable   :: q_chk(:,:,:,:,:)     !< A variant's result.
+integer(I4P)                :: b, nb, ngc, n, base, nrep, ri, rj, rk, fill, restr, ierr, nfields
+real(R8P)                   :: box, mem_gb
+character(len=32)           :: arg, fill_name, restr_name
+character(:), allocatable   :: filename
+! descriptors (from maps%local_map_ghost), host and device
+integer(I4P)                :: nf                   !< Descriptors.
+integer(I4P), allocatable   :: dbr(:), dbs(:), dkind(:), dlo(:,:), dhi(:,:), ddl(:,:)
+integer(I4P), allocatable   :: owner(:,:,:,:)       !< Winning descriptor per stored cell of every block (0: none).
+! D1: per kind, the descriptor list and the prefix of its work items
+integer(I4P)                :: d1n(0:2)             !< Descriptors per kind.
+integer(I4P), allocatable   :: d1l(:), d1p(:)       !< Concatenated lists and prefixes (kind segments).
+integer(I4P)                :: d1o(0:3)             !< Segment offsets into d1l.
+integer(I4P)                :: d1w(0:2)             !< Work items per kind.
+integer(I4P), allocatable   :: d3p(:)               !< D3: prefix of the anchors of the prolongation descriptors.
+integer(I4P)                :: d3w                  !< D3: anchors.
+! D2: shape classes
+integer(I4P)                :: ncls                 !< Classes.
+integer(I4P), allocatable   :: crep(:), cnm(:), cmo(:), cmem(:), cpre(:) !< Representative, members, member offset, members, prefix.
+integer(I4P)                :: c2o(0:3)             !< Class segment offsets per kind.
+integer(I4P)                :: c2w(0:2)             !< Work items per kind.
+! V0s: rows split by kind
+integer(I8P), pointer       :: rows_k0(:,:) => null(), rows_k1(:,:) => null(), rows_k2(:,:) => null()
+integer(I4P)                :: nrows_k(0:2)
+real(R8P),    pointer       :: rho_k(:) => null()   !< The guard's scratch of rows_k2 (V0s).
+integer(I4P), pointer       :: prol_k(:) => null()  !< The flag-4 rows of rows_k2: all of them (V0s).
+integer(I4P), pointer       :: no_rows(:) => null() !< No flag-4 rows (V0s copy and restriction launches, V0ng).
+! V0k: ADAM's rows sorted by kind (copy, restriction, prolongation), stably
+integer(I8P), pointer       :: rows_kind(:,:) => null()
+integer(I4P), pointer       :: prol_kind(:) => null()
+real(R8P),    pointer       :: rho_kind(:) => null()
+! C (#157 C): compact rows, three int32 per row: the donor and receiver cell offsets in one variable plane of q_gpu
+! (b fastest), and 0 for a copy or the row's index in ADAM's map for a restriction or a prolongation (its stencil reads
+! the full row); in ADAM's order (Ca) and sorted by receiver offset, so that the receiving block runs fastest (Cb)
+integer(I4P), pointer       :: ca_s(:) => null(), ca_r(:) => null(), ca_x(:) => null()
+integer(I4P), pointer       :: cb_s(:) => null(), cb_r(:) => null(), cb_x(:) => null()
+integer(I4P), pointer       :: cc_s(:) => null(), cc_r(:) => null(), cc_x(:) => null()
+integer(I4P), pointer       :: ce_s(:) => null(), ce_r(:) => null(), ce_x(:) => null() !< Ce: prolongations, restrictions,
+                                                                                     !< then copies, block fastest.
+integer(I4P), pointer       :: cf_s(:) => null(), cf_r(:) => null(), cf_x(:) => null() !< Cf: the heavy rows in ADAM's
+                                                                                     !< order, then the copies, block fastest.
+integer(I4P), pointer       :: cg_s(:) => null(), cg_r(:) => null(), cg_x(:) => null() !< Cg: the copies, block fastest, then
+                                                                                     !< the heavy rows in ADAM's order.
+real(R8P),    pointer       :: q_flat(:) => null()  !< q_gpu seen as one array (the same device memory).
+integer(I4P), pointer       :: hh_s(:) => null(), hh_r(:) => null(), hh_x(:) => null() !< The heavy rows alone, ADAM's
+                                                                                     !< order (Ch's first launch).
+integer(I4P), pointer       :: kp(:,:) => null()          !< Kp: the copy rows as (donor b, donor ijk, receiver b,
+                                                          !< receiver ijk), ijk packed 10 bits each (+512), sorted as Kb.
+integer(I8P), pointer       :: heavy_rows(:,:) => null() !< Ci: ADAM's rows without the copies, ADAM's order.
+integer(I4P), pointer       :: full_prol(:) => null()    !< C*: the flag-4 rows of ADAM's full map (since #157 C4 the
+real(R8P),    pointer       :: full_rho(:) => null()     !< maps' own list and scratch index its heavy rows), scratch.
+integer(I4P), pointer       :: heavy_prol(:) => null()   !< Ci: its flag-4 rows.
+real(R8P),    pointer       :: heavy_rho(:) => null()    !< Ci: the guard's scratch per row.
+integer(I4P), pointer       :: ka_s(:) => null(), ka_r(:) => null() !< The copy rows alone, ADAM's order (Ka).
+integer(I4P), pointer       :: kb_s(:) => null(), kb_r(:) => null() !< The copy rows alone, receiver block fastest (Kb).
+integer(I4P), pointer       :: kd_s(:) => null(), kd_r(:) => null() !< The copy rows alone, donor block fastest (Kd).
+integer(I4P)                :: plane                !< Cells of one variable plane of q_gpu (with the ghosts).
+real(R8P),    allocatable   :: t(:)
+
+call mpih%initialize(do_mpi_init=.true., do_device_init=.false.)
+call mpih_fnl%initialize(do_mpi_init=.false., do_device_init=.true.)
+call get_args()
+call build_realm()
+call describe()
+call build_device_state()
+allocate(t(nrep))
+
+call time_v0()
+call build_compact()
+call time_c()
+call time_k()
+call time_v0p()
+call time_v0k()
+call time_v0s()
+call time_d(2_I4P)
+call time_d(1_I4P)
+call time_v0ng_d3()
+call time_parts()
+call mpih%finalize
+
+contains
 
    subroutine get_args()
    !< b base box fill restriction nrep mem_gb.
@@ -579,6 +651,7 @@ contains
       call dev_assign_to_device(dst=rho_kind, src=spread(0._R8P, dim=1, ncopies=size(tmp, dim=1)))
    endif
    !$acc enter data copyin(dbr, dbs, dkind, dlo, dhi, ddl, owner, d1l, d1p, d1o, crep, cnm, cmo, cmem, cpre, c2o, d3p)
+   !$omp target enter data map(to: dbr, dbs, dkind, dlo, dhi, ddl, owner, d1l, d1p, d1o, crep, cnm, cmo, cmem, cpre, c2o, d3p)
    endsubroutine build_device_state
 
    subroutine reset()
@@ -896,6 +969,8 @@ contains
    if (associated(prol)) then
       !$acc parallel loop independent gang vector DEVICEVAR(m, qd, rho_s, prol) firstprivate(fill_, ngc_, nomp_) &
       !$acc& private(mf, meta, b_send, i_send, j_send, k_send, value_, rho)
+      !$omp OMPLOOP DEVICEPTR(m, qd, rho_s, prol) firstprivate(fill_, ngc_, nomp_) &
+      !$omp& private(mf, meta, b_send, i_send, j_send, k_send, value_, rho)
       do p=1, size(prol, dim=1)
          mf = prol(p)
          b_send = int(m(mf,1), I4P) ; i_send = int(m(mf,3), I4P) ; j_send = int(m(mf,4), I4P)
@@ -913,6 +988,8 @@ contains
    endif
    !$acc parallel loop independent gang vector collapse(2) DEVICEVAR(m, qd, rho_s) &
    !$acc& firstprivate(fill_, restr_, ri_, rj_, rk_, ngc_, nomp_) private(meta, value_, rho, interpolant)
+   !$omp OMPLOOP collapse(2) DEVICEPTR(m, qd, rho_s) firstprivate(fill_, restr_, ri_, rj_, rk_, ngc_, nomp_) &
+   !$omp& private(meta, value_, rho, interpolant, ic, jc, kc, b_send, b_recv, i_send, j_send, k_send, i_recv, j_recv, k_recv, flag)
    do v=1, NV
       do mf=1, size(m, dim=1)
          b_send = int(m(mf,1), I4P) ; b_recv = int(m(mf,2), I4P)
@@ -947,58 +1024,7 @@ contains
    enddo
    endsubroutine run_heavy_nomp
 
-   pure function guard_density_nomp(meta, ngc_, qd, b, i, j, k, rho_in) result(rho)
-   !< seam_guard_density_gpu_dev without the MP bound (diagnostic): the density clamped to its bracketing cells' range.
-   integer(I4P), intent(in) :: meta, ngc_, b, i, j, k
-   real(R8P),    intent(in) :: qd(1:,1-ngc_:,1-ngc_:,1-ngc_:,1:)
-   real(R8P),    intent(in) :: rho_in
-   real(R8P)                :: rho, fp(1:4,1:4,1:4), lo, hi
-   integer(I4P)             :: sub(3), p4(3), p3(3), p6(3), n2(3), b_lo(3), b_hi(3), ii, jj, kk
-   logical                  :: edge(3)
-   !$acc routine seq
 
-   call seam_meta_unpack(meta=meta, sub=sub, p4=p4, p3=p3, p6=p6)
-   call seam_bracket_nodes(sub=sub, anchor_pos=p4, n2=n2, edge=edge, b_lo=b_lo, b_hi=b_hi)
-   fp = 0._R8P
-   fp(p4(1),p4(2),p4(3)) = qd(b, i, j, k, 1)
-   do kk=b_lo(3), b_hi(3) ; do jj=b_lo(2), b_hi(2) ; do ii=b_lo(1), b_hi(1)
-      fp(ii,jj,kk) = qd(b, i+ii-p4(1), j+jj-p4(2), k+kk-p4(3), 1)
-   enddo ; enddo ; enddo
-   call seam_bracket_range(footprint=fp, anchor_pos=p4, b_lo=b_lo, b_hi=b_hi, lo=lo, hi=hi)
-   rho = rho_in
-   if (rho < lo) rho = lo
-   if (rho > hi) rho = hi
-   endfunction guard_density_nomp
-
-   pure function guard_value_nomp(meta, ngc_, qd, v, b, i, j, k, rho, value_in) result(value_)
-   !< seam_guard_value_gpu_dev without the MP bound (diagnostic): a velocity clamped to its bracketing cells' range.
-   integer(I4P), intent(in) :: meta, ngc_, v, b, i, j, k
-   real(R8P),    intent(in) :: qd(1:,1-ngc_:,1-ngc_:,1-ngc_:,1:)
-   real(R8P),    intent(in) :: rho, value_in
-   real(R8P)                :: value_, fp(1:4,1:4,1:4), lo, hi, u
-   integer(I4P)             :: sub(3), p4(3), p3(3), p6(3), n2(3), b_lo(3), b_hi(3), ii, jj, kk
-   logical                  :: edge(3)
-   !$acc routine seq
-
-   value_ = value_in
-   if (.not.(rho > SEAM_DENSITY_GUARD * qd(b, i, j, k, 1))) then
-      value_ = qd(b, i, j, k, v)
-   elseif (v == 1) then
-      value_ = rho
-   elseif (v <= 4) then
-      call seam_meta_unpack(meta=meta, sub=sub, p4=p4, p3=p3, p6=p6)
-      call seam_bracket_nodes(sub=sub, anchor_pos=p4, n2=n2, edge=edge, b_lo=b_lo, b_hi=b_hi)
-      u = value_in / rho
-      fp = 0._R8P
-      do kk=b_lo(3), b_hi(3) ; do jj=b_lo(2), b_hi(2) ; do ii=b_lo(1), b_hi(1)
-         fp(ii,jj,kk) = qd(b, i+ii-p4(1), j+jj-p4(2), k+kk-p4(3), v) / qd(b, i+ii-p4(1), j+jj-p4(2), k+kk-p4(3), 1)
-      enddo ; enddo ; enddo
-      call seam_bracket_range(footprint=fp, anchor_pos=p4, b_lo=b_lo, b_hi=b_hi, lo=lo, hi=hi)
-      if (u < lo) u = lo
-      if (u > hi) u = hi
-      value_ = rho * u
-   endif
-   endfunction guard_value_nomp
 
    subroutine time_k()
    !< The copy rows alone over compact rows (Ka, Kb, Kd), against V0s's copy launch (ADAM's kernel on the flag-1 rows),
@@ -1045,6 +1071,7 @@ contains
 
    plane_ = plane
    !$acc parallel loop independent gang vector collapse(2) DEVICEVAR(cs, cr, qf) firstprivate(plane_)
+   !$omp OMPLOOP collapse(2) DEVICEPTR(cs, cr, qf) firstprivate(plane_)
    do v=1, NV
       do p=1, size(cs, dim=1)
          qf(cr(p) + 1 + (v - 1) * plane_) = qf(cs(p) + 1 + (v - 1) * plane_)
@@ -1060,6 +1087,7 @@ contains
    integer(I4P)                      :: v, p, bs, ps, br, pr
 
    !$acc parallel loop independent gang vector collapse(2) DEVICEVAR(cp, qd) private(bs, ps, br, pr)
+   !$omp OMPLOOP collapse(2) DEVICEPTR(cp, qd) private(bs, ps, br, pr)
    do v=1, NV
       do p=1, size(cp, dim=2)
          bs = cp(1,p) ; ps = cp(2,p) ; br = cp(3,p) ; pr = cp(4,p)
@@ -1089,6 +1117,8 @@ contains
    if (associated(prol)) then
       !$acc parallel loop independent gang vector DEVICEVAR(m, qd, rho_s, prol) firstprivate(fill_, ngc_) &
       !$acc& private(mf, meta, b_send, i_send, j_send, k_send, value_, rho)
+      !$omp OMPLOOP DEVICEPTR(m, qd, rho_s, prol) firstprivate(fill_, ngc_) &
+      !$omp& private(mf, meta, b_send, i_send, j_send, k_send, value_, rho)
       do p=1, size(prol, dim=1)
          mf = prol(p)
          b_send = int(m(mf,1), I4P) ; i_send = int(m(mf,3), I4P) ; j_send = int(m(mf,4), I4P)
@@ -1102,6 +1132,8 @@ contains
    endif
    !$acc parallel loop independent gang vector collapse(2) DEVICEVAR(cs, cr, cx, m, qd, qf, rho_s) &
    !$acc& firstprivate(fill_, restr_, ri_, rj_, rk_, ngc_, plane_) private(meta, value_, rho, interpolant)
+   !$omp OMPLOOP collapse(2) DEVICEPTR(cs, cr, cx, m, qd, qf, rho_s) firstprivate(fill_, restr_, ri_, rj_, rk_, ngc_, plane_) &
+   !$omp& private(meta, value_, rho, interpolant, x, ic, jc, kc, b_send, b_recv, i_send, j_send, k_send, i_recv, j_recv, k_recv)
    do v=1, NV
       do p=1, size(cs, dim=1)
          x = cx(p)
@@ -1207,6 +1239,8 @@ contains
 
    fill_ = fill ; restr_ = restr ; ri_ = ri ; rj_ = rj ; rk_ = rk ; ngc_ = ngc
    !$acc parallel loop independent gang vector collapse(2) DEVICEVAR(m, qd) firstprivate(fill_, restr_, ri_, rj_, rk_, ngc_)
+   !$omp OMPLOOP collapse(2) DEVICEPTR(m, qd) firstprivate(fill_, restr_, ri_, rj_, rk_, ngc_) &
+   !$omp& private(ic, jc, kc, b_send, b_recv, i_send, j_send, k_send, i_recv, j_recv, k_recv, flag)
    do v=1, NV
       do mf=1, size(m, dim=1)
          b_send = m(mf,1) ; b_recv = m(mf,2)
@@ -1367,6 +1401,9 @@ contains
    !$acc parallel loop independent gang vector collapse(2) DEVICEVAR(qd) present(dbr, dbs, dlo, dhi, ddl, owner, d1l, d3p) &
    !$acc& private(lo_, hi_, mid, m, f, loc, cnt, e, i, j, kk, ic, jc, kc, d, sub, p4, rcv, olo, ohi, ii, jj, kq, alive, &
    !$acc&         fpu, fp4)
+   !$omp OMPLOOP collapse(2) DEVICEPTR(qd) &
+   !$omp& private(lo_, hi_, mid, m, f, loc, cnt, e, i, j, kk, ic, jc, kc, d, sub, p4, rcv, olo, ohi, ii, jj, kq, alive, &
+   !$omp&         fpu, fp4)
    do v=1, NV
       do w=0, d3w-1
          lo_ = 1 ; hi_ = d1n(2)
@@ -1385,11 +1422,11 @@ contains
          ! the children this anchor writes, and the union of their footprint offsets
          olo = 99 ; ohi = -99
          do kc=0, rk-1 ; do jc=0, rj-1 ; do ic=0, ri-1
-            rcv = [rr(1)*i + ddl(1,f) + ic, rr(2)*j + ddl(2,f) + jc, rr(3)*kk + ddl(3,f) + kc]
+            rcv(1) = rr(1)*i + ddl(1,f) + ic ; rcv(2) = rr(2)*j + ddl(2,f) + jc ; rcv(3) = rr(3)*kk + ddl(3,f) + kc
             alive(ic,jc,kc) = all(rcv >= 1-ngc) .and. all(rcv <= n+ngc)
             if (alive(ic,jc,kc)) alive(ic,jc,kc) = owner(dbr(f),rcv(1),rcv(2),rcv(3)) == f
             if (.not.alive(ic,jc,kc)) cycle
-            sub = [ic, jc, kc] + 1
+            sub(1) = ic + 1 ; sub(2) = jc + 1 ; sub(3) = kc + 1
             do d=1, 3
                p4(d) = seam_shift_anchor_pos(anchor=merge(i, merge(j, kk, d == 2), d == 1), n_cells=nijk(d),           &
                                              p_centered=seam_tricubic_centered_pos(sub(d)), footprint_n=4)
@@ -1402,7 +1439,7 @@ contains
          enddo ; enddo ; enddo
          do kc=0, rk-1 ; do jc=0, rj-1 ; do ic=0, ri-1
             if (.not.alive(ic,jc,kc)) cycle
-            sub = [ic, jc, kc] + 1
+            sub(1) = ic + 1 ; sub(2) = jc + 1 ; sub(3) = kc + 1
             do d=1, 3
                p4(d) = seam_shift_anchor_pos(anchor=merge(i, merge(j, kk, d == 2), d == 1), n_cells=nijk(d),           &
                                              p_centered=seam_tricubic_centered_pos(sub(d)), footprint_n=4)
@@ -1410,7 +1447,7 @@ contains
             do kq=1, 4 ; do jj=1, 4 ; do ii=1, 4
                fp4(ii,jj,kq) = fpu(ii-p4(1), jj-p4(2), kq-p4(3))
             enddo ; enddo ; enddo
-            rcv = [rr(1)*i + ddl(1,f) + ic, rr(2)*j + ddl(2,f) + jc, rr(3)*kk + ddl(3,f) + kc]
+            rcv(1) = rr(1)*i + ddl(1,f) + ic ; rcv(2) = rr(2)*j + ddl(2,f) + jc ; rcv(3) = rr(3)*kk + ddl(3,f) + kc
             qd(dbr(f),rcv(1),rcv(2),rcv(3),v) = seam_interpolate_tricubic(footprint=fp4, sub=sub, anchor_pos=p4)
          enddo ; enddo ; enddo
       enddo
@@ -1439,6 +1476,9 @@ contains
    !$acc& present(dbr, dbs, dlo, dhi, ddl, owner, d1l, d1p, crep, cnm, cmo, cmem, cpre)                                 &
    !$acc& private(lo_, hi_, mid, s, f, loc, e, cnt, i, j, kk, ic, jc, kc, anchor, rcv, sub, d, p4, p3, p6, code, c,    &
    !$acc&         nmem, mm, meta, val)
+   !$omp OMPLOOP collapse(2) DEVICEPTR(qd) &
+   !$omp& private(lo_, hi_, mid, s, f, loc, e, cnt, i, j, kk, ic, jc, kc, anchor, rcv, sub, d, p4, p3, p6, code, c,    &
+   !$omp&         nmem, mm, meta, val)
    do v=1, NV
       do w=0, nw-1
          ! the descriptor (D1) or class (D2) holding work item w: binary search of the kind's prefix segment
@@ -1475,7 +1515,7 @@ contains
             if (owner(dbr(f),i,j,kk) == f) qd(dbr(f),i,j,kk,v) = qd(dbs(f),i+ddl(1,f),j+ddl(2,f),kk+ddl(3,f),v)
          case(KREST)
             if (owner(dbr(f),i,j,kk) == f) then
-               anchor = [rr(1)*i + ddl(1,f), rr(2)*j + ddl(2,f), rr(3)*kk + ddl(3,f)] ! first fine donor cell
+               anchor(1) = rr(1)*i + ddl(1,f) ; anchor(2) = rr(2)*j + ddl(2,f) ; anchor(3) = rr(3)*kk + ddl(3,f) ! first fine donor
                meta = 0
                if (restr /= SEAM_RESTRICT_MEAN) then
                   do d=1, 3
@@ -1495,10 +1535,10 @@ contains
                endif
             endif
          case(KPROL)
-            rcv = [rr(1)*i + ddl(1,f) + sub(1), rr(2)*j + ddl(2,f) + sub(2), rr(3)*kk + ddl(3,f) + sub(3)]
+            rcv(1) = rr(1)*i + ddl(1,f) + sub(1) ; rcv(2) = rr(2)*j + ddl(2,f) + sub(2) ; rcv(3) = rr(3)*kk + ddl(3,f) + sub(3)
             if (all(rcv >= 1-ngc) .and. all(rcv <= n+ngc)) then
                if (owner(dbr(f),rcv(1),rcv(2),rcv(3)) == f) then
-                  anchor = [i, j, kk]
+                  anchor(1) = i ; anchor(2) = j ; anchor(3) = kk
                   sub = sub + 1
                   do d=1, 3
                      if (rr(d) == 1) then
