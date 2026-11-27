@@ -844,11 +844,13 @@ contains
    !< The production fill's two launches timed apart (#157 C4), and V0 again at the end of the run (order effects).
    integer(I4P) :: r, w
    real(R8P)    :: t0
-   character(len=44), parameter :: label(3) = [character(len=44) :: 'P1  ADAM heavy launch on the maps heavy rows', &
+   character(len=44), parameter :: label(5) = [character(len=44) :: 'P1  ADAM heavy launch on the maps heavy rows', &
                                                'P2  ADAM copy kernel on the maps copy rows', &
-                                               'V0b ADAM fill again (end of run)']
+                                               'V0b ADAM fill again (end of run)', &
+                                               'X1  heavy launch, guard MP path off (diag)', &
+                                               'X0  heavy launch, the same harness kernel   ']
 
-   do w=1, 3
+   do w=1, 5
       call reset()
       do r=1, nrep+3
          !$acc wait
@@ -862,6 +864,10 @@ contains
          case(2) ; call update_ghost_local_copy_gpu_dev(ngc=ngc, copy_rows_gpu=field_fnl%maps%local_map_ghost_copy_gpu, &
                                                         q_gpu=q_gpu)
          case(3) ; call field_fnl%update_ghost_local_gpu(q_gpu=q_gpu)
+         case(4) ; call run_heavy_nomp(field_fnl%maps%local_map_ghost_heavy_gpu, field_fnl%maps%local_map_ghost_cell_prol_gpu, &
+                                       field_fnl%maps%seam_rho_gpu, q_gpu, .true.)
+         case(5) ; call run_heavy_nomp(field_fnl%maps%local_map_ghost_heavy_gpu, field_fnl%maps%local_map_ghost_cell_prol_gpu, &
+                                       field_fnl%maps%seam_rho_gpu, q_gpu, .false.)
          endselect
          !$acc wait
          if (r > 3) t(r-3) = wall() - t0
@@ -869,6 +875,130 @@ contains
       print '(A,A,F10.3,A)', label(w), ' median ', median(t)*1e3_R8P, ' ms'
    enddo
    endsubroutine time_parts
+
+   subroutine run_heavy_nomp(m, prol, rho_s, qd, nomp)
+   !< Diagnostic, not bitwise: the heavy launch of the C4 fill (restriction and prolongation rows, the guard once per
+   !< ghost) with the guard's MP path switched off: a density or a velocity outside its bracketing cells' range is
+   !< clamped to that range instead of the MP bound. Bounds what removing the MP path's divergence from the launch
+   !< could gain (#157, after B5).
+   integer(I8P), pointer, intent(in) :: m(:,:)
+   integer(I4P), pointer, intent(in) :: prol(:)
+   real(R8P),    pointer             :: rho_s(:)
+   real(R8P),    intent(inout)       :: qd(1:,1-ngc:,1-ngc:,1-ngc:,1:)
+   logical,      intent(in)          :: nomp   !< The MP path off (X1), or the library's guard (X0, the control).
+   integer(I4P)          :: ic, jc, kc, mf, v, p, b_send, b_recv, i_send, j_send, k_send, i_recv, j_recv, k_recv, flag
+   integer(I4P)          :: fill_, restr_, ri_, rj_, rk_, ngc_, meta
+   logical               :: nomp_
+   real(R8P)             :: value_, rho, interpolant
+
+   if (.not.associated(m)) return
+   fill_ = fill ; restr_ = restr ; ri_ = ri ; rj_ = rj ; rk_ = rk ; ngc_ = ngc ; nomp_ = nomp
+   if (associated(prol)) then
+      !$acc parallel loop independent gang vector DEVICEVAR(m, qd, rho_s, prol) firstprivate(fill_, ngc_, nomp_) &
+      !$acc& private(mf, meta, b_send, i_send, j_send, k_send, value_, rho)
+      do p=1, size(prol, dim=1)
+         mf = prol(p)
+         b_send = int(m(mf,1), I4P) ; i_send = int(m(mf,3), I4P) ; j_send = int(m(mf,4), I4P)
+         k_send = int(m(mf,5), I4P) ; meta = int(m(mf,10), I4P)
+         value_ = interp_seam_value_gpu_dev(regime=fill_, meta=meta, ngc=ngc_, q_gpu=qd, v=1, b_send=b_send, &
+                                            i_send=i_send, j_send=j_send, k_send=k_send)
+         if (nomp_) then
+            rho = guard_density_nomp(meta, ngc_, qd, b_send, i_send, j_send, k_send, value_)
+         else
+            rho = seam_guard_density_gpu_dev(meta=meta, ngc=ngc_, q_gpu=qd, b_send=b_send, i_send=i_send, &
+                                             j_send=j_send, k_send=k_send, density_var=1, rho_in=value_)
+         endif
+         rho_s(mf) = rho
+      enddo
+   endif
+   !$acc parallel loop independent gang vector collapse(2) DEVICEVAR(m, qd, rho_s) &
+   !$acc& firstprivate(fill_, restr_, ri_, rj_, rk_, ngc_, nomp_) private(meta, value_, rho, interpolant)
+   do v=1, NV
+      do mf=1, size(m, dim=1)
+         b_send = int(m(mf,1), I4P) ; b_recv = int(m(mf,2), I4P)
+         i_send = int(m(mf,3), I4P) ; j_send = int(m(mf,4), I4P) ; k_send = int(m(mf,5), I4P)
+         i_recv = int(m(mf,6), I4P) ; j_recv = int(m(mf,7), I4P) ; k_recv = int(m(mf,8), I4P)
+         flag = int(m(mf,9), I4P) ; meta = int(m(mf,10), I4P)
+         if (flag == 4) then
+            interpolant = 0._R8P
+            if (v /= 1) interpolant = interp_seam_value_gpu_dev(regime=fill_, meta=meta, ngc=ngc_, q_gpu=qd, v=v, &
+                                                                b_send=b_send, i_send=i_send, j_send=j_send, k_send=k_send)
+            rho = rho_s(mf)
+            if (nomp_) then
+               value_ = guard_value_nomp(meta, ngc_, qd, v, b_send, i_send, j_send, k_send, rho, interpolant)
+            else
+               value_ = seam_guard_value_gpu_dev(meta=meta, ngc=ngc_, q_gpu=qd, v=v, b_send=b_send, i_send=i_send, &
+                                                 j_send=j_send, k_send=k_send, density_var=1, rho=rho, &
+                                                 value_in=interpolant)
+            endif
+            qd(b_recv,i_recv,j_recv,k_recv,v) = value_
+         elseif (restr_ /= SEAM_RESTRICT_MEAN .and. meta /= 0) then
+            qd(b_recv,i_recv,j_recv,k_recv,v) = restrict_seam_high_order_gpu_dev(meta=meta, ngc=ngc_, q_gpu=qd, &
+                                                   v=v, b_send=b_send, i_send=i_send, j_send=j_send, k_send=k_send)
+         else
+            qd(b_recv,i_recv,j_recv,k_recv,v) = 0._R8P
+            do kc=0,rk_-1 ; do jc=0,rj_-1 ; do ic=0,ri_-1
+               qd(b_recv,i_recv,j_recv,k_recv,v) = qd(b_recv,i_recv,j_recv,k_recv,v) + &
+                                                      qd(b_send,i_send+ic,j_send+jc,k_send+kc,v)
+            enddo ; enddo ; enddo
+            qd(b_recv,i_recv,j_recv,k_recv,v) = qd(b_recv,i_recv,j_recv,k_recv,v) / real(ri_*rj_*rk_, R8P)
+         endif
+      enddo
+   enddo
+   endsubroutine run_heavy_nomp
+
+   pure function guard_density_nomp(meta, ngc_, qd, b, i, j, k, rho_in) result(rho)
+   !< seam_guard_density_gpu_dev without the MP bound (diagnostic): the density clamped to its bracketing cells' range.
+   integer(I4P), intent(in) :: meta, ngc_, b, i, j, k
+   real(R8P),    intent(in) :: qd(1:,1-ngc_:,1-ngc_:,1-ngc_:,1:)
+   real(R8P),    intent(in) :: rho_in
+   real(R8P)                :: rho, fp(1:4,1:4,1:4), lo, hi
+   integer(I4P)             :: sub(3), p4(3), p3(3), p6(3), n2(3), b_lo(3), b_hi(3), ii, jj, kk
+   logical                  :: edge(3)
+   !$acc routine seq
+
+   call seam_meta_unpack(meta=meta, sub=sub, p4=p4, p3=p3, p6=p6)
+   call seam_bracket_nodes(sub=sub, anchor_pos=p4, n2=n2, edge=edge, b_lo=b_lo, b_hi=b_hi)
+   fp = 0._R8P
+   fp(p4(1),p4(2),p4(3)) = qd(b, i, j, k, 1)
+   do kk=b_lo(3), b_hi(3) ; do jj=b_lo(2), b_hi(2) ; do ii=b_lo(1), b_hi(1)
+      fp(ii,jj,kk) = qd(b, i+ii-p4(1), j+jj-p4(2), k+kk-p4(3), 1)
+   enddo ; enddo ; enddo
+   call seam_bracket_range(footprint=fp, anchor_pos=p4, b_lo=b_lo, b_hi=b_hi, lo=lo, hi=hi)
+   rho = rho_in
+   if (rho < lo) rho = lo
+   if (rho > hi) rho = hi
+   endfunction guard_density_nomp
+
+   pure function guard_value_nomp(meta, ngc_, qd, v, b, i, j, k, rho, value_in) result(value_)
+   !< seam_guard_value_gpu_dev without the MP bound (diagnostic): a velocity clamped to its bracketing cells' range.
+   integer(I4P), intent(in) :: meta, ngc_, v, b, i, j, k
+   real(R8P),    intent(in) :: qd(1:,1-ngc_:,1-ngc_:,1-ngc_:,1:)
+   real(R8P),    intent(in) :: rho, value_in
+   real(R8P)                :: value_, fp(1:4,1:4,1:4), lo, hi, u
+   integer(I4P)             :: sub(3), p4(3), p3(3), p6(3), n2(3), b_lo(3), b_hi(3), ii, jj, kk
+   logical                  :: edge(3)
+   !$acc routine seq
+
+   value_ = value_in
+   if (.not.(rho > SEAM_DENSITY_GUARD * qd(b, i, j, k, 1))) then
+      value_ = qd(b, i, j, k, v)
+   elseif (v == 1) then
+      value_ = rho
+   elseif (v <= 4) then
+      call seam_meta_unpack(meta=meta, sub=sub, p4=p4, p3=p3, p6=p6)
+      call seam_bracket_nodes(sub=sub, anchor_pos=p4, n2=n2, edge=edge, b_lo=b_lo, b_hi=b_hi)
+      u = value_in / rho
+      fp = 0._R8P
+      do kk=b_lo(3), b_hi(3) ; do jj=b_lo(2), b_hi(2) ; do ii=b_lo(1), b_hi(1)
+         fp(ii,jj,kk) = qd(b, i+ii-p4(1), j+jj-p4(2), k+kk-p4(3), v) / qd(b, i+ii-p4(1), j+jj-p4(2), k+kk-p4(3), 1)
+      enddo ; enddo ; enddo
+      call seam_bracket_range(footprint=fp, anchor_pos=p4, b_lo=b_lo, b_hi=b_hi, lo=lo, hi=hi)
+      if (u < lo) u = lo
+      if (u > hi) u = hi
+      value_ = rho * u
+   endif
+   endfunction guard_value_nomp
 
    subroutine time_k()
    !< The copy rows alone over compact rows (Ka, Kb, Kd), against V0s's copy launch (ADAM's kernel on the flag-1 rows),

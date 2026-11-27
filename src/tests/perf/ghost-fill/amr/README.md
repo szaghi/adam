@@ -217,8 +217,15 @@ first (as the momenta already did) is bitwise. A30 (`results/a30-1370475.txt`): 
 fill -2 %; H100 (`results/h100-184760.txt`, C4 and C4 + B5 alternated, two passes within 0.1 %): -0.7 % to +0.6 %
 (the larger load slower). Neutral on the reference GPU, not applied (the patch is in the night's directory). What it
 says: the guard's cost (A30: 2.2 of 3.88 ms; H100: 0.47 of 1.04) is not its reads but, most likely, the MP path's
-divergence: a few per cent of the ghosts enter it, yet a warp of 32 waits for any of its threads that does. Compacting
-the MP-path rows into their own pass is the next measurement.
+divergence: a few per cent of the ghosts enter it, yet a warp of 32 waits for any of its threads that does.
+
+**How much the MP path costs** (diagnostic X0/X1, `results/h100-184768-diag.txt`, H100, LTO build): the C4 heavy launch
+compiled in the harness (X0, the library's guard) against the same kernel with the guard's MP path switched off (X1:
+out-of-range values clamped to the bracketing range instead; not bitwise, timing only): tricubic 0.872 -> 0.709 ms
+(-19 %), quintic-mp 2.122 -> 1.885 (-11 %), weno6 4.376 -> 4.157 (-5 %), the larger load 1.560 -> 1.223 (-22 %). The MP
+path is about a third of the tricubic guard on the H100 (0.16 of ~0.46 ms, ~15 % of the whole fill): the most a
+compacted MP pass could gain before its own cost. The rest of the guard is its first pass and the bracketing logic.
+(X0 is 11 % slower than the library's own launch P1: the harness's codegen; the ratio X1/X0 is what counts.)
 
 **The flang array constructors (#157, Giacomo Rossi's MI300X finding)** cost on nvfortran too: the step-01 A/B on the
 A30 (`results/a30-1370401-ab-s01.txt`, HEAD 80582712 and the fix alternated, 2 passes) is bitwise, tricubic neutral,

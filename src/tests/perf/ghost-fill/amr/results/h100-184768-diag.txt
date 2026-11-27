@@ -1,0 +1,29 @@
+# SpaceHPC job 184768 (H100, LTO): tree B (C4) with the X0/X1 diagnostic: X0 = the C4 heavy launch built by the harness (the library guard), X1 = the same with the guard MP path off (out-of-range values clamped to the bracketing range: NOT bitwise, timing only)
+## 24 2 0.75 tricubic mean
+V0  ADAM rows, one launch       median      1.043 ms
+P1  ADAM heavy launch on the maps heavy rows median      0.783 ms
+P2  ADAM copy kernel on the maps copy rows   median      0.256 ms
+V0b ADAM fill again (end of run)             median      1.044 ms
+X1  heavy launch, guard MP path off (diag)   median      0.709 ms
+X0  heavy launch, the same harness kernel    median      0.872 ms
+## 24 2 0.75 quintic-mp mean
+V0  ADAM rows, one launch       median      2.333 ms
+P1  ADAM heavy launch on the maps heavy rows median      2.073 ms
+P2  ADAM copy kernel on the maps copy rows   median      0.255 ms
+V0b ADAM fill again (end of run)             median      2.328 ms
+X1  heavy launch, guard MP path off (diag)   median      1.885 ms
+X0  heavy launch, the same harness kernel    median      2.122 ms
+## 24 2 0.75 weno6 weno6
+V0  ADAM rows, one launch       median      4.591 ms
+P1  ADAM heavy launch on the maps heavy rows median      4.366 ms
+P2  ADAM copy kernel on the maps copy rows   median      0.256 ms
+V0b ADAM fill again (end of run)             median      4.630 ms
+X1  heavy launch, guard MP path off (diag)   median      4.157 ms
+X0  heavy launch, the same harness kernel    median      4.376 ms
+## 24 3 0.5 tricubic mean
+V0  ADAM rows, one launch       median      2.315 ms
+P1  ADAM heavy launch on the maps heavy rows median      1.405 ms
+P2  ADAM copy kernel on the maps copy rows   median      0.921 ms
+V0b ADAM fill again (end of run)             median      2.325 ms
+X1  heavy launch, guard MP path off (diag)   median      1.223 ms
+X0  heavy launch, the same harness kernel    median      1.560 ms
