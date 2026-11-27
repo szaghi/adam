@@ -1089,6 +1089,7 @@ never (leg 3): a flow with more churn pays more regrid.
 | `matrix_plot.py` | the summary figures from `summary.csv`: backend speedup per case, AMR decomposition per leg, grind time (matplotlib; `--theme both` writes the docs' dark twins) |
 | `jobs/medooza-{cpu,fnl}.slurm` | the medooza jobs: one run.sh stage per job, outputs on `/ifs` |
 | `jobs/spacehpc-build.pbs`, `jobs/spacehpc-fnl.pbs` | the ESA SpaceHPC (PBS) jobs: the fnl-nvf build on a CPU node; a plan of run.sh stages behind a GPU health guard |
+| `jobs/spacehpc-gnu-toolchain.pbs`, `jobs/spacehpc-cpu.pbs` | the CPU leg on ESA SpaceHPC (#160): Open MPI 5.0.11, `gnu.sh` and HDF5 with gfortran 16.2.0 on a CPU node; a plan of build, run.sh and analyze lines on the 96 cores of an H100 node |
 | `jobs/noib-exe.sh` | a `run.sh --exe` wrapper that drops the sphere's `[solids]`/`[solid_N]` sections (the runs without the body) |
 | `results/2026-11-25-i157/` | the AMR legs before and after #157 (the guard once per ghost): the medooza and SpaceHPC summaries per executable, `ab_table.py` (the before/after tables), `acc_table.py` (the kernel table from `NVCOMPILER_ACC_TIME` logs, interleaving-proof), the job scripts, the logs and the compressed kernel-time logs |
 | `results/2026-11-25-i156/` | #156 lever 2, first part (no exchange after the last eikonal sweep) on SpaceHPC: the sphere windows' summaries per executable, the phase-timer reports of `wg-l4b38` (1 and 8 nodes) and 2a (8 nodes), the medooza bitwise gate jobs, the SpaceHPC jobs and plans, the updated `apply_phase_timer.py`, `fetch.sh`, the logs |
@@ -1186,6 +1187,28 @@ it stops (exit 42) if any GPU of the job shows a hardware slowdown, thermal or p
 (the Xall campaign met a power-braked node, `gpu-015`, 4.3x slower), and it logs every GPU's SM clock each second; the
 job log ends with the busy mean and minimum clock per GPU. `jobs/noib-exe.sh` (a `run.sh --exe` wrapper, `NOIB_EXE` =
 the executable) runs the sphere without its immersed body.
+
+**ESA SpaceHPC, `cpu` on the H100 node** (2026-11-27, [#160](https://github.com/szaghi/adam/issues/160)): the CPU
+backend on a `gpu4_std` node (2 x AMD EPYC 9454: 96 cores, SMT off, 4 NUMA domains of 24 cores), for a same-node CPU
+against GPU ratio as on medooza. The toolchain is medooza's CPU leg's: gfortran 16.2.0, medooza's install copied as is
+to `~/gnu/gcc-16.2.0` (both clusters run RHEL 8, glibc 2.28; the same compiler binaries), Open MPI 5.0.11 and HDF5
+2.3.0 (`ab5df552`) built with it on a `cpu_std` node by `jobs/spacehpc-gnu-toolchain.pbs` (Open MPI without UCX or PBS
+TM: one node, shared memory), which also writes `~/gnu/gnu.sh`; the varset `spacehpc_gnu`. The nodes carry Mellanox
+hcoll and Open MPI builds its `coll/hcoll` on them: it segfaults in `MPI_Finalize` (exit 139 after a correct run), as
+on medooza, so `gnu.sh` and the job's launcher turn it off.
+
+```bash
+qsub -q cpu_std -l select=1:ncpus=32:mem=96gb -l walltime=02:00:00 jobs/spacehpc-gnu-toolchain.pbs
+qsub -q gpu4_std -l select=1:ngpus=4:ncpus=96:mpiprocs=96:mem=700gb -l place=excl -l walltime=08:00:00 \
+     -v PLAN=<plan file>,SPEEDUP_DIR=$HOME/adam-i160/src/tests/flume/speedup jobs/spacehpc-cpu.pbs
+```
+
+`jobs/spacehpc-cpu.pbs` runs a plan like the FNL job: `build` (build.sh cpu with `spacehpc_gnu`; it reports the
+`-mdaz-ftz` of `builds/cpu/build.txt`), `run.sh` lines (96 ranks bound to cores, mapped core by core) and `analyze
+<work>` lines. `ncpus=96` is the whole node (`ncpus=192` is refused: "Insufficient amount of resource: qlist"); the GPUs
+are requested only to land on the node and stay idle; the block pool is capped by the job's memory cgroup. The windows
+start from the dumps of the H100 values: `cpu/dumps/leg2 -> matrix/dumps/leg2` (the 2a of the H100 re-measure),
+`leg1` and `leg3` copied from medooza's `work/dumps` (the dumps of the H100 step and channel legs' windows).
 
 **AMD node, `fnl-amd`** (Giacomo Rossi). The windows start from the dumps written on medooza, so every backend times
 the same bits (D3):
