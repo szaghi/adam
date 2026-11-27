@@ -270,15 +270,18 @@ contains
    if (present(seam_guard)) then
       if (.not.seam_guard) density_var = 0_I4P
    endif
-   call update_ghost_local_gpu_dev(l_map_ghost_cell_gpu=self%maps%local_map_ghost_cell_gpu,ngc=self%ngc,&
-                                   seam_ghost_fill=self%maps%seam_ghost_fill,                         &
-                                   seam_restriction=self%maps%seam_restriction,                       &
-                                   ri=self%maps%refine_ratio(1),                                      &
-                                   rj=self%maps%refine_ratio(2),                                      &
-                                   rk=self%maps%refine_ratio(3),q_gpu=q_gpu,                          &
-                                   seam_density_var=density_var,                                      &
-                                   prolongation_rows_gpu=self%maps%local_map_ghost_cell_prol_gpu,     &
+   ! two launches (#157 C4): the restriction and prolongation rows in the map's order, then the copy rows, packed and
+   ! sorted with the receiving block fastest
+   call update_ghost_local_gpu_dev(l_map_ghost_cell_gpu=self%maps%local_map_ghost_heavy_gpu,ngc=self%ngc,&
+                                   seam_ghost_fill=self%maps%seam_ghost_fill,                          &
+                                   seam_restriction=self%maps%seam_restriction,                        &
+                                   ri=self%maps%refine_ratio(1),                                       &
+                                   rj=self%maps%refine_ratio(2),                                       &
+                                   rk=self%maps%refine_ratio(3),q_gpu=q_gpu,                           &
+                                   seam_density_var=density_var,                                       &
+                                   prolongation_rows_gpu=self%maps%local_map_ghost_cell_prol_gpu,      &
                                    seam_rho_gpu=self%maps%seam_rho_gpu)
+   call update_ghost_local_copy_gpu_dev(ngc=self%ngc, copy_rows_gpu=self%maps%local_map_ghost_copy_gpu, q_gpu=q_gpu)
    endsubroutine update_ghost_local_gpu
 
    subroutine reduce_ghost_local_gpu(self, q_gpu, v_first, v_last)
@@ -454,7 +457,8 @@ contains
                                                    1:)          !< Field component to be updated.
 
    if (.not.associated(maps%local_map_ghost_cell_gpu)) return
-   call update_ghost_local_gpu_dev(l_map_ghost_cell_gpu=maps%local_map_ghost_cell_gpu, ngc=self%ngc,   &
+   ! the two launches of update_ghost_local_gpu (#157 C4)
+   call update_ghost_local_gpu_dev(l_map_ghost_cell_gpu=maps%local_map_ghost_heavy_gpu, ngc=self%ngc,  &
                                    seam_ghost_fill=maps%seam_ghost_fill,                             &
                                    seam_restriction=maps%seam_restriction,                           &
                                    ri=maps%refine_ratio(1), rj=maps%refine_ratio(2),                 &
@@ -462,6 +466,7 @@ contains
                                    seam_density_var=maps%seam_density_var,                           &
                                    prolongation_rows_gpu=maps%local_map_ghost_cell_prol_gpu,         &
                                    seam_rho_gpu=maps%seam_rho_gpu)
+   call update_ghost_local_copy_gpu_dev(ngc=self%ngc, copy_rows_gpu=maps%local_map_ghost_copy_gpu, q_gpu=q_gpu)
    endsubroutine update_ghost_local_gpu_maps
 
    subroutine update_ghost_mpi_gpu_maps(self, maps, comm_map_send_ptr_ghost, comm_map_recv_ptr_ghost, q_gpu)

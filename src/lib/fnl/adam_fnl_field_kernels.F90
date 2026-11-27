@@ -31,6 +31,8 @@ public :: populate_send_buffer_ghost_gpu_dev
 public :: receive_recv_buffer_ghost_gpu_dev
 public :: seam_ghosts_to_state_dev
 public :: update_ghost_local_gpu_dev
+public :: update_ghost_local_copy_gpu_dev
+public :: COPY_IJK_BIAS, COPY_IJK_BITS
 public :: interp_seam_ghost_gpu_dev        ! also called by the AMR ghost-fill benchmark (src/tests/perf/ghost-fill/amr)
 public :: interp_seam_value_gpu_dev        ! idem
 public :: seam_guard_density_gpu_dev       ! idem
@@ -39,6 +41,10 @@ public :: restrict_seam_high_order_gpu_dev ! idem
 public :: reduce_ghost_local_gpu_dev
 public :: pack_reduce_ghost_mpi_gpu_dev
 public :: fold_reduce_ghost_mpi_gpu_dev
+
+
+integer(I4P), parameter :: COPY_IJK_BITS = 10_I4P  !< Bits per cell index in the packed copy rows (#157 C4).
+integer(I4P), parameter :: COPY_IJK_BIAS = 512_I4P !< Bias of the cell indexes in the packed copy rows (ghosts < 1).
 
 contains
    subroutine pack_blocks_transposed_dev(blocks_number, ni, nj, nk, ngc, nv, a_gpu, buf_gpu)
@@ -574,9 +580,10 @@ contains
    ! ("loop carried dependence of q_gpu": the writes go through the map), which made this kernel 98 % of the FNL GPU
    ! time of the PV-5 blast. The rows are independent: one row per receiver cell (dedupe_last_writer, #22 F1), and every
    ! row reads real donor cells only, never a ghost another row writes (the #22 race discipline).
-   ! Two kernels, chosen here (#157): the fill without the guard keeps a kernel without the guard's code. One launch over
-   ! every kind of row, in the map's order: there the copies overlap the prolongations (split launches, or the rows
-   ! sorted by kind, leave the prolongations as a tail and made the guard-off fill slower).
+   ! Two kernels, chosen here (#157): the fill without the guard keeps a kernel without the guard's code. Any mix of rows
+   ! in the map's order: the local fill passes the restriction and prolongation rows only, and fills the copy rows in a
+   ! second launch, packed and sorted with the receiving block fastest (update_ghost_local_copy_gpu_dev, #157 C4); the
+   ! rows of each kind keep their order here (the children of a coarse anchor share their footprints in the caches).
    if (seam_density_var > 0_I4P .and. associated(prolongation_rows_gpu)) then
       !$acc parallel loop independent gang vector collapse(2) DEVICEVAR(l_map_ghost_cell_gpu, q_gpu, seam_rho_gpu) &
       !$acc& private(meta, value_, rho, interpolant)
@@ -661,6 +668,35 @@ contains
       enddo
    endif
    endsubroutine update_ghost_local_gpu_dev
+
+   subroutine update_ghost_local_copy_gpu_dev(ngc, copy_rows_gpu, q_gpu)
+   !< Update the (local) ghost cells of the copy rows (#157 C4): `copy_rows_gpu(:,r)` = [b_send, ijk_send, b_recv,
+   !< ijk_recv], every cell (i, j, k) packed in one int32 (COPY_IJK_BITS bits per index, biased by COPY_IJK_BIAS;
+   !< `maps_fnl_object%copy_cpu_gpu`), the rows sorted with the receiving block fastest: consecutive threads write
+   !< consecutive memory of the block-fastest field. One thread per (variable, row), the row fastest. The rows are the
+   !< map's copy rows, each writing its own ghost from a real cell (#22 F1): the values of update_ghost_local_gpu_dev.
+   integer(I4P), intent(in)          :: ngc                  !< Ghost cells number.
+   integer(I4P), intent(in), pointer :: copy_rows_gpu(:,:)   !< Packed copy rows (none: unassociated).
+   real(R8P),    intent(inout)       :: q_gpu(1:,    &
+                                              1-ngc:,&
+                                              1-ngc:,&
+                                              1-ngc:,1:)     !< Field component to be updated.
+   integer(I4P)                      :: v, r                 !< Counters.
+   integer(I4P)                      :: bs, ps, br, pr       !< Donor block and cell, receiver block and cell.
+
+   if (.not.associated(copy_rows_gpu)) return
+   !$acc parallel loop independent gang vector collapse(2) DEVICEVAR(copy_rows_gpu, q_gpu) private(bs, ps, br, pr)
+   !$omp OMPLOOP collapse(2) DEVICEPTR(copy_rows_gpu, q_gpu) private(bs, ps, br, pr)
+   do v=1, size(q_gpu, dim=5)
+   do r=1, size(copy_rows_gpu, dim=2)
+      bs = copy_rows_gpu(1,r) ; ps = copy_rows_gpu(2,r) ; br = copy_rows_gpu(3,r) ; pr = copy_rows_gpu(4,r)
+      q_gpu(br, ibits(pr, 0, COPY_IJK_BITS) - COPY_IJK_BIAS, ibits(pr, COPY_IJK_BITS, COPY_IJK_BITS) - COPY_IJK_BIAS, &
+            ibits(pr, 2*COPY_IJK_BITS, COPY_IJK_BITS) - COPY_IJK_BIAS, v) =                                          &
+      q_gpu(bs, ibits(ps, 0, COPY_IJK_BITS) - COPY_IJK_BIAS, ibits(ps, COPY_IJK_BITS, COPY_IJK_BITS) - COPY_IJK_BIAS, &
+            ibits(ps, 2*COPY_IJK_BITS, COPY_IJK_BITS) - COPY_IJK_BIAS, v)
+   enddo
+   enddo
+   endsubroutine update_ghost_local_copy_gpu_dev
 
    subroutine reduce_ghost_local_gpu_dev(ngc, v_first, v_last, l_map_ghost_cell_gpu, q_gpu, bad_rows)
    !< Fold (local) ghost cells back onto the cells they mirror, the transpose of update_ghost_local_gpu_dev.

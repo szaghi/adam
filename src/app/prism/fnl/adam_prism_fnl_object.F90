@@ -6108,6 +6108,9 @@ contains
       associate(m => self%field_fnl%maps, f => self%field_fnl)
       local = 0_I8P ; recv = 0_I8P ; send = 0_I8P ; buffers = 0_I8P ; crown = 0_I8P ; seam = 0_I8P ; geometry = 0_I8P
       if (associated(m%local_map_ghost_cell_gpu)) local = bytes_i8(size(m%local_map_ghost_cell_gpu, kind=I8P))
+      ! the local fill's two device copies of those rows (#157 C4): the heavy rows (I8P) and the packed copy rows (I4P)
+      if (associated(m%local_map_ghost_heavy_gpu)) local = local + bytes_i8(size(m%local_map_ghost_heavy_gpu, kind=I8P))
+      if (associated(m%local_map_ghost_copy_gpu)) local = local + 4_I8P*size(m%local_map_ghost_copy_gpu, kind=I8P)
       if (associated(m%comm_map_recv_ghost_cell_gpu)) recv = bytes_i8(size(m%comm_map_recv_ghost_cell_gpu, kind=I8P))
       if (associated(m%comm_map_send_ghost_cell_gpu)) send = bytes_i8(size(m%comm_map_send_ghost_cell_gpu, kind=I8P))
       if (associated(m%send_buffer_ghost_gpu)) buffers = buffers + bytes_i8(size(m%send_buffer_ghost_gpu, kind=I8P))
