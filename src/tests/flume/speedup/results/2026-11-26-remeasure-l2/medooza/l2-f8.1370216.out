@@ -1,0 +1,62 @@
+Loading intel/slurm
+  Loading requirement: intel/nvidia/cuda-12.3.2 intel/gcc-8.5.0/hwloc-2.10.0
+    intel/gcc-8.5.0/pmix-5.0.1 intel/gcc-8.5.0/ucx-1.15.0
+Loading nvhpc-hpcx-cuda12/26.9
+  Loading requirement: hpcx
+0, 24056 MiB
+1, 24056 MiB
+2, 24056 MiB
+3, 24056 MiB
+job 1370216 gnode[15-17,19-21,24-25] np 32 fnl-nvf cases 2a wg-l4b38@grid w2-sphere-l5 2026-11-26T09:33:14+01:00
+>> windows, fnl-nvf, 32 ranks: 2a-sphere-uniform -> windows/fnl-nvf-np32
+   /ifs/hpc/home/szaghi/adam-tests/speedup-133/l2/dumps/leg2/warmup/sphere-restart: step 663, time 0.15, 4096 blocks on 4 ranks [1024, 1024, 1024, 1024], ratio 8, also .reference
+      -> /ifs/hpc/home/szaghi/adam-tests/speedup-133/l2/windows/fnl-nvf-np32/2a-sphere-uniform/dump/sphere-restart: 32 ranks, rule siblings, blocks per rank [128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128]
+   windows/fnl-nvf-np32/2a-sphere-uniform/r1-n10: wall 204.553 s, exit 0
+      forest timing (max over ranks, s): loop     1.4131, steps     1.4003, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np32/2a-sphere-uniform/r1-n110: wall 208.765 s, exit 0
+      forest timing (max over ranks, s): loop     9.8665, steps     9.7644, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np32/2a-sphere-uniform/r2-n10: wall 271.085 s, exit 0
+      forest timing (max over ranks, s): loop     1.4051, steps     1.3943, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np32/2a-sphere-uniform/r2-n110: wall 214.176 s, exit 0
+      forest timing (max over ranks, s): loop     9.9292, steps     9.8364, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np32/2a-sphere-uniform/r3-n10: wall 200.222 s, exit 0
+      forest timing (max over ranks, s): loop     1.4132, steps     1.3925, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np32/2a-sphere-uniform/r3-n110: wall 214.188 s, exit 0
+      forest timing (max over ranks, s): loop     9.9562, steps     9.8405, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+run.sh: done (windows, fnl-nvf, 32 ranks, work /ifs/hpc/home/szaghi/adam-tests/speedup-133/l2)
+L2 fnl-nvf np 32 2a rc 0
+>> windows, fnl-nvf, 32 ranks: wg-l4b38 -> windows/fnl-nvf-np32
+   /ifs/hpc/home/szaghi/adam-tests/speedup-133/l2/dumps/wg-l4b38/warmup/sphere-restart: step 20, time 0.003184072230619407, 4096 blocks on 32 ranks [128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128], ratio 8, also .reference
+      -> /ifs/hpc/home/szaghi/adam-tests/speedup-133/l2/windows/fnl-nvf-np32/wg-l4b38/dump/sphere-restart: 32 ranks, rule siblings, blocks per rank [128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128]
+   windows/fnl-nvf-np32/wg-l4b38/r1-n10: wall 181.330 s, exit 0
+      forest timing (max over ranks, s): loop     3.0188, steps     3.0093, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np32/wg-l4b38/r1-n110: wall 267.876 s, exit 0
+      forest timing (max over ranks, s): loop    32.1243, steps    32.0132, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np32/wg-l4b38/r2-n10: wall 208.819 s, exit 0
+      forest timing (max over ranks, s): loop     3.0725, steps     3.0411, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np32/wg-l4b38/r2-n110: wall 267.867 s, exit 0
+      forest timing (max over ranks, s): loop    32.1659, steps    32.0329, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np32/wg-l4b38/r3-n10: wall 203.453 s, exit 0
+      forest timing (max over ranks, s): loop     3.0634, steps     3.0482, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np32/wg-l4b38/r3-n110: wall 237.820 s, exit 0
+      forest timing (max over ranks, s): loop    32.1298, steps    32.0052, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+run.sh: done (windows, fnl-nvf, 32 ranks, work /ifs/hpc/home/szaghi/adam-tests/speedup-133/l2)
+L2 fnl-nvf np 32 wg-l4b38 rc 0
+>> windows, fnl-nvf, 32 ranks: w2-sphere-l5 -> windows/fnl-nvf-np32
+   /ifs/hpc/home/szaghi/adam-tests/speedup-133/l2/dumps/w2-sphere-l5/warmup/sphere-restart: step 20, time 0.0025207238492403663, 32768 blocks on 32 ranks [1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024], ratio 8, also .reference
+      -> /ifs/hpc/home/szaghi/adam-tests/speedup-133/l2/windows/fnl-nvf-np32/w2-sphere-l5/dump/sphere-restart: 32 ranks, rule siblings, blocks per rank [1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024]
+   windows/fnl-nvf-np32/w2-sphere-l5/r1-n10: wall 245.487 s, exit 0
+      forest timing (max over ranks, s): loop     8.0608, steps     8.0295, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np32/w2-sphere-l5/r1-n110: wall 274.307 s, exit 0
+      forest timing (max over ranks, s): loop    66.8891, steps    66.5729, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np32/w2-sphere-l5/r2-n10: wall 223.818 s, exit 0
+      forest timing (max over ranks, s): loop     6.4285, steps     6.3919, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np32/w2-sphere-l5/r2-n110: wall 283.978 s, exit 0
+      forest timing (max over ranks, s): loop    66.8707, steps    66.5210, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np32/w2-sphere-l5/r3-n10: wall 229.201 s, exit 0
+      forest timing (max over ranks, s): loop     6.3836, steps     6.3556, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np32/w2-sphere-l5/r3-n110: wall 259.269 s, exit 0
+      forest timing (max over ranks, s): loop    67.0146, steps    66.7516, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+run.sh: done (windows, fnl-nvf, 32 ranks, work /ifs/hpc/home/szaghi/adam-tests/speedup-133/l2)
+L2 fnl-nvf np 32 w2-sphere-l5 rc 0
+L2-RUN-DONE rc 0 2026-11-26T10:48:24+01:00

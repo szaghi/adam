@@ -140,7 +140,8 @@ type, extends(realm_object) :: prism_common_object
       procedure, pass(self) :: initialize_block_face_data !< (Re)build the per-block face data on the current grid.
       procedure, pass(self) :: fold_deposited_ghosts !< Fold PIC deposits spilled into ghosts, locally and across ranks.
       procedure, pass(self) :: initialize_pic_time_zero !< Host-side PIC particle injection plus charge/current deposition at t=0.
-      procedure, pass(self) :: verify_no_pic_deposition_on_coils !< Guard against PIC deposition on coil cells.
+      procedure, pass(self) :: register_pic_deposition_on_coils !< Keep the plasma current a PIC deposit put on coil cells.
+      procedure, pass(self) :: report_plasma_on_coils !< Repeat at the end of the run the warning of plasma on coil cells.
       procedure, pass(self) :: weight_pic_fields_time_zero !< Host-side PIC field interpolation at t=0.
       procedure, pass(self) :: save_pic_self_force_diagnostic_time_zero !< Temporary PIC self-force diagnostic at t=0.
       ! IO methods
@@ -754,10 +755,7 @@ contains
    endif
    call self%pic%particle_weighting(field=self%adam%field, grid=self%adam%grid, q=self%q, q_pic=self%q_pic, nv=self%nv)
    call self%fold_deposited_ghosts(q=self%q, v_first=self%nv, v_last=self%nv)
-   call self%verify_no_pic_deposition_on_coils(q=self%q, &
-                                               check_current=trim(self%pic%current_weighting_model) /= &
-                                                             CONSERVING_CURRENT_WEIGHTING_MODEL, check_charge=.true., &
-                                               context='initialize_pic_time_zero')
+   ! plasma on coil cells is registered by compute_coils_current_time_zero, once initialize_coils has built J_vec
    contains
       subroutine inject_and_distribute(q)
       !< Inject the whole set (rank 0's sequence on every rank), scale it, write the injection tables and keep the
@@ -803,62 +801,65 @@ contains
    endif
    endsubroutine fold_deposited_ghosts
 
-   subroutine verify_no_pic_deposition_on_coils(self, q, check_current, check_charge, context)
-   !< Ensure PIC deposition does not populate cells carrying analytic coil current.
-   class(prism_common_object), intent(in)              :: self                  !< The equation.
-   real(R8P),                  intent(in)              :: q(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Deposited field.
-   logical,                    intent(in),    optional :: check_current         !< Check Jx/Jy/Jz overlap.
-   logical,                    intent(in),    optional :: check_charge          !< Check rho overlap.
-   character(*),               intent(in),    optional :: context               !< Call-site label.
-   logical                                           :: do_current            !< Check current overlap.
-   logical                                           :: do_charge             !< Check charge overlap.
-   logical                                           :: overlap_current       !< Current overlap found.
-   logical                                           :: overlap_charge        !< Charge overlap found.
-   logical                                           :: has_coil              !< Analytic coil support at cell.
-   character(len=:), allocatable                     :: context_              !< Context label, local copy.
-   integer(I4P)                                      :: i, j, k, b           !< Counters.
-   integer(I4P)                                      :: nv_q                  !< Runtime q width.
+   subroutine register_pic_deposition_on_coils(self, q, stage, check_current, check_charge, context)
+   !< Right after a PIC deposit into q: plasma current or charge on the coil support is no longer an error. The current is
+   !< kept (committed or stage slot) and summed with the coil current by every later coil stamp of that state; the first
+   !< occurrence is warned and repeated at the end of the run (report_plasma_on_coils). Collective (with coils): the
+   !< overlap is reduced over the ranks and, when found, the ghosts of q are refreshed before the support (ghost cells
+   !< included) is kept, so a ghost copy of a support cell carries its plasma current too. Without overlap q is untouched.
+   class(prism_common_object), intent(inout)        :: self          !< The equation.
+   real(R8P),                  intent(inout)        :: q(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Deposited field.
+   logical,                    intent(in)           :: stage         !< q is a stage state (else the committed one).
+   logical,                    intent(in), optional :: check_current !< The J rows hold a fresh deposit.
+   logical,                    intent(in), optional :: check_charge  !< The charge row holds a fresh deposit.
+   character(*),               intent(in), optional :: context       !< Call-site label.
+   logical                                          :: do_current    !< Check current overlap.
+   logical                                          :: do_charge     !< Check charge overlap.
+   logical                                          :: overlap(2)    !< Plasma current, charge on the support.
+   character(len=:), allocatable                    :: context_      !< Context label, local copy.
+   integer(I4P)                                     :: ierr          !< MPI error.
 
+   if (self%coil%total_coils_number <= 0_I4P) return
    do_current = .false. ; if (present(check_current)) do_current = check_current
    do_charge  = .false. ; if (present(check_charge )) do_charge  = check_charge
    if ((.not. do_current) .and. (.not. do_charge)) return
+   context_ = 'PIC deposition' ; if (present(context)) context_ = trim(context)
+   call self%coil%detect_plasma(q=q, var_jx=self%physics%var_Jx, var_jy=self%physics%var_Jy, var_jz=self%physics%var_Jz, &
+                                check_current=do_current, check_charge=do_charge, blocks_number=self%blocks_number,       &
+                                overlap_current=overlap(1), overlap_charge=overlap(2))
+   call MPI_ALLREDUCE(MPI_IN_PLACE, overlap, 2, MPI_LOGICAL, MPI_LOR, MPI_COMM_WORLD, ierr)
+   if (do_current) then
+      if (overlap(1)) then
+         call self%adam%field%update_ghost_local(grid=self%adam%grid, maps=self%adam%maps, q=q)
+         call self%adam%field%update_ghost_mpi(grid=self%adam%grid, maps=self%adam%maps, q=q)
+      endif
+      call self%coil%capture_plasma(q=q, slot=merge(COIL_SLOT_STAGE, COIL_SLOT_COMMITTED, stage),                     &
+                                    var_jx=self%physics%var_Jx, var_jy=self%physics%var_Jy, var_jz=self%physics%var_Jz, &
+                                    active=overlap(1))
+   endif
+   if (any(overlap)) call self%coil%record_overlap(it=self%time%it, context=context_)
+   endsubroutine register_pic_deposition_on_coils
+
+   subroutine report_plasma_on_coils(self)
+   !< End of the run: repeat the warning of plasma deposited on coil cells, with the first iteration (and its call site)
+   !< and the last one over all the ranks. Collective.
+   class(prism_common_object), intent(in) :: self       !< The equation.
+   integer(I4P)                           :: first(2)   !< First iteration and rank owning it.
+   integer(I4P)                           :: last       !< Last iteration.
+   integer(I4P)                           :: ierr       !< MPI error.
+
    if (self%coil%total_coils_number <= 0_I4P) return
-
-   context_ = 'PIC deposition'
-   if (present(context)) context_ = trim(context)
-
-   overlap_current = .false.
-   overlap_charge  = .false.
-   nv_q = int(size(q, dim=1), I4P)
-
-   scan_cells: do b=1, self%blocks_number
-      do k=1-self%ngc, self%nk+self%ngc
-         do j=1-self%ngc, self%nj+self%ngc
-            do i=1-self%ngc, self%ni+self%ngc
-               has_coil = any(self%coil%J_vec(:,i,j,k,b,:) /= 0._R8P)
-               if (.not. has_coil) cycle
-               if (do_current) then
-                  overlap_current = (q(self%physics%var_Jx,i,j,k,b) /= 0._R8P) .or. &
-                                    (q(self%physics%var_Jy,i,j,k,b) /= 0._R8P) .or. &
-                                    (q(self%physics%var_Jz,i,j,k,b) /= 0._R8P)
-                  if (overlap_current) exit scan_cells
-               endif
-               if (do_charge) then
-                  overlap_charge = q(nv_q,i,j,k,b) /= 0._R8P
-                  if (overlap_charge) exit scan_cells
-               endif
-            enddo
-         enddo
-      enddo
-   enddo scan_cells
-
-   if (overlap_current) then
-      call mpih%error_stop(msg=': '//trim(context_)//' deposited plasma current on a coil cell')
-   endif
-   if (overlap_charge) then
-      call mpih%error_stop(msg=': '//trim(context_)//' deposited plasma charge on a coil cell')
-   endif
-   endsubroutine verify_no_pic_deposition_on_coils
+   first(1) = huge(1_I4P) ; if (self%coil%overlap_first_it >= 0_I4P) first(1) = self%coil%overlap_first_it
+   first(2) = mpih%myrank
+   last = self%coil%overlap_last_it
+   call MPI_ALLREDUCE(MPI_IN_PLACE, first, 1, MPI_2INTEGER, MPI_MINLOC, MPI_COMM_WORLD, ierr)
+   call MPI_ALLREDUCE(MPI_IN_PLACE, last, 1, MPI_INTEGER, MPI_MAX, MPI_COMM_WORLD, ierr)
+   if (first(1) == huge(1_I4P)) return
+   if (mpih%myrank == first(2)) &
+      call mpih%print_message('warning: '//trim(self%coil%overlap_first_context)//' deposited plasma on coil cells at '// &
+                              'iteration '//trim(str(first(1), .true.))//' (first; last at iteration '//               &
+                              trim(str(last, .true.))//'): plasma and coil currents were summed there')
+   endsubroutine report_plasma_on_coils
 
    subroutine weight_pic_fields_time_zero(self)
    !< Interpolate initialized fields at particle positions at t=0.
@@ -1760,6 +1761,8 @@ contains
          call self%set_helicon_coil(n=n)
       endselect
    enddo
+   ! J_vec recomputed: the coil support and the plasma current kept on it are stale
+   call self%coil%invalidate_support
    endsubroutine initialize_coils
 
    subroutine compute_coils_current_time_zero(self)
@@ -1781,6 +1784,11 @@ contains
              A=>self%coil%coil_amplitude, f=>self%coil%f, phase=>self%coil%phase, J_vec=>self%coil%J_vec,  &
              var_Jx=>self%physics%var_Jx, var_Jy=>self%physics%var_Jy, var_Jz=>self%physics%var_Jz)
       if (self%coil%total_coils_number >= 1_I4P) then
+         ! PIC: the J rows hold the t0 deposit alone (initialize_pic_time_zero zeroes them first): keep the plasma part of
+         ! the support, summed with the coil current below and by the later stamps of q
+         if (is_pic_model(self%physics%physical_model)) &
+            call self%register_pic_deposition_on_coils(q=self%q, stage=.false., check_current=.true., check_charge=.true., &
+                                                       context='set_initial_conditions(t0 deposition)')
          do b=1, blocks_number
             do k=1-self%ngc, nk+self%ngc
                do j=1-self%ngc, nj+self%ngc
@@ -1794,6 +1802,7 @@ contains
                enddo
             enddo
          enddo
+         call self%coil%restore_plasma(q=self%q, slot=COIL_SLOT_COMMITTED, var_jx=var_Jx, var_jy=var_Jy, var_jz=var_Jz)
 
          if (td > 0._R8P) then
             s = 0._R8P
@@ -4182,6 +4191,11 @@ contains
    integer(I4P)                              :: progress_total          !< Total source-term progress units.
    integer(I4P)                              :: progress_percent        !< Last printed source-term progress percent.
    character(len=:), allocatable             :: progress_label          !< Source-term progress label.
+   real(R8P), allocatable                    :: Ae(:,:,:,:)             !< Potential of one block, extended along the
+                                                                        !< face normals for the ghost-face curls.
+   logical, allocatable                      :: active(:)               !< Blocks the coil may give a source.
+   real(R8P)                                 :: lo(3), hi(3)            !< Reach box of a block.
+   real(R8P)                                 :: h                       !< Axial half-extent of the coil window.
 
    ! Associate grid, field, and coil data.
    associate(blocks_number=>self%adam%field%blocks_number, ni=>self%adam%grid%ni, nj=>self%adam%grid%nj,&
@@ -4189,7 +4203,7 @@ contains
             y_c=>self%coil%y_center(n), z_c=>self%coil%z_center(n), r_c=>self%coil%r_coil(n),           &
             normal=>self%coil%normal(n), nb=>self%adam%field%nb, x_cell=>self%adam%field%x_cell,        &
             y_cell=>self%adam%field%y_cell, z_cell=>self%adam%field%z_cell, sigma=>self%coil%sigma(n),  &
-            J_vec=>self%coil%J_vec, hs=>self%fdv_half_stencil)
+            J_vec=>self%coil%J_vec, hs=>self%fdv_half_stencil, dxyz=>self%adam%field%dxyz)
 
    allocate(A(1:3,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nb))
    A(:,:,:,:,:) = 0.0_R8P
@@ -4204,7 +4218,24 @@ contains
    call print_source_progress(label=progress_label, progress_done=progress_done, &
                               progress_total=progress_total, last_percent=progress_percent)
 
+   ! Blocks out of the reach of the coil keep A = 0 and J = 0: there every erf is saturated, so the potential depends on
+   ! the axial coordinate only (or is 0) across the stencils and its curl is exactly the 0 it would compute.
+   h = sigma
+   allocate(active(1:blocks_number))
    do b=1, blocks_number
+      call coil_block_box(ngc=ngc, ni=ni, nj=nj, nk=nk, x_cell=x_cell(:,b), y_cell=y_cell(:,b), z_cell=z_cell(:,b), &
+                          dxyz=dxyz(:,b), reach=hs, lo=lo, hi=hi)
+      active(b) = helicon_block_active(lo=lo, hi=hi, x_c=x_c, y_c=y_c, z_c=z_c, normal=self%coil%normal(n), &
+                                       Radius=r_c, sigma=sigma, csi_min=-h, csi_max=h)
+   enddo
+
+   do b=1, blocks_number
+      if (.not.active(b)) then
+         progress_done = progress_done + 1_I4P
+         call print_source_progress(label=progress_label, progress_done=progress_done, &
+                                    progress_total=progress_total, last_percent=progress_percent)
+         cycle
+      endif
       do k=1-ngc, nk+ngc
          do j=1-ngc, nj+ngc
             do i=1-ngc, ni+ngc
@@ -4232,6 +4263,18 @@ contains
    enddo
 
    call self%compute_curl(hs=hs, ivar=1_I4P, q=A, curl=J_vec_buffer)
+
+   ! Ghost faces (compute_curl covers the interior only): each block extended hs cells beyond its ghosts along the
+   ! face normals, then the centred curl of every face ghost cell read from it (J_vec is stamped over the ghosted extent).
+   allocate(Ae(1:3,1-ngc-hs:ni+ngc+hs,1-ngc-hs:nj+ngc+hs,1-ngc-hs:nk+ngc+hs))
+   do b=1, blocks_number
+      if (.not.active(b)) cycle
+      call axial_coil_block_extension(hs=hs, ngc=ngc, ni=ni, nj=nj, nk=nk, x_cell=x_cell(:,b), y_cell=y_cell(:,b), &
+                                      z_cell=z_cell(:,b), dxyz=dxyz(:,b), A=A(:,:,:,:,b), xc=[x_c, y_c, z_c],     &
+                                      ax=1_I4P, r_c=r_c, h=h, sigma=sigma, Ae=Ae)
+      call coil_face_ghost_curl(fdv_scheme=self%fdv_scheme, hs=hs, ngc=ngc, ni=ni, nj=nj, nk=nk, dxyz=dxyz(:,b), &
+                                Ae=Ae, Jb=J_vec_buffer(:,:,:,:,b))
+   enddo
    progress_done = progress_done + 1_I4P
    call print_source_progress(label=progress_label, progress_done=progress_done, &
                               progress_total=progress_total, last_percent=progress_percent)
@@ -4252,16 +4295,12 @@ contains
 
    J_vec(1:3,:,:,:,:,n) = J_vec(1:3,:,:,:,:,n) + J_vec_buffer
 
-   if (n == 1_I4P) then
-      call compute_coil_current_density_flux_analytic_circular_x(x_c=x_c, y_c=y_c, z_c=z_c, r_c=r_c, &
-                                                                 A=self%coil%A(n), sigma=sigma, n=n, &
-                                                                 adjust_amplitude=.true.)
-   else
-      self%coil%A(n) = self%coil%A(1)
-      call compute_coil_current_density_flux_analytic_circular_x(x_c=x_c, y_c=y_c, z_c=z_c, r_c=r_c, &
-                                                                 A=self%coil%A(n), sigma=sigma, n=n, &
-                                                                 adjust_amplitude=.false.)
-   endif
+   ! The stamp (compute_coils_current_time_zero, compute_coils_current) reads coil_amplitude: the corrected amplitude of
+   ! this coil's own current goes there, as for the other coil kinds; A(n) keeps the input current.
+   self%coil%coil_amplitude(n) = self%coil%A(n)
+   call compute_coil_current_density_flux_analytic_circular_x(x_c=x_c, y_c=y_c, z_c=z_c, r_c=r_c, &
+                                                              A=self%coil%coil_amplitude(n), sigma=sigma, n=n, &
+                                                              adjust_amplitude=.true.)
 
    endassociate
 
@@ -4372,6 +4411,11 @@ contains
    integer(I4P)                              :: progress_total          !< Total source-term progress units.
    integer(I4P)                              :: progress_percent        !< Last printed source-term progress percent.
    character(len=:), allocatable             :: progress_label          !< Source-term progress label.
+   real(R8P), allocatable                    :: Ae(:,:,:,:)             !< Potential of one block, extended along the
+                                                                        !< face normals for the ghost-face curls.
+   logical, allocatable                      :: active(:)               !< Blocks the coil may give a source.
+   real(R8P)                                 :: lo(3), hi(3)            !< Reach box of a block.
+   real(R8P)                                 :: h                       !< Axial half-extent of the coil window.
 
    ! Associate grid, field, and coil data.
    associate(blocks_number=>self%adam%field%blocks_number, ni=>self%adam%grid%ni, nj=>self%adam%grid%nj,&
@@ -4379,7 +4423,7 @@ contains
             y_c=>self%coil%y_center(n), z_c=>self%coil%z_center(n), r_c=>self%coil%r_coil(n),           &
             normal=>self%coil%normal(n), nb=>self%adam%field%nb, x_cell=>self%adam%field%x_cell,        &
             y_cell=>self%adam%field%y_cell, z_cell=>self%adam%field%z_cell, sigma=>self%coil%sigma(n),  &
-            J_vec=>self%coil%J_vec, hs=>self%fdv_half_stencil)
+            J_vec=>self%coil%J_vec, hs=>self%fdv_half_stencil, dxyz=>self%adam%field%dxyz)
 
    allocate(A(1:3,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nb))
    A(:,:,:,:,:) = 0.0_R8P
@@ -4394,7 +4438,24 @@ contains
    call print_source_progress(label=progress_label, progress_done=progress_done, &
                               progress_total=progress_total, last_percent=progress_percent)
 
+   ! Blocks out of the reach of the coil keep A = 0 and J = 0: there every erf is saturated, so the potential depends on
+   ! the axial coordinate only (or is 0) across the stencils and its curl is exactly the 0 it would compute.
+   h = sigma
+   allocate(active(1:blocks_number))
    do b=1, blocks_number
+      call coil_block_box(ngc=ngc, ni=ni, nj=nj, nk=nk, x_cell=x_cell(:,b), y_cell=y_cell(:,b), z_cell=z_cell(:,b), &
+                          dxyz=dxyz(:,b), reach=hs, lo=lo, hi=hi)
+      active(b) = helicon_block_active(lo=lo, hi=hi, x_c=x_c, y_c=y_c, z_c=z_c, normal=self%coil%normal(n), &
+                                       Radius=r_c, sigma=sigma, csi_min=-h, csi_max=h)
+   enddo
+
+   do b=1, blocks_number
+      if (.not.active(b)) then
+         progress_done = progress_done + 1_I4P
+         call print_source_progress(label=progress_label, progress_done=progress_done, &
+                                    progress_total=progress_total, last_percent=progress_percent)
+         cycle
+      endif
       do k=1-ngc, nk+ngc
          do j=1-ngc, nj+ngc
             do i=1-ngc, ni+ngc
@@ -4422,6 +4483,18 @@ contains
    enddo
 
    call self%compute_curl(hs=hs, ivar=1_I4P, q=A, curl=J_vec_buffer)
+
+   ! Ghost faces (compute_curl covers the interior only): each block extended hs cells beyond its ghosts along the
+   ! face normals, then the centred curl of every face ghost cell read from it (J_vec is stamped over the ghosted extent).
+   allocate(Ae(1:3,1-ngc-hs:ni+ngc+hs,1-ngc-hs:nj+ngc+hs,1-ngc-hs:nk+ngc+hs))
+   do b=1, blocks_number
+      if (.not.active(b)) cycle
+      call axial_coil_block_extension(hs=hs, ngc=ngc, ni=ni, nj=nj, nk=nk, x_cell=x_cell(:,b), y_cell=y_cell(:,b), &
+                                      z_cell=z_cell(:,b), dxyz=dxyz(:,b), A=A(:,:,:,:,b), xc=[x_c, y_c, z_c],     &
+                                      ax=2_I4P, r_c=r_c, h=h, sigma=sigma, Ae=Ae)
+      call coil_face_ghost_curl(fdv_scheme=self%fdv_scheme, hs=hs, ngc=ngc, ni=ni, nj=nj, nk=nk, dxyz=dxyz(:,b), &
+                                Ae=Ae, Jb=J_vec_buffer(:,:,:,:,b))
+   enddo
    progress_done = progress_done + 1_I4P
    call print_source_progress(label=progress_label, progress_done=progress_done, &
                               progress_total=progress_total, last_percent=progress_percent)
@@ -4442,16 +4515,12 @@ contains
 
    J_vec(1:3,:,:,:,:,n) = J_vec(1:3,:,:,:,:,n) + J_vec_buffer
 
-   if (n == 1_I4P) then
-      call compute_coil_current_density_flux_analytic_circular_y(x_c=x_c, y_c=y_c, z_c=z_c, r_c=r_c, &
-                                                                 A=self%coil%A(n), sigma=sigma, n=n, &
-                                                                 adjust_amplitude=.true.)
-   else
-      self%coil%A(n) = self%coil%A(1)
-      call compute_coil_current_density_flux_analytic_circular_y(x_c=x_c, y_c=y_c, z_c=z_c, r_c=r_c, &
-                                                                 A=self%coil%A(n), sigma=sigma, n=n, &
-                                                                 adjust_amplitude=.false.)
-   endif
+   ! The stamp (compute_coils_current_time_zero, compute_coils_current) reads coil_amplitude: the corrected amplitude of
+   ! this coil's own current goes there, as for the other coil kinds; A(n) keeps the input current.
+   self%coil%coil_amplitude(n) = self%coil%A(n)
+   call compute_coil_current_density_flux_analytic_circular_y(x_c=x_c, y_c=y_c, z_c=z_c, r_c=r_c, &
+                                                              A=self%coil%coil_amplitude(n), sigma=sigma, n=n, &
+                                                              adjust_amplitude=.true.)
 
    endassociate
 
@@ -4562,6 +4631,11 @@ contains
    integer(I4P)                              :: progress_total          !< Total source-term progress units.
    integer(I4P)                              :: progress_percent        !< Last printed source-term progress percent.
    character(len=:), allocatable             :: progress_label          !< Source-term progress label.
+   real(R8P), allocatable                    :: Ae(:,:,:,:)             !< Potential of one block, extended along the
+                                                                        !< face normals for the ghost-face curls.
+   logical, allocatable                      :: active(:)               !< Blocks the coil may give a source.
+   real(R8P)                                 :: lo(3), hi(3)            !< Reach box of a block.
+   real(R8P)                                 :: h                       !< Axial half-extent of the coil window.
 
    ! Associate grid, field, and coil data.
    associate(blocks_number=>self%adam%field%blocks_number, ni=>self%adam%grid%ni, nj=>self%adam%grid%nj,&
@@ -4569,7 +4643,7 @@ contains
             y_c=>self%coil%y_center(n), z_c=>self%coil%z_center(n), r_c=>self%coil%r_coil(n),           &
             normal=>self%coil%normal(n), nb=>self%adam%field%nb, x_cell=>self%adam%field%x_cell,        &
             y_cell=>self%adam%field%y_cell, z_cell=>self%adam%field%z_cell, sigma=>self%coil%sigma(n),  &
-            J_vec=>self%coil%J_vec, hs=>self%fdv_half_stencil)
+            J_vec=>self%coil%J_vec, hs=>self%fdv_half_stencil, dxyz=>self%adam%field%dxyz)
 
    allocate(A(1:3,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nb))
    A(:,:,:,:,:) = 0.0_R8P
@@ -4584,7 +4658,24 @@ contains
    call print_source_progress(label=progress_label, progress_done=progress_done, &
                               progress_total=progress_total, last_percent=progress_percent)
 
+   ! Blocks out of the reach of the coil keep A = 0 and J = 0: there every erf is saturated, so the potential depends on
+   ! the axial coordinate only (or is 0) across the stencils and its curl is exactly the 0 it would compute.
+   h = sigma
+   allocate(active(1:blocks_number))
    do b=1, blocks_number
+      call coil_block_box(ngc=ngc, ni=ni, nj=nj, nk=nk, x_cell=x_cell(:,b), y_cell=y_cell(:,b), z_cell=z_cell(:,b), &
+                          dxyz=dxyz(:,b), reach=hs, lo=lo, hi=hi)
+      active(b) = helicon_block_active(lo=lo, hi=hi, x_c=x_c, y_c=y_c, z_c=z_c, normal=self%coil%normal(n), &
+                                       Radius=r_c, sigma=sigma, csi_min=-h, csi_max=h)
+   enddo
+
+   do b=1, blocks_number
+      if (.not.active(b)) then
+         progress_done = progress_done + 1_I4P
+         call print_source_progress(label=progress_label, progress_done=progress_done, &
+                                    progress_total=progress_total, last_percent=progress_percent)
+         cycle
+      endif
       do k=1-ngc, nk+ngc
          do j=1-ngc, nj+ngc
             do i=1-ngc, ni+ngc
@@ -4612,6 +4703,18 @@ contains
    enddo
 
    call self%compute_curl(hs=hs, ivar=1_I4P, q=A, curl=J_vec_buffer)
+
+   ! Ghost faces (compute_curl covers the interior only): each block extended hs cells beyond its ghosts along the
+   ! face normals, then the centred curl of every face ghost cell read from it (J_vec is stamped over the ghosted extent).
+   allocate(Ae(1:3,1-ngc-hs:ni+ngc+hs,1-ngc-hs:nj+ngc+hs,1-ngc-hs:nk+ngc+hs))
+   do b=1, blocks_number
+      if (.not.active(b)) cycle
+      call axial_coil_block_extension(hs=hs, ngc=ngc, ni=ni, nj=nj, nk=nk, x_cell=x_cell(:,b), y_cell=y_cell(:,b), &
+                                      z_cell=z_cell(:,b), dxyz=dxyz(:,b), A=A(:,:,:,:,b), xc=[x_c, y_c, z_c],     &
+                                      ax=3_I4P, r_c=r_c, h=h, sigma=sigma, Ae=Ae)
+      call coil_face_ghost_curl(fdv_scheme=self%fdv_scheme, hs=hs, ngc=ngc, ni=ni, nj=nj, nk=nk, dxyz=dxyz(:,b), &
+                                Ae=Ae, Jb=J_vec_buffer(:,:,:,:,b))
+   enddo
    progress_done = progress_done + 1_I4P
    call print_source_progress(label=progress_label, progress_done=progress_done, &
                               progress_total=progress_total, last_percent=progress_percent)
@@ -4632,16 +4735,12 @@ contains
 
    J_vec(1:3,:,:,:,:,n) = J_vec(1:3,:,:,:,:,n) + J_vec_buffer
 
-   if (n == 1_I4P) then
-      call compute_coil_current_density_flux_analytic_circular_z(x_c=x_c, y_c=y_c, z_c=z_c, r_c=r_c, &
-                                                                 A=self%coil%A(n), sigma=sigma, n=n, &
-                                                                 adjust_amplitude=.true.)
-   else
-      self%coil%A(n) = self%coil%A(1)
-      call compute_coil_current_density_flux_analytic_circular_z(x_c=x_c, y_c=y_c, z_c=z_c, r_c=r_c, &
-                                                                 A=self%coil%A(n), sigma=sigma, n=n, &
-                                                                 adjust_amplitude=.false.)
-   endif
+   ! The stamp (compute_coils_current_time_zero, compute_coils_current) reads coil_amplitude: the corrected amplitude of
+   ! this coil's own current goes there, as for the other coil kinds; A(n) keeps the input current.
+   self%coil%coil_amplitude(n) = self%coil%A(n)
+   call compute_coil_current_density_flux_analytic_circular_z(x_c=x_c, y_c=y_c, z_c=z_c, r_c=r_c, &
+                                                              A=self%coil%coil_amplitude(n), sigma=sigma, n=n, &
+                                                              adjust_amplitude=.true.)
 
    endassociate
 
@@ -4752,6 +4851,11 @@ contains
    integer(I4P)                              :: progress_total          !< Total source-term progress units.
    integer(I4P)                              :: progress_percent        !< Last printed source-term progress percent.
    character(len=:), allocatable             :: progress_label          !< Source-term progress label.
+   real(R8P), allocatable                    :: Ae(:,:,:,:)             !< Potential of one block, extended along the
+                                                                        !< face normals for the ghost-face curls.
+   logical, allocatable                      :: active(:)               !< Blocks the coil may give a source.
+   real(R8P)                                 :: lo(3), hi(3)            !< Reach box of a block.
+   real(R8P)                                 :: h                       !< Axial half-extent of the coil window.
 
    ! Associate grid, field, and coil data.
    associate(blocks_number=>self%adam%field%blocks_number, ni=>self%adam%grid%ni, nj=>self%adam%grid%nj,&
@@ -4760,7 +4864,7 @@ contains
             l_sol=>self%coil%l_solenoid(n), windings=>self%coil%windings(n),                            &
             nb=>self%adam%field%nb, x_cell=>self%adam%field%x_cell, y_cell=>self%adam%field%y_cell,     &
             z_cell=>self%adam%field%z_cell, sigma=>self%coil%sigma(n), J_vec=>self%coil%J_vec,          &
-            hs=>self%fdv_half_stencil)
+            hs=>self%fdv_half_stencil, dxyz=>self%adam%field%dxyz)
 
    allocate(A(1:3,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nb))
    A(:,:,:,:,:) = 0.0_R8P
@@ -4775,7 +4879,24 @@ contains
    call print_source_progress(label=progress_label, progress_done=progress_done, &
                               progress_total=progress_total, last_percent=progress_percent)
 
+   ! Blocks out of the reach of the coil keep A = 0 and J = 0: there every erf is saturated, so the potential depends on
+   ! the axial coordinate only (or is 0) across the stencils and its curl is exactly the 0 it would compute.
+   h = 0.5_R8P*l_sol
+   allocate(active(1:blocks_number))
    do b=1, blocks_number
+      call coil_block_box(ngc=ngc, ni=ni, nj=nj, nk=nk, x_cell=x_cell(:,b), y_cell=y_cell(:,b), z_cell=z_cell(:,b), &
+                          dxyz=dxyz(:,b), reach=hs, lo=lo, hi=hi)
+      active(b) = helicon_block_active(lo=lo, hi=hi, x_c=x_c, y_c=y_c, z_c=z_c, normal=self%coil%normal(n), &
+                                       Radius=r_coil, sigma=sigma, csi_min=-h, csi_max=h)
+   enddo
+
+   do b=1, blocks_number
+      if (.not.active(b)) then
+         progress_done = progress_done + 1_I4P
+         call print_source_progress(label=progress_label, progress_done=progress_done, &
+                                    progress_total=progress_total, last_percent=progress_percent)
+         cycle
+      endif
       do k=1-ngc, nk+ngc
          do j=1-ngc, nj+ngc
             do i=1-ngc, ni+ngc
@@ -4800,6 +4921,18 @@ contains
    enddo
 
    call self%compute_curl(hs=hs, ivar=1_I4P, q=A, curl=J_vec_buffer)
+
+   ! Ghost faces (compute_curl covers the interior only): each block extended hs cells beyond its ghosts along the
+   ! face normals, then the centred curl of every face ghost cell read from it (J_vec is stamped over the ghosted extent).
+   allocate(Ae(1:3,1-ngc-hs:ni+ngc+hs,1-ngc-hs:nj+ngc+hs,1-ngc-hs:nk+ngc+hs))
+   do b=1, blocks_number
+      if (.not.active(b)) cycle
+      call axial_coil_block_extension(hs=hs, ngc=ngc, ni=ni, nj=nj, nk=nk, x_cell=x_cell(:,b), y_cell=y_cell(:,b), &
+                                      z_cell=z_cell(:,b), dxyz=dxyz(:,b), A=A(:,:,:,:,b), xc=[x_c, y_c, z_c],     &
+                                      ax=1_I4P, r_c=r_coil, h=h, sigma=sigma, Ae=Ae)
+      call coil_face_ghost_curl(fdv_scheme=self%fdv_scheme, hs=hs, ngc=ngc, ni=ni, nj=nj, nk=nk, dxyz=dxyz(:,b), &
+                                Ae=Ae, Jb=J_vec_buffer(:,:,:,:,b))
+   enddo
    progress_done = progress_done + 1_I4P
    call print_source_progress(label=progress_label, progress_done=progress_done, &
                               progress_total=progress_total, last_percent=progress_percent)
@@ -4937,6 +5070,11 @@ contains
    integer(I4P)                              :: progress_total          !< Total source-term progress units.
    integer(I4P)                              :: progress_percent        !< Last printed source-term progress percent.
    character(len=:), allocatable             :: progress_label          !< Source-term progress label.
+   real(R8P), allocatable                    :: Ae(:,:,:,:)             !< Potential of one block, extended along the
+                                                                        !< face normals for the ghost-face curls.
+   logical, allocatable                      :: active(:)               !< Blocks the coil may give a source.
+   real(R8P)                                 :: lo(3), hi(3)            !< Reach box of a block.
+   real(R8P)                                 :: h                       !< Axial half-extent of the coil window.
 
    ! Associate grid, field, and coil data.
    associate(blocks_number=>self%adam%field%blocks_number, ni=>self%adam%grid%ni, nj=>self%adam%grid%nj,&
@@ -4945,7 +5083,7 @@ contains
             l_sol=>self%coil%l_solenoid(n), windings=>self%coil%windings(n),                            &
             nb=>self%adam%field%nb, x_cell=>self%adam%field%x_cell, y_cell=>self%adam%field%y_cell,     &
             z_cell=>self%adam%field%z_cell, sigma=>self%coil%sigma(n), J_vec=>self%coil%J_vec,          &
-            hs=>self%fdv_half_stencil)
+            hs=>self%fdv_half_stencil, dxyz=>self%adam%field%dxyz)
 
    allocate(A(1:3,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nb))
    A(:,:,:,:,:) = 0.0_R8P
@@ -4960,7 +5098,24 @@ contains
    call print_source_progress(label=progress_label, progress_done=progress_done, &
                               progress_total=progress_total, last_percent=progress_percent)
 
+   ! Blocks out of the reach of the coil keep A = 0 and J = 0: there every erf is saturated, so the potential depends on
+   ! the axial coordinate only (or is 0) across the stencils and its curl is exactly the 0 it would compute.
+   h = 0.5_R8P*l_sol
+   allocate(active(1:blocks_number))
    do b=1, blocks_number
+      call coil_block_box(ngc=ngc, ni=ni, nj=nj, nk=nk, x_cell=x_cell(:,b), y_cell=y_cell(:,b), z_cell=z_cell(:,b), &
+                          dxyz=dxyz(:,b), reach=hs, lo=lo, hi=hi)
+      active(b) = helicon_block_active(lo=lo, hi=hi, x_c=x_c, y_c=y_c, z_c=z_c, normal=self%coil%normal(n), &
+                                       Radius=r_coil, sigma=sigma, csi_min=-h, csi_max=h)
+   enddo
+
+   do b=1, blocks_number
+      if (.not.active(b)) then
+         progress_done = progress_done + 1_I4P
+         call print_source_progress(label=progress_label, progress_done=progress_done, &
+                                    progress_total=progress_total, last_percent=progress_percent)
+         cycle
+      endif
       do k=1-ngc, nk+ngc
          do j=1-ngc, nj+ngc
             do i=1-ngc, ni+ngc
@@ -4985,6 +5140,18 @@ contains
    enddo
 
    call self%compute_curl(hs=hs, ivar=1_I4P, q=A, curl=J_vec_buffer)
+
+   ! Ghost faces (compute_curl covers the interior only): each block extended hs cells beyond its ghosts along the
+   ! face normals, then the centred curl of every face ghost cell read from it (J_vec is stamped over the ghosted extent).
+   allocate(Ae(1:3,1-ngc-hs:ni+ngc+hs,1-ngc-hs:nj+ngc+hs,1-ngc-hs:nk+ngc+hs))
+   do b=1, blocks_number
+      if (.not.active(b)) cycle
+      call axial_coil_block_extension(hs=hs, ngc=ngc, ni=ni, nj=nj, nk=nk, x_cell=x_cell(:,b), y_cell=y_cell(:,b), &
+                                      z_cell=z_cell(:,b), dxyz=dxyz(:,b), A=A(:,:,:,:,b), xc=[x_c, y_c, z_c],     &
+                                      ax=2_I4P, r_c=r_coil, h=h, sigma=sigma, Ae=Ae)
+      call coil_face_ghost_curl(fdv_scheme=self%fdv_scheme, hs=hs, ngc=ngc, ni=ni, nj=nj, nk=nk, dxyz=dxyz(:,b), &
+                                Ae=Ae, Jb=J_vec_buffer(:,:,:,:,b))
+   enddo
    progress_done = progress_done + 1_I4P
    call print_source_progress(label=progress_label, progress_done=progress_done, &
                               progress_total=progress_total, last_percent=progress_percent)
@@ -5124,6 +5291,11 @@ contains
    integer(I4P)                              :: progress_total          !< Total source-term progress units.
    integer(I4P)                              :: progress_percent        !< Last printed source-term progress percent.
    character(len=:), allocatable             :: progress_label          !< Source-term progress label.
+   real(R8P), allocatable                    :: Ae(:,:,:,:)             !< Potential of one block, extended along the
+                                                                        !< face normals for the ghost-face curls.
+   logical, allocatable                      :: active(:)               !< Blocks the coil may give a source.
+   real(R8P)                                 :: lo(3), hi(3)            !< Reach box of a block.
+   real(R8P)                                 :: h                       !< Axial half-extent of the coil window.
 
    ! Associate grid, field, and coil data.
    associate(blocks_number=>self%adam%field%blocks_number, ni=>self%adam%grid%ni, nj=>self%adam%grid%nj,&
@@ -5132,7 +5304,7 @@ contains
             l_sol=>self%coil%l_solenoid(n), windings=>self%coil%windings(n),                            &
             nb=>self%adam%field%nb, x_cell=>self%adam%field%x_cell, y_cell=>self%adam%field%y_cell,     &
             z_cell=>self%adam%field%z_cell, sigma=>self%coil%sigma(n), J_vec=>self%coil%J_vec,          &
-            hs=>self%fdv_half_stencil)
+            hs=>self%fdv_half_stencil, dxyz=>self%adam%field%dxyz)
 
    allocate(A(1:3,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nb))
    A(:,:,:,:,:) = 0.0_R8P
@@ -5147,7 +5319,24 @@ contains
    call print_source_progress(label=progress_label, progress_done=progress_done, &
                               progress_total=progress_total, last_percent=progress_percent)
 
+   ! Blocks out of the reach of the coil keep A = 0 and J = 0: there every erf is saturated, so the potential depends on
+   ! the axial coordinate only (or is 0) across the stencils and its curl is exactly the 0 it would compute.
+   h = 0.5_R8P*l_sol
+   allocate(active(1:blocks_number))
    do b=1, blocks_number
+      call coil_block_box(ngc=ngc, ni=ni, nj=nj, nk=nk, x_cell=x_cell(:,b), y_cell=y_cell(:,b), z_cell=z_cell(:,b), &
+                          dxyz=dxyz(:,b), reach=hs, lo=lo, hi=hi)
+      active(b) = helicon_block_active(lo=lo, hi=hi, x_c=x_c, y_c=y_c, z_c=z_c, normal=self%coil%normal(n), &
+                                       Radius=r_coil, sigma=sigma, csi_min=-h, csi_max=h)
+   enddo
+
+   do b=1, blocks_number
+      if (.not.active(b)) then
+         progress_done = progress_done + 1_I4P
+         call print_source_progress(label=progress_label, progress_done=progress_done, &
+                                    progress_total=progress_total, last_percent=progress_percent)
+         cycle
+      endif
       do k=1-ngc, nk+ngc
          do j=1-ngc, nj+ngc
             do i=1-ngc, ni+ngc
@@ -5172,6 +5361,18 @@ contains
    enddo
 
    call self%compute_curl(hs=hs, ivar=1_I4P, q=A, curl=J_vec_buffer)
+
+   ! Ghost faces (compute_curl covers the interior only): each block extended hs cells beyond its ghosts along the
+   ! face normals, then the centred curl of every face ghost cell read from it (J_vec is stamped over the ghosted extent).
+   allocate(Ae(1:3,1-ngc-hs:ni+ngc+hs,1-ngc-hs:nj+ngc+hs,1-ngc-hs:nk+ngc+hs))
+   do b=1, blocks_number
+      if (.not.active(b)) cycle
+      call axial_coil_block_extension(hs=hs, ngc=ngc, ni=ni, nj=nj, nk=nk, x_cell=x_cell(:,b), y_cell=y_cell(:,b), &
+                                      z_cell=z_cell(:,b), dxyz=dxyz(:,b), A=A(:,:,:,:,b), xc=[x_c, y_c, z_c],     &
+                                      ax=3_I4P, r_c=r_coil, h=h, sigma=sigma, Ae=Ae)
+      call coil_face_ghost_curl(fdv_scheme=self%fdv_scheme, hs=hs, ngc=ngc, ni=ni, nj=nj, nk=nk, dxyz=dxyz(:,b), &
+                                Ae=Ae, Jb=J_vec_buffer(:,:,:,:,b))
+   enddo
    progress_done = progress_done + 1_I4P
    call print_source_progress(label=progress_label, progress_done=progress_done, &
                               progress_total=progress_total, last_percent=progress_percent)
@@ -5510,6 +5711,63 @@ contains
       enddo
    enddo
    endsubroutine rectangular_coil_block_extension
+
+   subroutine axial_coil_block_extension(hs, ngc, ni, nj, nk, x_cell, y_cell, z_cell, dxyz, A, xc, ax, r_c, h, sigma, Ae)
+   !< Circular coil (h = sigma) or solenoid (h = half length) potential of one block extended hs cells beyond its ghosts
+   !< along each axis, the points the curls of the face ghosts read: the block values copied, the extension evaluated.
+   integer(I4P), intent(in)  :: hs                                   !< Half stencil.
+   integer(I4P), intent(in)  :: ngc                                  !< Ghost cells.
+   integer(I4P), intent(in)  :: ni, nj, nk                           !< Interior cells.
+   real(R8P),    intent(in)  :: x_cell(1-ngc:)                       !< Cell centres along x.
+   real(R8P),    intent(in)  :: y_cell(1-ngc:)                       !< Cell centres along y.
+   real(R8P),    intent(in)  :: z_cell(1-ngc:)                       !< Cell centres along z.
+   real(R8P),    intent(in)  :: dxyz(3)                              !< Space steps.
+   real(R8P),    intent(in)  :: A(1:,1-ngc:,1-ngc:,1-ngc:)            !< Potential of the block.
+   real(R8P),    intent(in)  :: xc(3)                                !< Coil centre.
+   integer(I4P), intent(in)  :: ax                                   !< Coil axis: 1=x, 2=y, 3=z.
+   real(R8P),    intent(in)  :: r_c                                  !< Coil radius.
+   real(R8P),    intent(in)  :: h                                    !< Axial half-extent of the window.
+   real(R8P),    intent(in)  :: sigma                                !< Smearing.
+   real(R8P),    intent(out) :: Ae(1:,1-ngc-hs:,1-ngc-hs:,1-ngc-hs:)   !< Extended potential.
+   integer(I4P)              :: i, j, k, ng                          !< Counters, extended ghosts.
+
+   ng = ngc + hs
+   Ae = 0._R8P
+   Ae(:,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc) = A
+   do k=1-ng, nk+ng
+      do j=1-ng, nj+ng
+         do i=1-ng, ni+ng
+            if (count([i < 1-ngc .or. i > ni+ngc, j < 1-ngc .or. j > nj+ngc, k < 1-ngc .or. k > nk+ngc]) /= 1) cycle
+            Ae(:,i,j,k) = axial_coil_A_at_point(xp=[coil_ext_coord(ngc=ngc, xc=x_cell, n=ni, ds=dxyz(1), i=i), &
+                                                    coil_ext_coord(ngc=ngc, xc=y_cell, n=nj, ds=dxyz(2), i=j), &
+                                                    coil_ext_coord(ngc=ngc, xc=z_cell, n=nk, ds=dxyz(3), i=k)], &
+                                                xc=xc, ax=ax, r_c=r_c, h=h, sigma=sigma)
+         enddo
+      enddo
+   enddo
+   endsubroutine axial_coil_block_extension
+
+   function axial_coil_A_at_point(xp, xc, ax, r_c, h, sigma) result(Ap)
+   !< Potential of a circular coil (h = sigma) or of a solenoid (h = half length) at one point, with the arithmetic of
+   !< set_circular_coil_* and set_solenoid_*: only the axial component, A_ax = -erf(r; r_c) W(x_ax; x_c -+ h), r the
+   !< distance from the axis.
+   real(R8P),    intent(in) :: xp(3)  !< Point.
+   real(R8P),    intent(in) :: xc(3)  !< Coil centre.
+   integer(I4P), intent(in) :: ax     !< Coil axis: 1=x, 2=y, 3=z.
+   real(R8P),    intent(in) :: r_c    !< Coil radius.
+   real(R8P),    intent(in) :: h      !< Axial half-extent of the window.
+   real(R8P),    intent(in) :: sigma  !< Smearing.
+   real(R8P)                :: Ap(3)  !< Potential.
+   real(R8P)                :: r      !< Distance from the axis.
+
+   select case (ax)
+   case (1_I4P) ; r = sqrt((xp(2)-xc(2))**2 + (xp(3)-xc(3))**2)
+   case (2_I4P) ; r = sqrt((xp(1)-xc(1))**2 + (xp(3)-xc(3))**2)
+   case default ; r = sqrt((xp(1)-xc(1))**2 + (xp(2)-xc(2))**2)
+   endselect
+   Ap = 0._R8P
+   Ap(ax) = -erf_function(s=r, mu=r_c, sigma=sigma)*tangential_window(s=xp(ax), smin=xc(ax)-h, smax=xc(ax)+h, sigma=sigma)
+   endfunction axial_coil_A_at_point
 
    subroutine helicon_coil_block_A(hs, ngc, ni, nj, nk, x_cell, y_cell, z_cell, dxyz, x_c, y_c, z_c, normal, Radius, &
                                    N_points, s_map, csi_map, eta, theta_c, sigma, Ae)

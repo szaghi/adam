@@ -44,7 +44,7 @@ T(CPU node) / T(GPU node) on the uniform grids:
 
 | Case | Grid | Blocks | GPU node / CPU node |
 |---|---|---|---|
-| 2a sphere (3-D, WENO-5, IB, SSP-33) | 56.6 M cells, L4 | 4096 of 24³ | 11.4 (16.3 before the CPU build flushed subnormals) |
+| 2a sphere (3-D, WENO-5, IB, SSP-33) | 56.6 M cells, L4 | 4096 of 24³ | 13.8 since #156 lever 2 (11.4 before it; 16.3 before the CPU build flushed subnormals) |
 | 3a channel (3-D, hybrid, viscous, SSP-54) | 6.29 M cells, L3 | 512 of 32×24×16 | 13.8 |
 | sphere, grid study | 7.08 M cells, L3 | 512 of 24³ | 11.9 |
 | sphere, grid study | 28.1 M cells, L3 | 512 of 38³ | 12.6 |
@@ -104,15 +104,23 @@ also opens a context on GPU 0, which then has 0.9 GB less free memory than the o
 |---|---|---|---|---|
 | GPU nodes (4 A30 each) | 0.780 | 0.491 | 0.260 | 0.167 |
 | efficiency | 1 | 0.79 | 0.75 | 0.58 |
+| **GPU nodes, since #156 lever 2** | **0.5745** | **0.311** | **0.160** | **0.0852** |
+| efficiency | 1 | **0.92** | **0.90** | **0.84** |
 | cells per A30 | 14.2 M | 7.08 M | 3.54 M | 1.77 M |
 | CPU nodes (64 cores each), gradual underflow | 12.7 | 6.48 | 3.24 | 2.31 |
 | efficiency | 1 | 0.98 | 0.98 | 0.69 |
 | CPU nodes, linked with `-mdaz-ftz` | 8.92 | – | – | 1.22 |
 | efficiency | 1 | – | – | 0.91 |
+| **CPU nodes, `-mdaz-ftz`, since #156 lever 2** | **7.9** | – | – | **1.17** |
+| efficiency | 1 | – | – | ~0.84 |
 
-The GPU efficiency at 8 nodes is set by the load as much as by the network: 1.77 M cells per A30 in 24³ blocks is
-where the one-node curve already rises (a 4-A30 node at that load costs 64.8 ns per cell-step against 55.1 at
-14.2 M). The largest run is the L5 sphere, 453 M cells on 32 A30 (8 nodes), at 0.98 s per step.
+Since #156 lever 2 (2026-11-26, the immersed body's ghost exchanges cut from 12 to 3 full ones per step, the other
+6 restricted to the cells its eikonal sweeps read) one node runs the sphere 26 % faster and 8 nodes keep 0.84 of
+its throughput instead of 0.58: on medooza, without GPUDirect RDMA, the body's exchanges were most of the multi-node
+loss. What remains at 8 nodes is mostly the load: 1.77 M cells per A30 in 24³ blocks is where the one-node curve
+already rises. The CPU node gains too (8.92 → 7.9 s, the same fewer exchanges), but its runs scatter: two jobs of 3
+repetitions each gave 7.7–8.3 s on one node and 1.04–1.19 s on 8, so its efficiency (~0.84 against 0.91) is within
+that noise. The largest run is the L5 sphere, 453 M cells on 32 A30 (8 nodes), at 0.604 s per step (0.98 before).
 
 **Weak scaling of the uniform sphere** (g in ns per cell-step; inter-node efficiency = g on one 4-A30 node / g on
 8 nodes at the same cells per A30 and the same blocks: an octree level is 8 times the cells, so 4 A30 pair with 32):
@@ -122,11 +130,16 @@ where the one-node curve already rises (a 4-A30 node at that load costs 64.8 ns 
 | 14.2 M | 24³ | 55.1 (2a, 56.6 M cells) | 69.3 (L5, 453 M cells) | 0.80 |
 | 7.02 M | 38³ | 50.5 (L3, 28.1 M cells) | 67.0 (L4, 225 M cells) | 0.75 |
 | 7.02 M, no body | 38³ | 37.1 | 41.3 | 0.90 |
+| **14.2 M, since #156 lever 2** | 24³ | **40.6** | **42.7** | **0.95** |
+| **7.02 M, since #156 lever 2** | 38³ | **38.4** | **41.4** | **0.93** |
 
-- **The multi-node loss follows the ghost exchanges.** Without the immersed body the same 8-node pair keeps 0.90. In
-  both runs leaving the node costs 9.7–9.8 ms per ghost exchange; the body's eikonal extension exchanges the ghosts
-  4 times per stage instead of once (12 exchanges per step against 3), so it loses 4 times as much.
-- **Leaving the node costs 20–25 % per cell on 8 nodes** with the immersed body at 7–14 M cells per A30. The pair at 38³
+- **The multi-node loss followed the ghost exchanges.** Without the immersed body the same 8-node pair kept 0.90. In
+  both runs leaving the node cost 9.7–9.8 ms per ghost exchange; the body's eikonal extension exchanged the ghosts
+  4 times per stage instead of once (12 exchanges per step against 3), so it lost 4 times as much. Since #156 lever 2
+  the extension's exchanges fill only the few block faces next to the body: with the body the pairs now keep 0.95
+  and 0.93, and a cell of the sphere costs 26–24 % less on one node.
+- **Leaving the node cost 20–25 % per cell on 8 nodes** with the immersed body at 7–14 M cells per A30 before #156
+  lever 2, 5–7 % since. The pair at 38³
   blocks loses more than the one at 24³ although its blocks carry fewer ghost cells: its cells are 15 % cheaper, and at
   half the load per A30 the same exchange weighs more. In throughput the two 8-node runs are equal (478 and 462 M
   cell-steps per second).
@@ -175,9 +188,9 @@ with the CPU build flushing subnormals it is 11.4.
 | # | Cost | Gain | Proposal |
 |---|---|---|---|
 | 1 | subnormal arithmetic (CPU) | −35 to −47 % per step on developed states | **applied**: the GNU builds link with `-mdaz-ftz`, flush to zero from the start ([build notes](/start/install)) |
-| 2 | GPU halo between nodes at 1.5 GB/s | up to ~9 ms of the ~12 ms per exchange (estimate) | GPUDirect RDMA on the cluster: on the H100 nodes, which have it, an exchange between nodes waits ~1.4 ms ([below](#another-machine-h100-nodes-with-gpudirect-rdma)); host staging in the code was declined as specific to medooza |
-| 3 | 12 ghost exchanges per step with an immersed body | up to 9 of the 12 | exchange only what the eikonal iterations need, in the local fills and the boundary conditions too (on the H100 nodes those, not MPI, carry the body's cost); [#156](https://github.com/szaghi/adam/issues/156) |
-| 4 | two global barriers per ghost exchange | 0.4–1.2 % on the A30 nodes, 0.1–1.2 % on the H100 nodes | **applied** (2026-11-25): removed from `update_ghost_mpi` and `update_ghost_mpi_gpu`; FLUME, PRISM and RIPPLE suites bitwise on both backends |
+| 2 | GPU halo between nodes at 1.5 GB/s | up to ~9 ms of the ~12 ms per exchange (estimate) | GPUDirect RDMA on the cluster: on the H100 nodes, which have it, an exchange between nodes waits 0.9–1.4 ms ([below](#another-machine-h100-nodes-with-gpudirect-rdma)); host staging in the code was declined as specific to medooza |
+| 3 | 12 ghost exchanges per step with an immersed body | up to 9 of the 12 | **applied** (2026-11-25/26, bitwise): no exchange after the last eikonal sweep (12 → 9), then the two remaining eikonal exchanges restricted to the ghost cells the sweeps read; over both, the step −16 % on 4 H100 and −26 % on 32, the sphere −39 % on 32, and the body no longer costs a multi-node loss (on one H100 node those, not MPI, carry the body's cost; on 8 H100 nodes the MPI exchange is its largest part); [#156](https://github.com/szaghi/adam/issues/156) |
+| 4 | two global barriers per ghost exchange | 0.4–1.2 % on the A30 nodes, 0.1–2.5 % on the H100 nodes (timed off on 8 nodes: −1.3 %) | **applied** (2026-11-25): removed from `update_ghost_mpi` and `update_ghost_mpi_gpu`; FLUME, PRISM and RIPPLE suites bitwise on both backends |
 | 5 | the link between the NVLink pairs (17.7 GB/s) | part of the 13–30 % of the third and fourth A30 | place neighbouring subdomains on the same NVLink pair (medooza only: the H100 nodes join every pair by NVLink and show no such step) |
 
 ## Another machine: H100 nodes with GPUDirect RDMA
@@ -188,21 +201,34 @@ to GPU between nodes at 52.4 GB/s, 34 times medooza's 1.53 (9.8 GB/s with GPUDir
 is nvfortran 26.3 with CUDA 12.9; every job checked first that no GPU was throttled.
 
 - **A cell costs 2.5–3.0 times less than on an A30** at equal blocks (15–25 ns per cell-step against 44–63), 3.1
-  times on the 4-GPU node with the 56.6 M-cell sphere (0.254 s per step against 0.780). An H100 holds at least 147 M
-  cells of this case (an A30 28.1 M).
+  times on the 4-GPU node with the 56.6 M-cell sphere (0.254 s per step against 0.780; since #156 lever 2, 0.195 s
+  against 0.575, 2.9 times). An H100 holds at least 147 M cells of this case (an A30 28.1 M).
 - **The block size weighs more**: 24³ blocks cost 30 % more per cell than 64³ (on the A30, 24³ against 38³, 16 %). The
   per-cell compute fell 5.5 times, the cost of the stored ghost cells only 2.2 times.
 - **Inside a node there is no penalty for the third and fourth GPU**: above ~14 M cells per H100, four GPUs keep
   0.97–0.98 of one GPU's throughput. Below ~2 M cells per H100 a quarter or more is lost: a load that keeps an A30 busy
   is a light one for an H100.
-- **Across nodes the sphere keeps 0.93 and 0.81 of its throughput per GPU on 2 and 4 nodes** (A30: 0.79 and 0.75),
-  and the 225 M-cell grid 0.96 and 0.90. An MPI exchange between nodes waits ~1.4 ms (medooza: ~12 ms on smaller
-  halos).
-- **The immersed body's cost is ghost work on the device, not the network**: on one node it adds 152 ms to a 710 ms
-  step, of which the local ghost fill 85, boundary conditions 36, the MPI exchange 14 (mostly packing), its own kernels
-  10. Cutting its 12 exchanges per step has to cut the local fills and the boundary conditions too.
+- **Across nodes the sphere keeps 0.99, 0.95 and 0.92 of its throughput per GPU on 2, 4 and 8 nodes** since #156
+  lever 2 (re-measured 2026-11-26; before it 0.93, 0.81 and 0.69; the A30 nodes since lever 2: 0.92, 0.90 and 0.84),
+  and the 225 M-cell grid 0.99, 0.98 and 0.95 (before: 0.96, 0.90 and 0.83). On 8 nodes the sphere has 1.8 M cells per
+  H100 and loses 1.2 ns per cell-step (15.0 against 13.8); before lever 2 it lost 8.1, of which 5.9 came from the small
+  load, most of it the body's ghost work that lever 2 removed.
+- **At a fixed load, leaving the node costs 2–3 %** since #156 lever 2: from one node to eight (32 H100) the sphere
+  keeps 0.98 at 14 M cells per GPU (453 M cells) and 0.97 at 7 M in 38³ blocks (before lever 2: 0.92 and 0.91, 0.97
+  without the body; the A30 nodes since lever 2: 0.95 and 0.93). An exchange between nodes costs ~1 ms (medooza: ~10 ms
+  on the same loads).
+- **The immersed body's cost is ghost work**: on one node it adds 152 ms to a 710 ms step, of which the local ghost fill
+  85, boundary conditions 36, the MPI exchange 14 (mostly packing), its own kernels 10; on 8 nodes it adds 40 % (37 ms
+  on 93), the MPI exchange the largest part (15), and it takes the strong efficiency of the 225 M-cell grid from 0.955
+  to 0.83. Cutting its 12 exchanges per step has to cut the local fills and the boundary conditions too. The first
+  cuts are applied (bitwise): the exchange after the last eikonal sweep was redundant (12 → 9 per step), and the two
+  exchanges left around the sweeps now fill only the ghost cells the sweeps read (a few block faces next to the body).
+  On 8 nodes the body's extra cost fell from 36 to 2 ms per step, and the 225 M-cell grid keeps 0.959 of one node's
+  throughput on 32 H100 instead of 0.837; the step is 16 % cheaper on one node and 26 % on 8, the sphere 39 % on 8.
+- **Neither barriers nor adapters are the limit**: the two barriers per exchange, already removed from the code, cost
+  1.3 % on 8 nodes (as on the A30 nodes); using all four network adapters instead of the site's two changes nothing.
 
-The tables, the jobs and the method are in the speedup README's "ESA SpaceHPC" section; the 8-node points are queued.
+The tables, the jobs and the method are in the speedup README's "ESA SpaceHPC" section.
 How far the ghost fill itself is from the GPU's memory floor (10–16 % of the copy rate today, 43–57 % with structured
 slab copies, 3–5.5 times faster) is measured in the [ghost-fill benchmark](/developer/ghost-fill-benchmark), and so is
 the 2:1 fill of an AMR grid, whose density guard now runs once per fine ghost (20–43 % faster on the H100,
@@ -238,6 +264,7 @@ subnormal numbers (2026-11-23), so on the developed flows they include that slow
 | 1 | GPU (4 A30) | 1.04 | 1.59 | 1.40 | 0.89 | 34 % |
 | 1 | CPU (64) | 1.06 | 1.59 | 1.42 | 0.90 | 34 % |
 | 2 | GPU (4 A30) | 1.48 | 4.02 | 2.04 | 0.51 | 38 % |
+| 2 | GPU (4 A30), since [#157](https://github.com/szaghi/adam/issues/157) | 1.73 | 4.02 | 2.37 | 0.59 | 37 % |
 | 2 | CPU (64) | 2.20 | 4.02 | 2.73 | 0.68 | 24 % |
 | 3 | GPU (4 A30) | 1.25 | 1.78 | 1.60 | 0.90 | 29 % |
 | 3 | CPU (64) | 1.03 | 1.78 | 1.43 | 0.81 | 39 % |
@@ -248,7 +275,13 @@ cost goes:
 - **A cell of the sphere's AMR grid costs twice a uniform cell on the A30** (grid efficiency 0.51): at the same
   254–256 blocks per GPU the face fluxes cost the same on both grids, while the intra-rank ghost fill (one map-driven
   kernel that copies same-level ghosts and, on the AMR grid, also interpolates coarse-to-fine and restricts
-  fine-to-coarse ones) costs 5.6 times as much: 96 % of the difference.
+  fine-to-coarse ones) costs 5.6 times as much: 96 % of the difference. Most of it was the density guard of the
+  coarse-to-fine fill, recomputed for every variable of every fine ghost ([ghost-fill benchmark](/developer/ghost-fill-benchmark#amr-neighbourhoods-2-1-seams));
+  **since [#157](https://github.com/szaghi/adam/issues/157) it runs once per ghost: the frozen AMR step is 14 % cheaper
+  (0.382 → 0.328 s), the runtime step 11 %, the grid efficiency 0.59 and the AMR speedup 1.73** (the same node, the same
+  window dumps, before and after alternated; the other legs and every uniform grid unchanged within 1.6 %; on 4 H100
+  the frozen step is 11 % cheaper, the grid efficiency 0.46 → 0.52, and the unchanged host regrid is 29 % of the
+  runtime step). The fill still costs four times the uniform grid's: the coarse-to-fine arithmetic itself.
 - **On the GPU node the runtime overhead is the regrid, which runs on the host** at every regrid step (0.26–1.4 s
   when the grid does not change, 2.0–2.5 s when it does); it scales with the blocks per GPU and stays 22–27 % of a
   runtime step.
@@ -292,8 +325,7 @@ the accuracy-first paths:
   CPU node measured there); the AMD MI300X node of the plan is not measured yet.
 - The matrix and its multi-node runs use 24³ blocks; the grid study shows 38³–48³ blocks are ~16 % cheaper per cell
   on one A30, so the multi-node numbers are not the best this hardware gives.
-- Up to 8 nodes (32 A30), the most medooza schedules; up to 4 nodes (16 H100) on SpaceHPC so far (the 8-node job is
-  queued).
+- Up to 8 nodes on both machines (32 A30, the most medooza schedules; 32 H100).
 - The windows are short (110 steps); two residual biases were measured and are not in these numbers: printing the
   progress lines on every rank costs nothing measurable, and computing the conservation integrals every step costs
   0.9 % on 4 A30.
@@ -304,7 +336,7 @@ the accuracy-first paths:
 |---|---|---|
 | The regrid runs on the host at every regrid step | 22–27 % of a runtime step on 4 A30, also when the grid does not change | per-phase timers, then marking on the device |
 | The runtime layout keeps sibling sets whole and splits every realm from rank 0 | the CPU runtime step stops at 64 ranks; legs 1 and 3 gain nothing from runtime AMR on the CPU node | offset or joint split of the realms, weighted by cells; split sibling sets between regrids |
-| A cell of the sphere's AMR grid costs twice a uniform cell on the A30 | grid efficiency 0.51 on 4 A30 | [#157](https://github.com/szaghi/adam/issues/157): the density guard once per fine ghost, **applied** (the 2:1 fill 20–43 % faster on the H100 benchmark, 3–50 % on the A30; the sphere's step not re-measured); one kernel per kind of row, measured, not applied (slower on the H100); structured descriptors and a cooperative prolongation planned ([ghost-fill benchmark](/developer/ghost-fill-benchmark#applied-the-density-guard-once-per-ghost)) |
+| A cell of the sphere's AMR grid costs twice a uniform cell on the A30 | grid efficiency 0.51 on 4 A30 | [#157](https://github.com/szaghi/adam/issues/157): the density guard once per fine ghost, **applied** (the 2:1 fill 20–43 % faster on the H100 benchmark, 3–50 % on the A30; the sphere's frozen AMR step 14 % cheaper on 4 A30, grid efficiency 0.51 → 0.59); one kernel per kind of row, measured, not applied (slower on the H100); the copy rows packed and sorted with the receiving block fastest in their own launch, **applied** (C4, bitwise: the copies 3.5–4x faster, the tricubic 2:1 fill −37 % on the H100 and −34 % on the A30 benchmark; [ghost-fill benchmark](/developer/ghost-fill-benchmark#applied-the-copy-rows-in-their-own-launch); the step 2.3–4.6 % cheaper on the sphere and the channel on 4 H100 and 2.4–3.8 % on 4 A30, the launch-bound step unchanged), the guard once per ghost in the inter-realm seam pack too (B4: at the ~1000 rows of a pack of the step its second launch costs more than it saves, the seam fills +0.2 ms per step, the step unchanged); a cooperative prolongation planned (D) |
 | A 2-D block stores ghost layers along its null axis; realms share the device equally | the step fits ~1.7 M cells per A30 | no ghosts on a null axis; device share in proportion to stored cells |
 | The FNL job's free-memory check sees the batch node only | multi-node jobs | check every node |
 
@@ -313,4 +345,4 @@ Open MPI 5.0.11 (`iac_gnu`) on medooza (Intel Xeon Gold 6338, 64 ranks per node)
 (`iac_nvf`) on NVIDIA A30 (4 per node): the matrix 2026-11-23 (jobs 1369400-1369597, 1369616), the grid study and the
 rank placement 2026-11-24 (jobs 1369668-1369679, 1369687-1369691), the CPU weak pairs (1369694-1369698);
 `speedup/run.sh` windows, `analyze.py`, `matrix_plot.py` and `grid_study_plot.py`. H100: ESA SpaceHPC, nvfortran 26.3,
-CUDA 12.9, LTO (`spacehpc_nvf`), NVIDIA H100 (4 per node), the 2026-11-24 tree (`2a67b16c`), jobs 183592-183629.*
+CUDA 12.9, LTO (`spacehpc_nvf`), NVIDIA H100 (4 per node), the 2026-11-24 tree (`2a67b16c`), jobs 183592-183633; #156 lever 2: d68d5f97, 4a029436 and the second part, jobs 184501-184691; the re-measure after lever 2 (HEAD 0984b5f5): jobs 184703-184706 and 184730, `results/2026-11-26-remeasure-l2/spacehpc/`.*

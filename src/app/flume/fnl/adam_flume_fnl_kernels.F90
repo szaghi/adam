@@ -1000,7 +1000,7 @@ contains
                q1(v) = q_gpu(b,i1,j1,k1,v)
                ws(v) = wall_sign_gpu(v,(face+1)/2)
             enddo
-            dd = [i - i1, j - j1, k - k1]
+            dd(1) = i - i1 ; dd(2) = j - j1 ; dd(3) = k - k1
             gs = g((face+1)/2) * real(dd((face+1)/2), R8P) * dxyz_gpu(b,(face+1)/2)
             ! with a cell potential (issue #81) its drop, exact whatever the potential: g . s = -(Phi_ghost - Phi_1)
             if (has_phi) gs = gs - (phi_gpu(b,i,j,k,1) - phi_gpu(b,i1,j1,k1,1))

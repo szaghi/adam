@@ -739,7 +739,7 @@ contains
       do k=merge(anchor_pos(3), b_lo(3), d == 3), merge(anchor_pos(3), b_hi(3), d == 3)
          do j=merge(anchor_pos(2), b_lo(2), d == 2), merge(anchor_pos(2), b_hi(2), d == 2)
             do i=merge(anchor_pos(1), b_lo(1), d == 1), merge(anchor_pos(1), b_hi(1), d == 1)
-               base = [i, j, k]
+               base(1) = i ; base(2) = j ; base(3) = k ! not a constructor: flang allocates one on the device heap
                d2 = 0._R8P
                do m=1, 2
                   if (.not.has(m)) cycle

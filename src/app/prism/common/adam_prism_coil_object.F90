@@ -31,6 +31,8 @@ public :: NORMAL_P_Y
 public :: NORMAL_M_Y
 public :: NORMAL_P_Z
 public :: NORMAL_M_Z
+public :: COIL_SLOT_COMMITTED
+public :: COIL_SLOT_STAGE
 
 character(len=11), parameter :: INI_SECTION_NAME="coils_input"        !< INI (config) file section name containing coils configs.
 character(len=11), parameter :: COIL_TYPE_RECTANGULAR="rectangular"   !< Rectangular shape coil.
@@ -45,6 +47,8 @@ character(len=2),  parameter :: NORMAL_P_Y="+y"                       !< Normal 
 character(len=2),  parameter :: NORMAL_M_Y="-y"                       !< Normal versor along negative y axis.
 character(len=2),  parameter :: NORMAL_P_Z="+z"                       !< Normal versor along positive z axis.
 character(len=2),  parameter :: NORMAL_M_Z="-z"                       !< Normal versor along negative z axis.
+integer(I4P),      parameter :: COIL_SLOT_COMMITTED=1_I4P              !< Plasma-current slot of the committed state q.
+integer(I4P),      parameter :: COIL_SLOT_STAGE=2_I4P                  !< Plasma-current slot of the stage state.
 
 type :: prism_coil_object
    !< ADAM, PRISM coil source definition, CPU backend.
@@ -78,6 +82,18 @@ type :: prism_coil_object
    integer(I4P)                   :: helicon_coils_number=0_I4P                  !< Number of helicon coils
    integer(I4P)                   :: total_coils_number=0_I4P                    !< Number of coils
    type(string), allocatable      :: j_vec_name(:,:)                             !< J vec names.
+   ! Plasma current deposited on the coil support. The coil stamp clears the J rows of the support cells and writes the
+   ! coil current there; where the PIC deposit also put current, the plasma part is kept here and summed by the stamp
+   ! (detect_plasma and capture_plasma after the deposit, restore_plasma inside the stamp), so the stamp stays idempotent.
+   integer(I4P), allocatable      :: support(:,:)                                !< Cells (b,i,j,k) with J_vec /= 0: interior
+                                                                                 !< first, then ghost.
+   integer(I4P)                   :: support_interior=0_I4P                      !< Number of interior support cells.
+   logical                        :: support_valid=.false.                       !< Support built from the current J_vec.
+   real(R8P),    allocatable      :: plasma_j(:,:,:)                             !< Plasma current on the support (3,n,slot).
+   logical                        :: plasma_j_active(2)=.false.                  !< Slot holds a plasma current.
+   integer(I4P)                   :: overlap_first_it=-1_I4P                     !< First iteration with plasma on coil cells.
+   integer(I4P)                   :: overlap_last_it=-1_I4P                      !< Last iteration with plasma on coil cells.
+   character(len=99)              :: overlap_first_context=''                    !< Call site of the first overlap.
    ! grid data replica for easy handling
    integer(I4P), pointer :: ngc=>null() !< Number of ghost cells.
    integer(I4P), pointer :: ni=>null()  !< Number of cells in i direction.
@@ -91,6 +107,13 @@ type :: prism_coil_object
       procedure, pass(self) :: load_coils_number                         !< Load coils number from file.
       procedure, pass(self) :: load_from_file                            !< Load config from file.
       procedure, pass(self) :: adimensionalize_coils_parameters          !< Adimensionalize coils parameters.
+      procedure, pass(self) :: build_support                             !< Build the coil support and its plasma slots.
+      procedure, pass(self) :: invalidate_support                        !< Mark the support stale (J_vec recomputed).
+      procedure, pass(self) :: record_overlap                            !< Record plasma deposited on coil cells.
+      procedure, pass(self) :: capture_plasma                            !< Keep the plasma current of the coil support.
+      procedure, pass(self) :: detect_plasma                             !< Plasma on the interior coil support.
+      procedure, pass(self) :: restore_plasma                            !< Write the kept plasma current back.
+      procedure, pass(self) :: support_cells                             !< Interior cells where J_vec /= 0.
       !procedure, pass(self) :: set_coils                                 !< Set coil_object on PRISM fields.
       !procedure, pass(self) :: set_circular_coil                         !< Set circular coils on PRISM fields.
       !procedure, pass(self) :: set_rectangular_coil_quad_section_odd     !< Set rectangular coils on PRISM fields with quadratic
@@ -456,4 +479,159 @@ contains
    !Adimensionalization of time parameters
    self%td = self%td/physics%T0
    endsubroutine adimensionalize_coils_parameters
+
+   subroutine build_support(self, blocks_number)
+   !< Build the coil support from the current J_vec and (re)allocate its plasma slots, empty.
+   class(prism_coil_object), intent(inout) :: self          !< Coils.
+   integer(I4P),             intent(in)    :: blocks_number !< Number of blocks in use.
+
+   call self%support_cells(blocks_number=blocks_number, cells=self%support, interior=self%support_interior)
+   if (allocated(self%plasma_j)) deallocate(self%plasma_j)
+   allocate(self%plasma_j(1:3, 1:size(self%support, dim=2), 1:2))
+   self%plasma_j = 0._R8P
+   self%plasma_j_active = .false.
+   self%support_valid = .true.
+   endsubroutine build_support
+
+   subroutine invalidate_support(self)
+   !< Mark the support stale: J_vec was recomputed (initialization, AMR), the support and the kept plasma current with it.
+   class(prism_coil_object), intent(inout) :: self !< Coils.
+
+   self%support_valid = .false.
+   self%plasma_j_active = .false.
+   endsubroutine invalidate_support
+
+   subroutine record_overlap(self, it, context)
+   !< Record that a PIC deposit put plasma on coil cells: a warning at the first time (repeated at the end of the run by
+   !< prism_common_object%report_plasma_on_coils), the iteration range kept.
+   class(prism_coil_object), intent(inout) :: self    !< Coils.
+   integer(I4P),             intent(in)    :: it      !< Current iteration.
+   character(*),             intent(in)    :: context !< Call site.
+
+   if (self%overlap_first_it < 0_I4P) then
+      self%overlap_first_it = it
+      self%overlap_first_context = context
+      if (mpih%myrank == 0_I4P) &
+         call mpih%print_message('warning: '//trim(context)//' deposited plasma on coil cells at iteration '// &
+                                 trim(str(it, .true.))//': plasma and coil currents are summed there (repeated at '// &
+                                 'the end of the run)')
+   endif
+   self%overlap_last_it = it
+   endsubroutine record_overlap
+
+   subroutine detect_plasma(self, q, var_jx, var_jy, var_jz, check_current, check_charge, blocks_number, &
+                            overlap_current, overlap_charge)
+   !< Right after a PIC deposit into q: plasma current (and charge) on the interior cells of the coil support (the deposit
+   !< owns them after its fold; the ghost ones may hold an earlier state). Local to this rank.
+   class(prism_coil_object), intent(inout) :: self            !< Coils.
+   real(R8P),                intent(in)    :: q(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Deposited field.
+   integer(I4P),             intent(in)    :: var_jx          !< Index of Jx.
+   integer(I4P),             intent(in)    :: var_jy          !< Index of Jy.
+   integer(I4P),             intent(in)    :: var_jz          !< Index of Jz.
+   logical,                  intent(in)    :: check_current   !< The J rows hold a fresh deposit.
+   logical,                  intent(in)    :: check_charge    !< The charge row holds a fresh deposit.
+   integer(I4P),             intent(in)    :: blocks_number   !< Number of blocks in use.
+   logical,                  intent(out)   :: overlap_current !< Plasma current on the support.
+   logical,                  intent(out)   :: overlap_charge  !< Plasma charge on the support.
+   integer(I4P)                            :: nv_q            !< Width of q (charge is the last row).
+   integer(I4P)                            :: c, b, i, j, k   !< Counters.
+
+   overlap_current = .false.
+   overlap_charge  = .false.
+   if (self%total_coils_number <= 0_I4P) return
+   if (.not.self%support_valid) call self%build_support(blocks_number=blocks_number)
+   nv_q = int(size(q, dim=1), I4P)
+   do c=1, self%support_interior
+      b = self%support(1,c) ; i = self%support(2,c) ; j = self%support(3,c) ; k = self%support(4,c)
+      if (check_current) overlap_current = overlap_current .or. (q(var_jx,i,j,k,b) /= 0._R8P) .or. &
+                                           (q(var_jy,i,j,k,b) /= 0._R8P) .or. (q(var_jz,i,j,k,b) /= 0._R8P)
+      if (check_charge) overlap_charge = overlap_charge .or. (q(nv_q,i,j,k,b) /= 0._R8P)
+   enddo
+   endsubroutine detect_plasma
+
+   subroutine capture_plasma(self, q, slot, var_jx, var_jy, var_jz, active)
+   !< Keep the J rows of the support cells (interior and ghost, the ghosts refreshed by the caller) in `slot`, or empty
+   !< the slot (no plasma current on the support: the stamp then works exactly as before).
+   class(prism_coil_object), intent(inout) :: self   !< Coils.
+   real(R8P),                intent(in)    :: q(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Deposited field.
+   integer(I4P),             intent(in)    :: slot   !< COIL_SLOT_COMMITTED or COIL_SLOT_STAGE.
+   integer(I4P),             intent(in)    :: var_jx !< Index of Jx.
+   integer(I4P),             intent(in)    :: var_jy !< Index of Jy.
+   integer(I4P),             intent(in)    :: var_jz !< Index of Jz.
+   logical,                  intent(in)    :: active !< Plasma current on the support (of some rank).
+   integer(I4P)                            :: c, b, i, j, k !< Counters.
+
+   if (.not.self%support_valid) return
+   self%plasma_j_active(slot) = active
+   if (.not.active) return
+   do c=1, size(self%support, dim=2)
+      b = self%support(1,c) ; i = self%support(2,c) ; j = self%support(3,c) ; k = self%support(4,c)
+      self%plasma_j(1,c,slot) = q(var_jx,i,j,k,b)
+      self%plasma_j(2,c,slot) = q(var_jy,i,j,k,b)
+      self%plasma_j(3,c,slot) = q(var_jz,i,j,k,b)
+   enddo
+   endsubroutine capture_plasma
+
+   subroutine restore_plasma(self, q, slot, var_jx, var_jy, var_jz)
+   !< Inside the coil stamp, after the support was cleared: write back the plasma current kept in `slot` (nothing when the
+   !< slot is empty), the coil current is then added on top.
+   class(prism_coil_object), intent(in)    :: self   !< Coils.
+   real(R8P),                intent(inout) :: q(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Field.
+   integer(I4P),             intent(in)    :: slot   !< COIL_SLOT_COMMITTED or COIL_SLOT_STAGE.
+   integer(I4P),             intent(in)    :: var_jx !< Index of Jx.
+   integer(I4P),             intent(in)    :: var_jy !< Index of Jy.
+   integer(I4P),             intent(in)    :: var_jz !< Index of Jz.
+   integer(I4P)                            :: c, b, i, j, k !< Counters.
+
+   if (.not.self%support_valid) return
+   if (.not.self%plasma_j_active(slot)) return
+   do c=1, size(self%support, dim=2)
+      b = self%support(1,c) ; i = self%support(2,c) ; j = self%support(3,c) ; k = self%support(4,c)
+      q(var_jx,i,j,k,b) = self%plasma_j(1,c,slot)
+      q(var_jy,i,j,k,b) = self%plasma_j(2,c,slot)
+      q(var_jz,i,j,k,b) = self%plasma_j(3,c,slot)
+   enddo
+   endsubroutine restore_plasma
+
+   subroutine support_cells(self, blocks_number, cells, interior)
+   !< Cells (b,i,j,k) where some coil has J_vec /= 0, the interior ones first and then the ghost ones, in a fixed order
+   !< (the FNL twin pushes the same list).
+   class(prism_coil_object),  intent(in)  :: self          !< Coils.
+   integer(I4P),              intent(in)  :: blocks_number !< Number of blocks in use.
+   integer(I4P), allocatable, intent(out) :: cells(:,:)    !< Support cells (4,n).
+   integer(I4P),              intent(out) :: interior      !< Number of interior support cells (the first ones).
+   integer(I4P)                           :: n, b, i, j, k !< Counters.
+   integer(I4P)                           :: sweep         !< Count, then fill.
+   integer(I4P)                           :: part          !< 1 interior cells, 2 ghost cells.
+   logical                                :: is_interior   !< The cell is an interior one.
+
+   interior = 0_I4P
+   if (self%total_coils_number <= 0_I4P .or. (.not.allocated(self%J_vec))) then
+      allocate(cells(1:4,1:0))
+      return
+   endif
+   n = 0_I4P
+   do sweep=1, 2
+      if (sweep == 2) allocate(cells(1:4,1:n))
+      n = 0_I4P
+      do part=1, 2
+         do b=1, blocks_number
+            do k=1-self%ngc, self%nk+self%ngc
+               do j=1-self%ngc, self%nj+self%ngc
+                  do i=1-self%ngc, self%ni+self%ngc
+                     is_interior = i >= 1 .and. i <= self%ni .and. j >= 1 .and. j <= self%nj .and. &
+                                   k >= 1 .and. k <= self%nk
+                     if (is_interior .neqv. (part == 1)) cycle
+                     if (any(self%J_vec(:,i,j,k,b,:) /= 0._R8P)) then
+                        n = n + 1_I4P
+                        if (sweep == 2) cells(:,n) = [b, i, j, k]
+                     endif
+                  enddo
+               enddo
+            enddo
+         enddo
+         if (part == 1) interior = n
+      enddo
+   enddo
+   endsubroutine support_cells
 endmodule adam_prism_coil_object

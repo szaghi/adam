@@ -1,0 +1,14 @@
+19:18:47 job 184743.pbs on gpu-004
+0, 0x0000000000000001, 699.00, 700.00, 1
+1, 0x0000000000000001, 699.00, 700.00, 1
+2, 0x0000000000000001, 699.00, 700.00, 1
+3, 0x0000000000000001, 699.00, 700.00, 1
+19:19:11 A 2c-sphere-fixed r1-n10: rc 0 wall 22.648 loop 2.9284, steps 2.9238,
+19:19:35 A 2a-sphere-uniform r1-n10: rc 0 wall 23.188 loop 2.0189, steps 2.0110,
+19:19:58 B 2c-sphere-fixed r1-n10: rc 0 wall 21.974 loop 2.6455, steps 2.6424,
+19:20:23 B 2a-sphere-uniform r1-n10: rc 0 wall 24.840 loop 1.9394, steps 1.9320,
+gpu0: busy 17 s, SM mean 1980 min 1980 MHz
+gpu1: busy 20 s, SM mean 1980 min 1980 MHz
+gpu2: busy 16 s, SM mean 1980 min 1980 MHz
+gpu3: busy 19 s, SM mean 1980 min 1980 MHz
+19:20:23 I157N-PROF-DONE

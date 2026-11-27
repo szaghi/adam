@@ -1,0 +1,7 @@
+# Night 2026-11-26-i156-l2b: the ceiling of #156 lever 2 part 2. B = HEAD 4a029436 (part 1) + phase timer, C = B with the
+# eikonal exchanges before and between the sweeps skipped (measurement only, numerically wrong): 8 node(s)
+sh for t in l2b-B-n8 l2b-C-n8; do mkdir -p $W/phase/$t/dumps; ln -sfn $W/grid-study/dumps/wg-l4b38 $W/phase/$t/dumps/wg-l4b38; ln -sfn $W/matrix/dumps/leg2 $W/phase/$t/dumps/leg2; done
+ADAM_PHASE_TIMING=1 windows --np 32 --cases wg-l4b38 --conf $W/grid-study.conf --work $W/phase/l2b-B-n8 --exe $HOME/adam-i156B/src/tests/flume/speedup/exe/fnl-nvf/adam_flume_fnl
+ADAM_PHASE_TIMING=1 windows --np 32 --cases wg-l4b38 --conf $W/grid-study.conf --work $W/phase/l2b-C-n8 --exe $HOME/adam-i156C/src/tests/flume/speedup/exe/fnl-nvf/adam_flume_fnl
+ADAM_PHASE_TIMING=1 windows --np 32 --cases 2a --conf $W/grid-study.conf --work $W/phase/l2b-B-n8 --exe $HOME/adam-i156B/src/tests/flume/speedup/exe/fnl-nvf/adam_flume_fnl
+ADAM_PHASE_TIMING=1 windows --np 32 --cases 2a --conf $W/grid-study.conf --work $W/phase/l2b-C-n8 --exe $HOME/adam-i156C/src/tests/flume/speedup/exe/fnl-nvf/adam_flume_fnl

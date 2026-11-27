@@ -171,6 +171,8 @@ done
 # run, where FNL development actually happens (no CI GPU runners).
 if [[ -z "${REGRESSION_CHILD:-}" ]]; then  # once, in the parent of a REGRESSION_JOBS run
 "$REGRESSION_DIR/../../lint/check-gpu-race-shapes.sh"
+# Device array-constructor lint gate (issue #157): no variable array constructor in device code (flang heap).
+"$REGRESSION_DIR/../../lint/check-device-array-constructors.sh"
 # Removed-input-key lint gate (issues #58, #84 E4): no committed PRISM, FLUME or AMR input may carry a removed key.
 "$REGRESSION_DIR/../../lint/check-removed-input-keys.sh"
 fi

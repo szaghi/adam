@@ -29,6 +29,9 @@ metadata, deduplicated so that the last descriptor covering a ghost wins (#22 F1
 | V0p | since #157: the kernel of b8641a59 (a verbatim copy of its `interp_seam_ghost_gpu_dev` in the harness: the guard recomputed per variable) on the same rows | the before of #157 in the same run, and its bitwise check |
 | V0png | since #157: V0p with the guard off | the b8641a59 guard-off fill in the same run |
 | V0k, V0kng | since #157: ADAM's kernel on a copy of the rows sorted by kind (copy, restriction, prolongation), guard on and off | #157 A1, rows grouped by kind |
+| Ka, Kb, Kd, Kp | since #157 C: the copy rows alone as int32 donor/receiver offsets in one variable plane (Ka ADAM's order; Kb sorted by receiver, the receiving block fastest; Kd by donor), or packed as [block, ijk] pairs sorted as Kb on the 5-D field (Kp); checked against K0 (ADAM's kernel on the copy rows) | what the copies cost: the index bytes or the order |
+| Ca-Cj | since #157 C: every row over compact rows in one launch (Ca ADAM's order, Cb by receiver, Cc by kind, Ce/Cf/Cg the heavy rows first or last, kept in ADAM's order in Cf/Cg), Ch the harness's heavy kernel then Kb, Ci/Cj ADAM's kernel on the heavy rows then Kb/Kp | the C4 design (Cj) |
+| P1, P2, V0b | since #157 C4: the production fill's two launches timed apart (heavy rows, copy rows) and V0 timed again at the end of the run | the C4 fill, warm |
 
 Overlapping descriptors: an owner mask (one int32 per stored cell of every block, from the descriptor order) gives each
 ghost its winning descriptor; D1, D2 and D3 write a ghost only from its owner, ADAM's last-writer rule. **Every variant
@@ -156,6 +159,78 @@ reference; B2 does not depend on the row order.
 - `rho = f(..., rho_in=rho)` (an actual argument that is also the assignment target of the function result) returned
   a wrong density in device code (37 of 120 blocks against the CPU fill).
 
+## #157 C: the copy rows in their own launch (2026-11-26)
+
+**Evidence first (C0).** `dedupe_last_writer` prints `ghost-map dedupe: kept m of n rows` whenever it drops a row; the
+message never appears in the logs of the FLUME and PRISM regression suites (both backends) nor in the 110-step windows
+of every #133 case, the runtime-AMR regrids included: the descriptors do not overlap on these grids, and the rows of
+the local map can be split and reordered at will (each writes its own ghost from real cells, #22 F1).
+
+**What the copies cost** (A30, production-like grid; `results/a30-1370425.txt`, `a30-1370427.txt`, `a30-1370469.txt`,
+dev-gn jobs with the `fastlink` overlay: the variants are compared inside one executable; every variant bitwise):
+
+| Copy rows alone (2.53 M rows, 5 variables) | ms |
+|---|---|
+| K0, ADAM's kernel (10 int64 columns, ADAM's order) | 2.643 |
+| Ka, int32 offsets, ADAM's order | 1.537 |
+| **Kb**, int32 offsets, receiving block fastest | **0.525** |
+| Kd, int32 offsets, donor block fastest | 0.511 |
+| **Kp**, packed [block, ijk] pairs, receiving block fastest, 5-D field | **0.646** |
+
+| Whole fill, tricubic / mean | ms | | weno6 / weno6 | ms |
+|---|---|---|---|---|
+| pre-C4 kernel, one launch (V0k / V0s, timed warm) | 5.86 | | | 22.2 |
+| Ca, compact rows, ADAM's order | 6.02 | | | 23.6 |
+| Cb, every row by receiver | 12.59 | | | 118.0 |
+| Cf / Cg, heavy rows (ADAM's order) first / last, one launch | 5.23 / 5.22 | | | 21.7 / 21.8 |
+| Ci / **Cj**, ADAM's kernel on the heavy rows, then Kb / Kp | 3.71 / **3.84** | | | 20.2 / 20.4 |
+| **C4** in production (V0b; P1 heavy 3.24 + P2 copies 0.65) | **3.88** | | | 20.5 |
+
+- The order is the copies' cost: 4.1x from sorting with the receiving block fastest (consecutive threads write
+  consecutive memory of the field `q(b, i, j, k, v)`), 1.7x from the int32 offsets alone. Kp, which needs no flat view of
+  the field and no field shape at map time, keeps 4.1x: it is the production form.
+- Sorting the prolongation rows loses (Cb: the children of an anchor stop being neighbours, their shared footprints
+  leave the caches), and mixing the kinds in one launch wastes the copies' gain (Ca-Cg). The copies need their own
+  launch; the heavy rows keep ADAM's order.
+- **C4 applied** (Cj): copy_cpu_gpu derives the heavy rows and the packed, sorted copy rows from the same CPU map; the
+  local fill (and the restricted fill of #156 L2) runs the two launches. In the same harness V0 (the C4 fill) is bitwise
+  against V0p (the b8641a59 kernel on the full map) on every grid and pair; the FLUME and PRISM suites and the A/B of
+  every regression case against 80582712 are bitwise (the night's gate jobs 1370430 and the earlier ones).
+- **The first variant of a run is not warm**: V0, timed first after three fills, read 5.37 ms against 3.88 for the same
+  fill at the end (V0b) on the A30. The harness now fills for one second before V0. V0 figures of the earlier sections
+  are each run's first: the gains reported against them were conservative.
+- **After C4** the copies are 0.65 of the 3.88 ms tricubic fill; the guard is 2.2 ms (guard off: 1.65 ms). The next
+  targets are the guard's per-variable velocity bound and the prolongation footprints (#157 D).
+
+**On the H100** (SpaceHPC job 184729, `results/h100-184729.txt`: tree A = HEAD 80582712, tree B = C4, alternated per
+case on one GPU, LTO builds; every variant bitwise; V0 and V0b agree within 0.6 %, the H100 is warm from the first
+variant): the C4 fill against the pre-C4 one, tricubic / mean 1.668 -> 1.043 ms (**-37 %**), quintic / lagrange6
+2.368 -> 1.876 (-21 %), weno6 / weno6 5.183 -> 4.557 (-12 %), 16^3 blocks 0.396 -> 0.277 (-30 %), the larger load
+(960 blocks) 4.581 -> 2.315 (**-49 %**); guard off 1.213 -> 0.575 (-53 %), 3.679 -> 1.467 at the larger load (-60 %).
+The copies alone 0.902 -> 0.255 ms (Kp, 3.5x; Kb 0.213). No case is slower: the split launch, unlike the rows sorted
+by kind (A1), costs nothing on the H100.
+
+**B5, the density guard's footprint read only on the MP path: measured, not applied.** The guard's first pass
+gathered the whole 4^3 density footprint of every fine ghost although only the bracketing cells decide, and the MP
+bound (which reads the whole footprint) is entered by a few per cent of the ghosts; gathering the bracketing cells
+first (as the momenta already did) is bitwise. A30 (`results/a30-1370475.txt`): the heavy launch 3.24 -> 3.16 ms, the
+fill -2 %; H100 (`results/h100-184760.txt`, C4 and C4 + B5 alternated, two passes within 0.1 %): -0.7 % to +0.6 %
+(the larger load slower). Neutral on the reference GPU, not applied (the patch is in the night's directory). What it
+says: the guard's cost (A30: 2.2 of 3.88 ms; H100: 0.47 of 1.04) is not its reads but, most likely, the MP path's
+divergence: a few per cent of the ghosts enter it, yet a warp of 32 waits for any of its threads that does.
+
+**How much the MP path costs** (diagnostic X0/X1, `results/h100-184768-diag.txt`, H100, LTO build): the C4 heavy launch
+compiled in the harness (X0, the library's guard) against the same kernel with the guard's MP path switched off (X1:
+out-of-range values clamped to the bracketing range instead; not bitwise, timing only): tricubic 0.872 -> 0.709 ms
+(-19 %), quintic-mp 2.122 -> 1.885 (-11 %), weno6 4.376 -> 4.157 (-5 %), the larger load 1.560 -> 1.223 (-22 %). The MP
+path is about a third of the tricubic guard on the H100 (0.16 of ~0.46 ms, ~15 % of the whole fill): the most a
+compacted MP pass could gain before its own cost. The rest of the guard is its first pass and the bracketing logic.
+(X0 is 11 % slower than the library's own launch P1: the harness's codegen; the ratio X1/X0 is what counts.)
+
+**The flang array constructors (#157, Giacomo Rossi's MI300X finding)** cost on nvfortran too: the step-01 A/B on the
+A30 (`results/a30-1370401-ab-s01.txt`, HEAD 80582712 and the fix alternated, 2 passes) is bitwise, tricubic neutral,
+quintic-mp 10.5 -> 9.0 ms (-14 %, the regime that enters `seam_mp_bound` most), weno6 neutral.
+
 ## What it says for the redesign
 
 1. **The density guard is the first target of the 2:1 fill**, before any data-structure change: compute the density,
@@ -169,4 +244,5 @@ reference; B2 does not depend on the row order.
    slower on the H100, not applied.**
 4. **Descriptors need structure, not just compression**: on AMR the gain of the uniform slabs comes back only if the
    descriptors are few and regular (non-overlapping by construction, no owner mask, member blocks contiguous) and the
-   seam metadata stays precomputed per class rather than per cell.
+   seam metadata stays precomputed per class rather than per cell. **For the copies the rows themselves suffice
+   (#157 C4)**: packed and sorted with the receiving block fastest, in their own launch, 4x, bitwise.

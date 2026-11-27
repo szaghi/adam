@@ -1,0 +1,19 @@
+#!/bin/bash
+# Night 2026-11-26-i157-complete: build tree $TREE on a cpu_std node: the FLUME FNL speedup executable (build.sh) and
+# the AMR ghost-fill harness (test-amr-ghost-bench-fnl-nvf), varset spacehpc_nvf, CUDA 12.9 stubs for the link.
+#   qsub -q cpu_std -l select=1:ncpus=32:mem=64gb -l walltime=03:00:00 -v TREE=$HOME/adam-i157nB sp-build.pbs
+#PBS -N i157n-build
+#PBS -j oe
+#PBS -o /lustre/projects/1026/CALCOLI/adam/speedup-133/i157n/
+set -uo pipefail
+module purge
+module load nvhpc-hpcx-cuda12/26.3 python/3.11.14-cnapenc
+export PATH=$HOME/.venv-fobis-3.19/bin:$PATH
+NVHPC_ROOT=$(dirname "$(dirname "$(dirname "$(command -v nvfortran)")")")
+export LIBRARY_PATH=$NVHPC_ROOT/cuda/12.9/lib64/stubs${LIBRARY_PATH:+:$LIBRARY_PATH}
+echo "job $PBS_JOBID $(date -Is) $(hostname) tree $TREE"
+cd "$TREE/src/tests/flume/speedup" && ./build.sh fnl-nvf --varset spacehpc_nvf --jobs 32 > "$TREE/build-flume.log" 2>&1
+echo "FLUME-BUILD rc $? $(date -Is)"
+cd "$TREE" && fobis build --mode test-amr-ghost-bench-fnl-nvf --varset spacehpc_nvf -j 32 > "$TREE/build-bench.log" 2>&1
+echo "BENCH-BUILD rc $? $(date -Is)"
+ls -la "$TREE/src/tests/flume/speedup/exe/fnl-nvf/adam_flume_fnl" "$TREE/exe/test_amr_ghost_bench_fnl"

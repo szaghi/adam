@@ -13,6 +13,7 @@ src/tests/euler_cpu
 !src/tests/regression-ab.sh
 !scripts/*.sh
 !scripts/ci/*.sh
+!src/tests/lint/*.sh
 *.log
 doc/html/
 .DS_Store

@@ -1,6 +1,6 @@
 # FLUME speedup matrix: summary
 
-Written by `analyze.py` on 2026-11-24 23:40 UTC from `/lustre/projects/1026/CALCOLI/adam/speedup-133/grid-study` (commits: unknown). Protocol and ratios: `README.md` and [issue #133](https://github.com/szaghi/adam/issues/133).
+Written by `analyze.py` on 2026-11-25 13:09 UTC from `/lustre/projects/1026/CALCOLI/adam/speedup-133/grid-study` (commits: unknown). Protocol and ratios: `README.md` and [issue #133](https://github.com/szaghi/adam/issues/133).
 
 ## Step costs
 
@@ -31,6 +31,7 @@ Written by `analyze.py` on 2026-11-24 23:40 UTC from `/lustre/projects/1026/CALC
 | 2 | wg-l4b38 | U | fnl-nvf | 4 | 0.8613 | 0.0% | 0.8601 | 0.000268 | 0 | 224,755,712 | 56,188,928 | 15.3 |
 | 2 | wg-l4b38 | U | fnl-nvf | 8 | 0.4508 | 0.1% | 0.45 | 0.000544 | 0 | 224,755,712 | 28,094,464 | 16 |
 | 2 | wg-l4b38 | U | fnl-nvf | 16 | 0.2387 | 0.2% | 0.2383 | 0.000805 | 0 | 224,755,712 | 14,047,232 | 17 |
+| 2 | wg-l4b38 | U | fnl-nvf | 32 | 0.1303 | 0.1% | 0.13 | 0.000855 | 0 | 224,755,712 | 7,023,616 | 18.6 |
 
 ## AMR ratios
 
@@ -70,6 +71,7 @@ g = step cost x devices / N, ns per cell-step (devices = ranks: GPUs of an FNL r
 | fnl-nvf | - | wg-l4b38 | 4 | 224,755,712 | 56,188,928 | 0.8613 | 15.3 | 1 (4) | - | - |
 | fnl-nvf | - | wg-l4b38 | 8 | 224,755,712 | 28,094,464 | 0.4508 | 16 | 0.955 (4) | - | - |
 | fnl-nvf | - | wg-l4b38 | 16 | 224,755,712 | 14,047,232 | 0.2387 | 17 | 0.902 (4) | - | - |
+| fnl-nvf | - | wg-l4b38 | 32 | 224,755,712 | 7,023,616 | 0.1303 | 18.6 | 0.826 (4) | - | - |
 
 ## Backend speedups
 
@@ -103,3 +105,4 @@ g = step cost x devices / N, ns per cell-step (devices = ranks: GPUs of an FNL r
 - fnl-nvf np 4 wg-l4b38: built from sources that differ from the recorded commit (src_modified=yes)
 - fnl-nvf np 8 wg-l4b38: built from sources that differ from the recorded commit (src_modified=yes)
 - fnl-nvf np 16 wg-l4b38: built from sources that differ from the recorded commit (src_modified=yes)
+- fnl-nvf np 32 wg-l4b38: built from sources that differ from the recorded commit (src_modified=yes)

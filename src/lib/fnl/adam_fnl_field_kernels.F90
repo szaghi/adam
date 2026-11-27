@@ -31,6 +31,8 @@ public :: populate_send_buffer_ghost_gpu_dev
 public :: receive_recv_buffer_ghost_gpu_dev
 public :: seam_ghosts_to_state_dev
 public :: update_ghost_local_gpu_dev
+public :: update_ghost_local_copy_gpu_dev
+public :: COPY_IJK_BIAS, COPY_IJK_BITS
 public :: interp_seam_ghost_gpu_dev        ! also called by the AMR ghost-fill benchmark (src/tests/perf/ghost-fill/amr)
 public :: interp_seam_value_gpu_dev        ! idem
 public :: seam_guard_density_gpu_dev       ! idem
@@ -39,6 +41,10 @@ public :: restrict_seam_high_order_gpu_dev ! idem
 public :: reduce_ghost_local_gpu_dev
 public :: pack_reduce_ghost_mpi_gpu_dev
 public :: fold_reduce_ghost_mpi_gpu_dev
+
+
+integer(I4P), parameter :: COPY_IJK_BITS = 10_I4P  !< Bits per cell index in the packed copy rows (#157 C4).
+integer(I4P), parameter :: COPY_IJK_BIAS = 512_I4P !< Bias of the cell indexes in the packed copy rows (ghosts < 1).
 
 contains
    subroutine pack_blocks_transposed_dev(blocks_number, ni, nj, nk, ngc, nv, a_gpu, buf_gpu)
@@ -96,13 +102,20 @@ contains
    enddo
    endsubroutine unpack_blocks_transposed_dev
 
-   subroutine pack_seam_rows_dev(row_start, row_count, nv, ngc, regime, rows_gpu, q_gpu, buf_gpu, density_var, ratio)
+   subroutine pack_seam_rows_dev(row_start, row_count, nv, ngc, regime, rows_gpu, q_gpu, buf_gpu, density_var, ratio, &
+                                 rho_gpu)
    !< Pack the ghost values of the seam send rows `[rank, b, i, j, k, kind, meta]` `row_start..row_start+row_count-1`
    !< from `q_gpu` into `buf_gpu`, `nv` values per row in row order (issues #40, #52), the device twin of
    !< `adam_seam_exchange%pack_seam_rows`: kind 1 copies the cell, kind 4 interpolates the fine ghost around the coarse
    !< anchor cell (`interp_seam_ghost_gpu_dev`, the intra-realm flag-4 fill; injection copies the anchor), kind 8 is the
    !< mean of the 2x2x2 fine cells from the base cell (the intra-realm flag-8 order; 2x2x1 on a quadtree, #71). The kinds
    !< are the values of `adam_seam_exchange` SEAM_ROW_*.
+   !<
+   !< With the seam fill guard on (#101), the guard's part that is the same for every variable of a fine ghost (its
+   !< interpolated density, clamped) is computed once per kind-4 row by a first kernel, into `rho_gpu` at that row (the
+   !< maps' persistent scratch, `maps_fnl_object%seam_mpi_send_rho_gpu`), and read back per variable (#157 B4, as the
+   !< local fill, B2, and the MPI pack, B3): the arithmetic of the per-row form (`interp_seam_ghost_gpu_dev`), bitwise.
+   !< With the guard off, or under injection, the per-row form.
    integer(I4P), intent(in)    :: row_start                         !< First row.
    integer(I4P), intent(in)    :: row_count                         !< Number of rows.
    integer(I4P), intent(in)    :: nv                                !< Variables number.
@@ -113,15 +126,71 @@ contains
    real(R8P),    intent(inout) :: buf_gpu(1:)                       !< Packed values.
    integer(I4P), intent(in)    :: density_var                       !< Seam fill density guard (`maps%seam_density_var`).
    integer(I4P), intent(in)    :: ratio(1:3)                        !< Refinement ratio per axis (`maps%refine_ratio`).
+   real(R8P),    intent(inout) :: rho_gpu(1:)                       !< Clamped density per send row (scratch, guard on).
    integer(I4P)                :: c, v, row                         !< Counters.
    integer(I4P)                :: b, i, j, k                        !< Cell.
    integer(I4P)                :: ic, jc, kc                        !< 2x2x2 counters.
    real(R8P)                   :: total                             !< Restriction sum.
    integer(I4P)                :: ri, rj, rk                        !< Refinement ratio per axis.
    real(R8P)                   :: mean_factor                       !< 1 / (ri rj rk), exact.
+   integer(I4P)                :: meta                              !< Seam metadata of a row.
+   real(R8P)                   :: value_, rho, interpolant          !< Guard temporaries (distinct: nvfortran 26.9).
 
    ri = ratio(1) ; rj = ratio(2) ; rk = ratio(3)
    mean_factor = 1._R8P / real(ri * rj * rk, R8P)
+   if (density_var > 0_I4P .and. regime /= SEAM_FILL_INJECTION) then
+      ! the guard's part of every kind-4 row, once: it reads real donor cells only
+      !$acc parallel loop independent gang vector DEVICEVAR(rows_gpu,q_gpu,rho_gpu) &
+      !$acc& firstprivate(row_start,row_count,ngc,regime,density_var) private(row,b,i,j,k,meta,value_,rho)
+      !$omp OMPLOOP DEVICEPTR(rows_gpu,q_gpu,rho_gpu) firstprivate(row_start,row_count,ngc,regime,density_var) &
+      !$omp& private(row,b,i,j,k,meta,value_,rho)
+      do c=1, row_count
+         row = row_start + c - 1
+         if (rows_gpu(row,6) /= 4) cycle
+         b = rows_gpu(row,2) ; i = rows_gpu(row,3) ; j = rows_gpu(row,4) ; k = rows_gpu(row,5) ; meta = rows_gpu(row,7)
+         value_ = interp_seam_value_gpu_dev(regime=regime, meta=meta, ngc=ngc, q_gpu=q_gpu, v=density_var, &
+                                            b_send=b, i_send=i, j_send=j, k_send=k)
+         rho = seam_guard_density_gpu_dev(meta=meta, ngc=ngc, q_gpu=q_gpu, b_send=b, i_send=i, j_send=j, k_send=k, &
+                                          density_var=density_var, rho_in=value_)
+         rho_gpu(row) = rho
+      enddo
+      !$acc parallel loop independent gang vector collapse(2) DEVICEVAR(rows_gpu,q_gpu,buf_gpu,rho_gpu) &
+      !$acc& firstprivate(row_start,row_count,nv,ngc,regime,density_var,ri,rj,rk,mean_factor) &
+      !$acc& private(row,b,i,j,k,total,meta,value_,rho,interpolant)
+      !$omp OMPLOOP collapse(2) DEVICEPTR(rows_gpu,q_gpu,buf_gpu,rho_gpu)                                        &
+      !$omp& firstprivate(row_start,row_count,nv,ngc,regime,density_var,ri,rj,rk,mean_factor)                    &
+      !$omp& private(row,b,i,j,k,total,meta,value_,rho,interpolant)
+      do c=1, row_count
+      do v=1, nv
+         row = row_start + c - 1
+         b = rows_gpu(row,2) ; i = rows_gpu(row,3) ; j = rows_gpu(row,4) ; k = rows_gpu(row,5)
+         if (rows_gpu(row,6) == 4) then
+            meta = rows_gpu(row,7)
+            interpolant = 0._R8P ! the guarded density row takes the clamped density: its interpolant is not needed
+            if (v /= density_var) interpolant = interp_seam_value_gpu_dev(regime=regime, meta=meta, ngc=ngc, &
+                                                                          q_gpu=q_gpu, v=v, b_send=b, i_send=i, &
+                                                                          j_send=j, k_send=k)
+            rho = rho_gpu(row)
+            value_ = seam_guard_value_gpu_dev(meta=meta, ngc=ngc, q_gpu=q_gpu, v=v, b_send=b, i_send=i, j_send=j, &
+                                              k_send=k, density_var=density_var, rho=rho, value_in=interpolant)
+            buf_gpu(nv*(c-1)+v) = value_
+         elseif (rows_gpu(row,6) == 8 .and. rows_gpu(row,7) /= 0) then
+            buf_gpu(nv*(c-1)+v) = restrict_seam_high_order_gpu_dev(meta=rows_gpu(row,7), ngc=ngc, q_gpu=q_gpu, v=v, &
+                                                                   b_send=b, i_send=i, j_send=j, k_send=k)
+         elseif (rows_gpu(row,6) == 8) then
+            total = 0._R8P
+            !$acc loop seq
+            do kc=0,rk-1 ; do jc=0,rj-1 ; do ic=0,ri-1
+               total = total + q_gpu(b,i+ic,j+jc,k+kc,v)
+            enddo ; enddo ; enddo
+            buf_gpu(nv*(c-1)+v) = total * mean_factor
+         else
+            buf_gpu(nv*(c-1)+v) = q_gpu(b,i,j,k,v)
+         endif
+      enddo
+      enddo
+      return
+   endif
    !$acc parallel loop independent gang vector collapse(2) DEVICEVAR(rows_gpu,q_gpu,buf_gpu) &
    !$acc& firstprivate(row_start,row_count,nv,ngc,regime,density_var,ri,rj,rk,mean_factor) private(row,b,i,j,k,total)
    !$omp OMPLOOP collapse(2) DEVICEPTR(rows_gpu,q_gpu,buf_gpu)                                                &
@@ -509,9 +578,10 @@ contains
    ! ("loop carried dependence of q_gpu": the writes go through the map), which made this kernel 98 % of the FNL GPU
    ! time of the PV-5 blast. The rows are independent: one row per receiver cell (dedupe_last_writer, #22 F1), and every
    ! row reads real donor cells only, never a ghost another row writes (the #22 race discipline).
-   ! Two kernels, chosen here (#157): the fill without the guard keeps a kernel without the guard's code. One launch over
-   ! every kind of row, in the map's order: there the copies overlap the prolongations (split launches, or the rows
-   ! sorted by kind, leave the prolongations as a tail and made the guard-off fill slower).
+   ! Two kernels, chosen here (#157): the fill without the guard keeps a kernel without the guard's code. Any mix of rows
+   ! in the map's order: the local fill passes the restriction and prolongation rows only, and fills the copy rows in a
+   ! second launch, packed and sorted with the receiving block fastest (update_ghost_local_copy_gpu_dev, #157 C4); the
+   ! rows of each kind keep their order here (the children of a coarse anchor share their footprints in the caches).
    if (seam_density_var > 0_I4P .and. associated(prolongation_rows_gpu)) then
       !$acc parallel loop independent gang vector collapse(2) DEVICEVAR(l_map_ghost_cell_gpu, q_gpu, seam_rho_gpu) &
       !$acc& private(meta, value_, rho, interpolant)
@@ -596,6 +666,35 @@ contains
       enddo
    endif
    endsubroutine update_ghost_local_gpu_dev
+
+   subroutine update_ghost_local_copy_gpu_dev(ngc, copy_rows_gpu, q_gpu)
+   !< Update the (local) ghost cells of the copy rows (#157 C4): `copy_rows_gpu(:,r)` = [b_send, ijk_send, b_recv,
+   !< ijk_recv], every cell (i, j, k) packed in one int32 (COPY_IJK_BITS bits per index, biased by COPY_IJK_BIAS;
+   !< `maps_fnl_object%copy_cpu_gpu`), the rows sorted with the receiving block fastest: consecutive threads write
+   !< consecutive memory of the block-fastest field. One thread per (variable, row), the row fastest. The rows are the
+   !< map's copy rows, each writing its own ghost from a real cell (#22 F1): the values of update_ghost_local_gpu_dev.
+   integer(I4P), intent(in)          :: ngc                  !< Ghost cells number.
+   integer(I4P), intent(in), pointer :: copy_rows_gpu(:,:)   !< Packed copy rows (none: unassociated).
+   real(R8P),    intent(inout)       :: q_gpu(1:,    &
+                                              1-ngc:,&
+                                              1-ngc:,&
+                                              1-ngc:,1:)     !< Field component to be updated.
+   integer(I4P)                      :: v, r                 !< Counters.
+   integer(I4P)                      :: bs, ps, br, pr       !< Donor block and cell, receiver block and cell.
+
+   if (.not.associated(copy_rows_gpu)) return
+   !$acc parallel loop independent gang vector collapse(2) DEVICEVAR(copy_rows_gpu, q_gpu) private(bs, ps, br, pr)
+   !$omp OMPLOOP collapse(2) DEVICEPTR(copy_rows_gpu, q_gpu) private(bs, ps, br, pr)
+   do v=1, size(q_gpu, dim=5)
+   do r=1, size(copy_rows_gpu, dim=2)
+      bs = copy_rows_gpu(1,r) ; ps = copy_rows_gpu(2,r) ; br = copy_rows_gpu(3,r) ; pr = copy_rows_gpu(4,r)
+      q_gpu(br, ibits(pr, 0, COPY_IJK_BITS) - COPY_IJK_BIAS, ibits(pr, COPY_IJK_BITS, COPY_IJK_BITS) - COPY_IJK_BIAS, &
+            ibits(pr, 2*COPY_IJK_BITS, COPY_IJK_BITS) - COPY_IJK_BIAS, v) =                                          &
+      q_gpu(bs, ibits(ps, 0, COPY_IJK_BITS) - COPY_IJK_BIAS, ibits(ps, COPY_IJK_BITS, COPY_IJK_BITS) - COPY_IJK_BIAS, &
+            ibits(ps, 2*COPY_IJK_BITS, COPY_IJK_BITS) - COPY_IJK_BIAS, v)
+   enddo
+   enddo
+   endsubroutine update_ghost_local_copy_gpu_dev
 
    subroutine reduce_ghost_local_gpu_dev(ngc, v_first, v_last, l_map_ghost_cell_gpu, q_gpu, bad_rows)
    !< Fold (local) ghost cells back onto the cells they mirror, the transpose of update_ghost_local_gpu_dev.

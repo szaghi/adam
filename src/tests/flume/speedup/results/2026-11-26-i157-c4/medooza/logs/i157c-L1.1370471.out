@@ -1,0 +1,44 @@
+22:43:19 start on gnode18.e4-cluster.lan, job 1370471
+0, NVIDIA A30, 545.23.08, 24576 MiB, 24056 MiB
+1, NVIDIA A30, 545.23.08, 24576 MiB, 24056 MiB
+2, NVIDIA A30, 545.23.08, 24576 MiB, 24056 MiB
+3, NVIDIA A30, 545.23.08, 24576 MiB, 24056 MiB
+22:43:40 A 1a-step-uniform np4 r1-n10: rc 0 wall 21.099 loop 2.2881, steps 2.2862,
+22:43:59 B 1a-step-uniform np4 r1-n10: rc 0 wall 18.317 loop 2.2997, steps 2.2977,
+22:44:39 A 1a-step-uniform np4 r1-n110: rc 0 wall 39.736 loop 23.9955, steps 23.9589,
+22:45:24 B 1a-step-uniform np4 r1-n110: rc 0 wall 45.157 loop 23.8551, steps 23.8313,
+22:45:42 A 1a-step-uniform np4 r2-n10: rc 0 wall 17.837 loop 2.2893, steps 2.2875,
+22:46:01 B 1a-step-uniform np4 r2-n10: rc 0 wall 17.928 loop 2.3102, steps 2.3055,
+22:46:40 A 1a-step-uniform np4 r2-n110: rc 0 wall 39.530 loop 23.8990, steps 23.8787,
+22:47:20 B 1a-step-uniform np4 r2-n110: rc 0 wall 39.571 loop 23.8644, steps 23.8442,
+22:47:38 A 1a-step-uniform np4 r3-n10: rc 0 wall 17.977 loop 2.3093, steps 2.3045,
+22:47:56 B 1a-step-uniform np4 r3-n10: rc 0 wall 17.855 loop 2.2729, steps 2.2710,
+22:48:36 A 1a-step-uniform np4 r3-n110: rc 0 wall 39.458 loop 23.9074, steps 23.8871,
+22:49:16 B 1a-step-uniform np4 r3-n110: rc 0 wall 39.567 loop 23.8757, steps 23.8555,
+22:49:32 A 1b-step-fixed np4 r1-n10: rc 0 wall 16.284 loop 1.6945, steps 1.6903,
+22:49:46 B 1b-step-fixed np4 r1-n10: rc 0 wall 13.345 loop 1.6997, steps 1.6957,
+22:50:15 A 1b-step-fixed np4 r1-n110: rc 0 wall 28.787 loop 17.1444, steps 17.1052,
+22:50:44 B 1b-step-fixed np4 r1-n110: rc 0 wall 28.944 loop 17.2141, steps 17.1684,
+22:50:58 A 1b-step-fixed np4 r2-n10: rc 0 wall 13.341 loop 1.6720, steps 1.6669,
+22:51:11 B 1b-step-fixed np4 r2-n10: rc 0 wall 13.322 loop 1.6646, steps 1.6604,
+22:51:40 A 1b-step-fixed np4 r2-n110: rc 0 wall 28.822 loop 17.1908, steps 17.1432,
+22:52:10 B 1b-step-fixed np4 r2-n110: rc 0 wall 28.851 loop 17.1885, steps 17.1371,
+22:52:23 A 1b-step-fixed np4 r3-n10: rc 0 wall 13.330 loop 1.6581, steps 1.6519,
+22:52:37 B 1b-step-fixed np4 r3-n10: rc 0 wall 13.323 loop 1.6545, steps 1.6503,
+22:53:06 A 1b-step-fixed np4 r3-n110: rc 0 wall 28.811 loop 17.1839, steps 17.1423,
+22:53:35 B 1b-step-fixed np4 r3-n110: rc 0 wall 28.903 loop 17.1862, steps 17.1418,
+22:53:50 A 1c-step-runtime np4 r1-n10: rc 0 wall 15.089 loop 1.9861, steps 1.7109,
+22:54:04 B 1c-step-runtime np4 r1-n10: rc 0 wall 13.642 loop 1.9763, steps 1.7160,
+22:54:44 A 1c-step-runtime np4 r1-n110: rc 0 wall 39.499 loop 22.5545, steps 17.6500,
+22:55:19 B 1c-step-runtime np4 r1-n110: rc 0 wall 34.432 loop 22.7518, steps 17.6985,
+22:55:32 A 1c-step-runtime np4 r2-n10: rc 0 wall 13.600 loop 1.9841, steps 1.7252,
+22:55:46 B 1c-step-runtime np4 r2-n10: rc 0 wall 13.631 loop 1.9764, steps 1.7175,
+22:56:21 A 1c-step-runtime np4 r2-n110: rc 0 wall 34.474 loop 22.7441, steps 17.6981,
+22:56:56 B 1c-step-runtime np4 r2-n110: rc 0 wall 34.308 loop 22.6409, steps 17.6961,
+22:57:10 A 1c-step-runtime np4 r3-n10: rc 0 wall 13.738 loop 1.9766, steps 1.7156,
+22:57:23 B 1c-step-runtime np4 r3-n10: rc 0 wall 13.549 loop 1.9827, steps 1.7260,
+22:57:58 A 1c-step-runtime np4 r3-n110: rc 0 wall 34.332 loop 22.6947, steps 17.6755,
+22:58:33 B 1c-step-runtime np4 r3-n110: rc 0 wall 34.585 loop 22.8596, steps 17.7802,
+22:58:33 analyze A rc 0
+22:58:34 analyze B rc 0
+22:58:34 I157C-L1-DONE

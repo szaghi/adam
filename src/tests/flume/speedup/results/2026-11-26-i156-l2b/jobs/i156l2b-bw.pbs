@@ -1,0 +1,67 @@
+#!/bin/bash
+# Night 2026-11-26-i156-l2b (#156 lever 2 part 2, A = 549d4f31 part 1, B = + restricted eikonal exchanges): the sphere windows with the immersed body (2c frozen AMR, 2b runtime AMR, 2a
+# uniform; the #157 window dumps on 4 H100) with A (d68d5f97) and B (A + no ghost update after the last eikonal
+# sweep), both with the phase timer. First a bitwise check: 10-step runs writing the residuals and the conservation
+# history each step, A, B and A again (the run-to-run control); then the timing windows 3 x (10, 110), A and B
+# alternated run by run.
+#   qsub -q gpu4_std -l select=1:ngpus=4:ncpus=96:mpiprocs=4:mem=400gb -l place=excl -l walltime=04:00:00 i156-amr.pbs
+#PBS -N i156l2b-bw
+#PBS -j oe
+#PBS -o /lustre/projects/1026/CALCOLI/adam/speedup-133/i156l2b/
+set -uo pipefail
+module purge
+module load nvhpc-hpcx-cuda12/26.3 python/3.11.14-cnapenc
+R=/lustre/projects/1026/CALCOLI/adam/speedup-133/i156l2b
+WIN=/lustre/projects/1026/CALCOLI/adam/speedup-133/i157/win
+declare -A EXE=([A]=$HOME/adam-i156B/src/tests/flume/speedup/exe/fnl-nvf/adam_flume_fnl \
+                [B]=$HOME/adam-i156D/src/tests/flume/speedup/exe/fnl-nvf/adam_flume_fnl)
+declare -A COMMIT=([A]=549d4f31 [B]=549d4f31+i156-l2b)
+log() { echo "$(date +%T) $*"; }
+log "job $PBS_JOBID on $(hostname)"
+reasons=$(nvidia-smi --query-gpu=index,clocks_event_reasons.active,enforced.power.limit,power.default_limit,memory.used --format=csv,noheader,nounits)
+echo "$reasons"; bad=""
+while IFS=' ,' read -r idx hex enf def used; do
+   [[ $hex == 0x* ]] || continue
+   (( hex & 0xCC )) && bad+=" gpu${idx}=${hex}"
+   (( ${enf%.*} * 100 < ${def%.*} * 95 )) && bad+=" gpu${idx}=power-limit"
+   (( ${used%.*} > 2000 )) && bad+=" gpu${idx}=busy"
+done <<< "$reasons"
+[[ -z $bad ]] || { echo "unhealthy GPUs:$bad" >&2 ; exit 42 ; }
+for t in A B; do [[ -x ${EXE[$t]} ]] || { log "no executable ${EXE[$t]}"; exit 3; }; done
+nvidia-smi --query-gpu=timestamp,index,clocks.sm,power.draw,temperature.gpu,clocks_event_reasons.active,utilization.gpu \
+   --format=csv,noheader,nounits -lms 1000 > "$R/gpustat.${PBS_JOBID%%.*}.log" 2>&1 &
+POLL=$!
+win() { # <A|B> <case> <rep> <n> <out dir> <bitwise 0|1>
+   local tag=$1 case=$2 rep=$3 n=$4 d=$5 bw=$6 src t0 t1 rc f exe launch
+   src=$WIN/fnl-nvf-np4/$case; exe=${EXE[$tag]}
+   rm -rf "$d"; mkdir -p "$d"; cp "$src/r$rep-n$n"/*.ini "$d"/
+   for f in "$src"/dump/*-restart*; do ln -s "$f" "$d"/; done
+   if (( bw )); then # every step's residuals and integrals; the restart stays off (its files are links to the dumps)
+      sed -i -e 's/^residuals_save = .*/residuals_save = 1/' -e 's/^conservation_history_save = .*/conservation_history_save = 1/' "$d/input.ini"
+      grep -q '^restart_save = 0' "$d/input.ini" || { log "restart_save not 0 in $d"; return 9; }
+   fi
+   export ADAM_SEAM_TIMING=1 ADAM_PHASE_TIMING=1
+   launch="mpirun -np 4 --map-by ppr:4:node --bind-to none -x PATH -x LD_LIBRARY_PATH -x ADAM_SEAM_TIMING -x ADAM_PHASE_TIMING"
+   t0=$(date +%s.%N)
+   ( cd "$d" && $launch "$exe" input.ini > log.txt 2>&1 < /dev/null ); rc=$?
+   t1=$(date +%s.%N)
+   awk -v a="$t0" -v b="$t1" 'BEGIN{printf "%.3f\n", b - a}' > "$d/wall.txt"
+   grep -vE '^(date|host|slurm_job|command|exe|exe_sha256|commit|src_modified)=' "$src/r$rep-n$n/run.info" > "$d/run.info"
+   printf 'date=%s\nhost=%s\nslurm_job=%s\ncommand=%s %s input.ini\nexe=%s\nexe_sha256=%s\ncommit=%s\nsrc_modified=yes\nrc=%s\n' \
+      "$(date -Is)" "$(hostname)" "$PBS_JOBID" "$launch" "$exe" "$exe" "$(sha256sum "$exe" | cut -c1-16)" "${COMMIT[$tag]}" "$rc" >> "$d/run.info"
+   log "$tag $case r$rep-n$n: rc $rc wall $(cat "$d/wall.txt") $(grep -a 'forest timing' "$d/log.txt" | head -1 | awk '{print $7, $8, $9, $10}') $(grep -a 'PHASE TIMING: step (loop)' "$d/log.txt" | awk '{print "step", $6, "ms"}')"
+}
+# 1. bitwise: A, B, A again on 10 steps of each case
+for c in 2c-sphere-fixed 2b-sphere-runtime 2a-sphere-uniform; do
+   for tag in A B A2; do t=${tag:0:1}; win $t $c 1 10 "$R/bitwise/$tag/$c" 1; done
+   for f in "$R/bitwise/A/$c"/*.dat; do
+      b=$(basename "$f")
+      cmp -s "$f" "$R/bitwise/A2/$c/$b" && ctl=same || ctl=DIFF
+      cmp -s "$f" "$R/bitwise/B/$c/$b" && ab=same || ab=DIFF
+      log "BITWISE $c $b: A-A2 $ctl, A-B $ab ($(wc -l < "$f") lines)"
+   done
+done
+kill "$POLL" 2> /dev/null
+awk -F', ' '$7+0 > 0 {n[$2]++; c[$2] += $3; if (!($2 in m) || $3 < m[$2]) m[$2] = $3; if (and(strtonum($6), 0xCC)) r[$2] = $6}
+   END {for (g in n) printf "gpu%s: busy %d s, SM mean %.0f min %s MHz%s\n", g, n[g], c[g]/n[g], m[g], (g in r) ? ", BRAKE " r[g] : ""}' "$R/gpustat.${PBS_JOBID%%.*}.log"
+log "I156L2B-BW-DONE"

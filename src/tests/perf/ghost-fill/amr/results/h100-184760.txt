@@ -1,0 +1,113 @@
+# SpaceHPC job 184760 (H100): trees B (C4) and C (C4 + B5) alternated, two passes; V0b = the whole fill timed at the end, P1 = the heavy launch
+## pass 1 B 24 2 0.75 tricubic mean
+[mpi-00000]  restart:             F
+V0  ADAM rows, one launch       median      1.042 ms
+V0p ADAM rows, guard per variable median      2.538 ms  bitwise vs V0 T
+P1  ADAM heavy launch on the maps heavy rows median      0.783 ms
+P2  ADAM copy kernel on the maps copy rows   median      0.256 ms
+V0b ADAM fill again (end of run)             median      1.044 ms
+## pass 1 C 24 2 0.75 tricubic mean
+[mpi-00000]  restart:             F
+V0  ADAM rows, one launch       median      1.037 ms
+V0p ADAM rows, guard per variable median      2.539 ms  bitwise vs V0 T
+P1  ADAM heavy launch on the maps heavy rows median      0.778 ms
+P2  ADAM copy kernel on the maps copy rows   median      0.256 ms
+V0b ADAM fill again (end of run)             median      1.036 ms
+## pass 1 B 24 2 0.75 quintic-mp mean
+[mpi-00000]  restart:             F
+V0  ADAM rows, one launch       median      2.321 ms
+V0p ADAM rows, guard per variable median      5.164 ms  bitwise vs V0 T
+P1  ADAM heavy launch on the maps heavy rows median      2.062 ms
+P2  ADAM copy kernel on the maps copy rows   median      0.256 ms
+V0b ADAM fill again (end of run)             median      2.321 ms
+## pass 1 C 24 2 0.75 quintic-mp mean
+[mpi-00000]  restart:             F
+V0  ADAM rows, one launch       median      2.316 ms
+V0p ADAM rows, guard per variable median      5.161 ms  bitwise vs V0 T
+P1  ADAM heavy launch on the maps heavy rows median      2.056 ms
+P2  ADAM copy kernel on the maps copy rows   median      0.255 ms
+V0b ADAM fill again (end of run)             median      2.314 ms
+## pass 1 B 24 2 0.75 weno6 weno6
+[mpi-00000]  restart:             F
+V0  ADAM rows, one launch       median      4.570 ms
+V0p ADAM rows, guard per variable median      8.548 ms  bitwise vs V0 T
+P1  ADAM heavy launch on the maps heavy rows median      4.406 ms
+P2  ADAM copy kernel on the maps copy rows   median      0.256 ms
+V0b ADAM fill again (end of run)             median      4.658 ms
+## pass 1 C 24 2 0.75 weno6 weno6
+[mpi-00000]  restart:             F
+V0  ADAM rows, one launch       median      4.561 ms
+V0p ADAM rows, guard per variable median      8.540 ms  bitwise vs V0 T
+P1  ADAM heavy launch on the maps heavy rows median      4.393 ms
+P2  ADAM copy kernel on the maps copy rows   median      0.256 ms
+V0b ADAM fill again (end of run)             median      4.653 ms
+## pass 1 B 24 3 0.5 tricubic mean
+[mpi-00000]  restart:             F
+V0  ADAM rows, one launch       median      2.315 ms
+V0p ADAM rows, guard per variable median      6.196 ms  bitwise vs V0 T
+P1  ADAM heavy launch on the maps heavy rows median      1.404 ms
+P2  ADAM copy kernel on the maps copy rows   median      0.918 ms
+V0b ADAM fill again (end of run)             median      2.321 ms
+## pass 1 C 24 3 0.5 tricubic mean
+[mpi-00000]  restart:             F
+V0  ADAM rows, one launch       median      2.330 ms
+V0p ADAM rows, guard per variable median      6.197 ms  bitwise vs V0 T
+P1  ADAM heavy launch on the maps heavy rows median      1.417 ms
+P2  ADAM copy kernel on the maps copy rows   median      0.919 ms
+V0b ADAM fill again (end of run)             median      2.336 ms
+## pass 2 B 24 2 0.75 tricubic mean
+[mpi-00000]  restart:             F
+V0  ADAM rows, one launch       median      1.042 ms
+V0p ADAM rows, guard per variable median      2.539 ms  bitwise vs V0 T
+P1  ADAM heavy launch on the maps heavy rows median      0.784 ms
+P2  ADAM copy kernel on the maps copy rows   median      0.256 ms
+V0b ADAM fill again (end of run)             median      1.044 ms
+## pass 2 C 24 2 0.75 tricubic mean
+[mpi-00000]  restart:             F
+V0  ADAM rows, one launch       median      1.035 ms
+V0p ADAM rows, guard per variable median      2.538 ms  bitwise vs V0 T
+P1  ADAM heavy launch on the maps heavy rows median      0.778 ms
+P2  ADAM copy kernel on the maps copy rows   median      0.255 ms
+V0b ADAM fill again (end of run)             median      1.037 ms
+## pass 2 B 24 2 0.75 quintic-mp mean
+[mpi-00000]  restart:             F
+V0  ADAM rows, one launch       median      2.321 ms
+V0p ADAM rows, guard per variable median      5.165 ms  bitwise vs V0 T
+P1  ADAM heavy launch on the maps heavy rows median      2.063 ms
+P2  ADAM copy kernel on the maps copy rows   median      0.256 ms
+V0b ADAM fill again (end of run)             median      2.319 ms
+## pass 2 C 24 2 0.75 quintic-mp mean
+[mpi-00000]  restart:             F
+V0  ADAM rows, one launch       median      2.314 ms
+V0p ADAM rows, guard per variable median      5.164 ms  bitwise vs V0 T
+P1  ADAM heavy launch on the maps heavy rows median      2.057 ms
+P2  ADAM copy kernel on the maps copy rows   median      0.256 ms
+V0b ADAM fill again (end of run)             median      2.314 ms
+## pass 2 B 24 2 0.75 weno6 weno6
+[mpi-00000]  restart:             F
+V0  ADAM rows, one launch       median      4.569 ms
+V0p ADAM rows, guard per variable median      8.539 ms  bitwise vs V0 T
+P1  ADAM heavy launch on the maps heavy rows median      4.409 ms
+P2  ADAM copy kernel on the maps copy rows   median      0.256 ms
+V0b ADAM fill again (end of run)             median      4.650 ms
+## pass 2 C 24 2 0.75 weno6 weno6
+[mpi-00000]  restart:             F
+V0  ADAM rows, one launch       median      4.562 ms
+V0p ADAM rows, guard per variable median      8.539 ms  bitwise vs V0 T
+P1  ADAM heavy launch on the maps heavy rows median      4.410 ms
+P2  ADAM copy kernel on the maps copy rows   median      0.256 ms
+V0b ADAM fill again (end of run)             median      4.645 ms
+## pass 2 B 24 3 0.5 tricubic mean
+[mpi-00000]  restart:             F
+V0  ADAM rows, one launch       median      2.318 ms
+V0p ADAM rows, guard per variable median      6.197 ms  bitwise vs V0 T
+P1  ADAM heavy launch on the maps heavy rows median      1.405 ms
+P2  ADAM copy kernel on the maps copy rows   median      0.919 ms
+V0b ADAM fill again (end of run)             median      2.323 ms
+## pass 2 C 24 3 0.5 tricubic mean
+[mpi-00000]  restart:             F
+V0  ADAM rows, one launch       median      2.332 ms
+V0p ADAM rows, guard per variable median      6.198 ms  bitwise vs V0 T
+P1  ADAM heavy launch on the maps heavy rows median      1.418 ms
+P2  ADAM copy kernel on the maps copy rows   median      0.920 ms
+V0b ADAM fill again (end of run)             median      2.334 ms

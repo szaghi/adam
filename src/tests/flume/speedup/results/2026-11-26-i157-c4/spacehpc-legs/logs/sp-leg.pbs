@@ -1,0 +1,58 @@
+#!/bin/bash
+# Night 2026-11-27-i157-h100-legs (#157 C4 on the H100, the step and channel legs): the #133 windows of one case
+# ($CASE: 1a-step-uniform 1b-step-fixed 1c-step-runtime 3a-channel-uniform 3b-channel-runtime 3c-channel-fixed; the
+# medooza dumps of the matrix, copied to i157/win) on 4 H100, FLUME executables A (HEAD 80582712) and B (C4, the i157n
+# s03 tree: the same two executables as the sphere legs of jobs 184729/184742/184743) alternated run by run,
+# 3 x (10, 110) steps. One job per case, all concurrent.
+#   qsub -q gpu4_std -l select=1:ngpus=4:ncpus=96:mpiprocs=4:mem=400gb -l place=excl -l walltime=04:00:00 \
+#        -v CASE=<case> sp-leg.pbs
+#PBS -N i157h
+#PBS -j oe
+#PBS -o /lustre/projects/1026/CALCOLI/adam/speedup-133/i157h/
+set -uo pipefail
+module purge
+module load nvhpc-hpcx-cuda12/26.3
+R=/lustre/projects/1026/CALCOLI/adam/speedup-133/i157h
+WIN=/lustre/projects/1026/CALCOLI/adam/speedup-133/i157/win
+declare -A EXE=([A]=$HOME/adam-i157nA/src/tests/flume/speedup/exe/fnl-nvf/adam_flume_fnl \
+                [B]=$HOME/adam-i157nB/src/tests/flume/speedup/exe/fnl-nvf/adam_flume_fnl)
+declare -A COMMIT=([A]=80582712 [B]=i157n-s03)
+J=${PBS_JOBID%%.*}
+log() { echo "$(date +%T) $*"; }
+log "job $PBS_JOBID on $(hostname), case $CASE"
+reasons=$(nvidia-smi --query-gpu=index,clocks_event_reasons.active,enforced.power.limit,power.default_limit,memory.used --format=csv,noheader,nounits)
+echo "$reasons"; bad=""
+while IFS=' ,' read -r idx hex enf def used; do
+   [[ $hex == 0x* ]] || continue
+   (( hex & 0xCC )) && bad+=" gpu${idx}=${hex}"
+   (( ${enf%.*} * 100 < ${def%.*} * 95 )) && bad+=" gpu${idx}=power-limit"
+   (( ${used%.*} > 2000 )) && bad+=" gpu${idx}=busy"
+done <<< "$reasons"
+[[ -z $bad ]] || { echo "unhealthy GPUs:$bad" >&2 ; exit 42 ; }
+for t in A B; do [[ -x ${EXE[$t]} ]] || { log "no executable ${EXE[$t]}"; exit 3; }; done
+[[ -d $WIN/fnl-nvf-np4/$CASE/dump ]] || { log "no windows for $CASE"; exit 3; }
+nvidia-smi --query-gpu=timestamp,index,clocks.sm,power.draw,temperature.gpu,clocks_event_reasons.active,utilization.gpu \
+   --format=csv,noheader,nounits -lms 1000 > "$R/gpustat.$J.log" 2>&1 &
+POLL=$!
+win() { # <A|B> <case> <rep> <n>
+   local tag=$1 case=$2 rep=$3 n=$4 src d t0 t1 rc f exe launch inp=input.ini
+   src=$WIN/fnl-nvf-np4/$case; d=$R/$tag/windows/fnl-nvf-np4/$case/r$rep-n$n; exe=${EXE[$tag]}
+   rm -rf "$d"; mkdir -p "$d"; cp "$src/r$rep-n$n"/*.ini "$d"/
+   for f in "$src"/dump/*-restart*; do ln -s "$f" "$d"/; done
+   [[ -f $d/step.ini ]] && inp=step.ini
+   export ADAM_SEAM_TIMING=1
+   launch="mpirun -np 4 --map-by ppr:4:node --bind-to none -x PATH -x LD_LIBRARY_PATH -x ADAM_SEAM_TIMING"
+   t0=$(date +%s.%N)
+   ( cd "$d" && $launch "$exe" "$inp" > log.txt 2>&1 < /dev/null ); rc=$?
+   t1=$(date +%s.%N)
+   awk -v a="$t0" -v b="$t1" 'BEGIN{printf "%.3f\n", b - a}' > "$d/wall.txt"
+   grep -vE '^(date|host|slurm_job|command|exe|exe_sha256|commit|src_modified)=' "$src/r$rep-n$n/run.info" > "$d/run.info"
+   printf 'date=%s\nhost=%s\nslurm_job=%s\ncommand=%s %s %s\nexe=%s\nexe_sha256=%s\ncommit=%s\nsrc_modified=no\nenv=\nrc=%s\n' \
+      "$(date -Is)" "$(hostname)" "$PBS_JOBID" "$launch" "$exe" "$inp" "$exe" "$(sha256sum "$exe" | cut -c1-16)" "${COMMIT[$tag]}" "$rc" >> "$d/run.info"
+   log "$tag $case r$rep-n$n: rc $rc wall $(cat "$d/wall.txt") $(grep -a 'forest timing' "$d/log.txt" | head -1 | awk '{print $7, $8, $9, $10}')"
+}
+for rep in 1 2 3; do for n in 10 110; do for tag in A B; do win $tag "$CASE" $rep $n; done; done; done
+kill "$POLL" 2> /dev/null
+awk -F', ' '$7+0 > 0 {n[$2]++; c[$2] += $3; if (!($2 in m) || $3 < m[$2]) m[$2] = $3; if (and(strtonum($6), 0xCC)) r[$2] = $6}
+   END {for (g in n) printf "gpu%s: busy %d s, SM mean %.0f min %s MHz%s\n", g, n[g], c[g]/n[g], m[g], (g in r) ? ", BRAKE " r[g] : ""}' "$R/gpustat.$J.log"
+log "I157H-DONE $CASE"

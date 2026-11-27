@@ -180,6 +180,8 @@ REPO_ROOT="$(cd "$REGRESSION_DIR/../../../.." && pwd)" || {
 if [[ -z "${REGRESSION_CHILD:-}" ]]; then
 # GPU race-shape lint gate (issue #26 G1.d): the check scans all of src/, FLUME device code included.
 "$REPO_ROOT/src/tests/lint/check-gpu-race-shapes.sh"
+# Device array-constructor lint gate (issue #157): no variable array constructor in device code (flang heap).
+"$REPO_ROOT/src/tests/lint/check-device-array-constructors.sh"
 # Removed-input-key lint gate (issues #58, #84 E4): no committed input may carry a section or key no parser reads.
 "$REPO_ROOT/src/tests/lint/check-removed-input-keys.sh"
 fi

@@ -1,0 +1,22 @@
+06:58:14 job 184910.pbs on gpu-004, case 3a-channel-uniform
+0, 0x0000000000000001, 699.00, 700.00, 1
+1, 0x0000000000000001, 699.00, 700.00, 1
+2, 0x0000000000000001, 699.00, 700.00, 1
+3, 0x0000000000000001, 699.00, 700.00, 1
+06:58:31 A 3a-channel-uniform r1-n10: rc 0 wall 16.619 loop 0.6454, steps 0.6410,
+06:58:48 B 3a-channel-uniform r1-n10: rc 0 wall 16.162 loop 0.6161, steps 0.6128,
+06:59:11 A 3a-channel-uniform r1-n110: rc 0 wall 22.479 loop 7.0211, steps 6.9860,
+06:59:34 B 3a-channel-uniform r1-n110: rc 0 wall 22.231 loop 6.7034, steps 6.6683,
+06:59:51 A 3a-channel-uniform r2-n10: rc 0 wall 15.829 loop 0.6432, steps 0.6399,
+07:00:08 B 3a-channel-uniform r2-n10: rc 0 wall 16.237 loop 0.6160, steps 0.6127,
+07:00:30 A 3a-channel-uniform r2-n110: rc 0 wall 22.168 loop 7.0238, steps 6.9893,
+07:00:53 B 3a-channel-uniform r2-n110: rc 0 wall 22.245 loop 6.7386, steps 6.7047,
+07:01:10 A 3a-channel-uniform r3-n10: rc 0 wall 16.031 loop 0.6428, steps 0.6395,
+07:01:27 B 3a-channel-uniform r3-n10: rc 0 wall 15.978 loop 0.6147, steps 0.6113,
+07:01:49 A 3a-channel-uniform r3-n110: rc 0 wall 21.893 loop 7.0173, steps 6.9833,
+07:02:12 B 3a-channel-uniform r3-n110: rc 0 wall 22.034 loop 6.6957, steps 6.6623,
+gpu0: busy 67 s, SM mean 1980 min 1980 MHz
+gpu1: busy 73 s, SM mean 1980 min 1980 MHz
+gpu2: busy 69 s, SM mean 1980 min 1980 MHz
+gpu3: busy 67 s, SM mean 1980 min 1980 MHz
+07:02:12 I157H-DONE 3a-channel-uniform

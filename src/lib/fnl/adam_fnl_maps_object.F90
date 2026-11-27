@@ -5,6 +5,7 @@ module adam_fnl_maps_object
 ! ADAM objects
 use :: adam_maps_object,              only : maps_object
 use :: adam_seam_interpolation_library, only : SEAM_FILL_INJECTION, SEAM_RESTRICT_MEAN
+use :: adam_fnl_field_kernels,          only : COPY_IJK_BIAS, COPY_IJK_BITS
 ! ADAM FNL singleton objects
 use :: adam_fnl_mpih_global, only : mpih_fnl
 ! third party modules
@@ -26,10 +27,20 @@ type :: maps_fnl_object
    ! (nvfortran traps it as "Null pointer for tmp$r"). A default-initialised
    ! pointer component starts every instance in a defined, disassociated state.
    integer(I8P), pointer :: local_map_ghost_cell_gpu(:,:)     => null() !< Local map for ghost cells updating, cells order.
+   ! The local fill runs two launches over two device copies of the rows of local_map_ghost_cell_gpu (#157 C4): the
+   ! restriction and prolongation rows in the map's order (the children of a coarse anchor stay neighbours and share
+   ! their footprints in the caches), and the copy rows packed in int32 and sorted with the receiving block fastest
+   ! (consecutive threads write consecutive memory in the block-fastest field). Every row writes its own ghost and reads
+   ! real cells only (#22 F1): any order and split give the same values.
+   integer(I8P), pointer :: local_map_ghost_heavy_gpu(:,:)    => null() !< The rows of local_map_ghost_cell_gpu that are
+                                                                        !< not copies, in its order (none: null).
+   integer(I4P), pointer :: local_map_ghost_copy_gpu(:,:)     => null() !< The copy rows, [b_send, ijk_send, b_recv,
+                                                                        !< ijk_recv] (pack_copy_ijk), receiving block
+                                                                        !< fastest (none: null).
    integer(I4P), pointer :: local_map_ghost_cell_prol_gpu(:)  => null() !< The flag-4 (coarse->fine) rows of
-                                                                        !< local_map_ghost_cell_gpu (#157 B2; none: null).
+                                                                        !< local_map_ghost_heavy_gpu (#157 B2; none: null).
    real(R8P),    pointer :: seam_rho_gpu(:)                   => null() !< Clamped density per row of
-                                                                        !< local_map_ghost_cell_gpu (its flag-4 rows): the
+                                                                        !< local_map_ghost_heavy_gpu (its flag-4 rows): the
                                                                         !< seam fill guard's part once per ghost (#157 B2).
    integer(I8P), pointer :: comm_map_recv_ghost_cell_gpu(:,:) => null() !< Communication map, `fec` information, cell order.
    integer(I8P), pointer :: comm_map_send_ghost_cell_gpu(:,:) => null() !< Communication map, `fec` information, cell order.
@@ -52,6 +63,8 @@ type :: maps_fnl_object
    ! kernels gather and scatter the cross-rank seam cells through them.
    integer(I4P), pointer :: seam_mpi_send_cell_gpu(:,:) => null() !< Cross-rank send rows [rank, b, i, j, k].
    integer(I4P), pointer :: seam_mpi_recv_cell_gpu(:,:) => null() !< Cross-rank receive rows [rank, b, i, j, k].
+   real(R8P),    pointer :: seam_mpi_send_rho_gpu(:)    => null() !< Clamped density per send row (its kind-4 rows): the
+                                                                   !< seam fill guard's part once per ghost (#157 B4).
    ! Intra-realm coarse->fine seam ghost fill (issue #21 N2 / #22 F3): host-side
    ! mirror of `maps_object%seam_ghost_fill`, the active fill regime consumed by
    ! the flag-4 branches of the ghost kernels (passed as a scalar kernel
@@ -76,6 +89,7 @@ contains
    type(maps_object),      intent(in)           :: maps     !< Realm-local CPU maps; was the `maps` singleton.
    logical,                intent(in), optional :: verbose  !< Flag to activate verbose mode.
    logical                                      :: verbose_ !< Flag to activate verbose mode, local var.
+   integer(I4P)                                 :: ierr     !< Allocation status.
 
    verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
    if (verbose_) call mpih_fnl%print_message('maps_fnl_object%copy_cpu_gpu start')
@@ -106,11 +120,12 @@ contains
       call dev_free(self%seam_rho_gpu, mydev)
       nullify(self%seam_rho_gpu)
    endif
+   call free_split_rows(self)
    if (allocated(maps%local_map_ghost_cell)) then
       call dev_assign_to_device(dst=self%local_map_ghost_cell_gpu, src=maps%local_map_ghost_cell)
-      ! the seam fill guard once per fine ghost (#157 B2): the flag-4 rows and a scratch value per row
-      call make_prolongation_rows(map=maps%local_map_ghost_cell, cflag=9, prol_gpu=self%local_map_ghost_cell_prol_gpu, &
-                                  rho_gpu=self%seam_rho_gpu)
+      ! the fill's two launches (#157 C4), and the seam fill guard once per fine ghost (#157 B2): the flag-4 rows of the
+      ! heavy rows and a scratch value per row
+      call make_split_rows(self=self, map=maps%local_map_ghost_cell)
       if (verbose_) call mpih_fnl%print_message('copy local_map_ghost_cell_gpu done ('// &
          trim(str(count(maps%local_map_ghost_cell(:,9) == 4_I8P)))//' seam flag-4 rows)')
    else
@@ -216,8 +231,19 @@ contains
       if (verbose_) call mpih_fnl%print_message('skip seam_local_recv_buf_gpu (CPU map not allocated)')
    endif
    ! Cross-rank seam rows (issue #40): allocated only on ranks that have cross-rank seam rows.
+   if (associated(self%seam_mpi_send_rho_gpu)) then
+      call dev_free(self%seam_mpi_send_rho_gpu, mydev)
+      nullify(self%seam_mpi_send_rho_gpu)
+   endif
    if (allocated(maps%seam_mpi_send_cell)) then
       call dev_assign_to_device(dst=self%seam_mpi_send_cell_gpu, src=maps%seam_mpi_send_cell)
+      ! the guard scratch of the seam pack, one value per send row (#157 B4): allocated here, not per pack
+      if (size(maps%seam_mpi_send_cell, dim=1) > 0) then
+         call dev_alloc(fptr_dev=self%seam_mpi_send_rho_gpu, lbounds=[1], &
+                        ubounds=[size(maps%seam_mpi_send_cell, dim=1)], ierr=ierr)
+         if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': maps_fnl_object%copy_cpu_gpu: failed to allocate '// &
+                                                         'seam_mpi_send_rho_gpu')
+      endif
       if (verbose_) call mpih_fnl%print_message('copy seam_mpi_send_cell done')
    elseif (associated(self%seam_mpi_send_cell_gpu)) then
       call dev_free(self%seam_mpi_send_cell_gpu, mydev)
@@ -249,6 +275,7 @@ contains
       call dev_free(self%local_map_ghost_cell_prol_gpu, mydev)
       nullify(self%local_map_ghost_cell_prol_gpu)
    endif
+   call free_split_rows(self)
    if (associated(self%comm_map_recv_ghost_cell_gpu)) then
       call dev_free(self%comm_map_recv_ghost_cell_gpu, mydev)
       nullify(self%comm_map_recv_ghost_cell_gpu)
@@ -297,7 +324,124 @@ contains
       call dev_free(self%seam_mpi_recv_cell_gpu, mydev)
       nullify(self%seam_mpi_recv_cell_gpu)
    endif
+   if (associated(self%seam_mpi_send_rho_gpu)) then
+      call dev_free(self%seam_mpi_send_rho_gpu, mydev)
+      nullify(self%seam_mpi_send_rho_gpu)
+   endif
    endsubroutine destroy
+
+   subroutine free_split_rows(self)
+   !< Free the heavy and copy rows of the local fill (#157 C4).
+   class(maps_fnl_object), intent(inout) :: self !< The FNL helper.
+
+   if (associated(self%local_map_ghost_heavy_gpu)) then
+      call dev_free(self%local_map_ghost_heavy_gpu, mydev)
+      nullify(self%local_map_ghost_heavy_gpu)
+   endif
+   if (associated(self%local_map_ghost_copy_gpu)) then
+      call dev_free(self%local_map_ghost_copy_gpu, mydev)
+      nullify(self%local_map_ghost_copy_gpu)
+   endif
+   endsubroutine free_split_rows
+
+   subroutine make_split_rows(self, map)
+   !< The device rows of the local fill's two launches from the local ghost-cell map (#157 C4): the restriction and
+   !< prolongation rows (flag 8, 4) in the map's order, with their flag-4 list and the guard's scratch; the copy rows
+   !< (flag 1) packed as [b_send, ijk_send, b_recv, ijk_recv] (`pack_copy_ijk`), sorted by receiver (i, j, k), then
+   !< block, so that the receiving block runs fastest. A kind with no row leaves its device array null.
+   class(maps_fnl_object), intent(inout) :: self      !< The FNL helper.
+   integer(I8P),           intent(in)    :: map(1:,1:) !< Local ghost-cell map (host).
+   integer(I8P), allocatable             :: heavy(:,:) !< The heavy rows (host).
+   integer(I4P), allocatable             :: copy(:,:)  !< The copy rows, packed (host).
+   integer(I8P), allocatable             :: key(:)     !< Receiver sort key per copy row.
+   integer(I4P), allocatable             :: ord(:)     !< Copy rows in key order.
+   integer(I4P), allocatable             :: rows(:)    !< Copy rows of the map.
+   integer(I8P)                          :: nbk        !< Block key span.
+   integer(I4P)                          :: r, h, m    !< Counters.
+
+   if (any(map(:,3:8) + COPY_IJK_BIAS < 0_I8P) .or. any(map(:,3:8) + COPY_IJK_BIAS >= 2_I8P**COPY_IJK_BITS)) &
+      call mpih_fnl%error_stop(msg=': maps_fnl_object%copy_cpu_gpu: a ghost-map cell index does not fit the packed '// &
+                                   'copy rows (#157 C4)')
+   ! explicit loops: a reallocating assignment from a vector-subscripted section crashed nvfortran 26.9
+   allocate(heavy(count(map(:,9) /= 1_I8P), size(map, dim=2)))
+   h = 0
+   do r=1, size(map, dim=1)
+      if (map(r,9) == 1_I8P) cycle
+      h = h + 1
+      heavy(h,:) = map(r,:)
+   enddo
+   if (h > 0) then
+      call dev_assign_to_device(dst=self%local_map_ghost_heavy_gpu, src=heavy)
+      call make_prolongation_rows(map=heavy, cflag=9, prol_gpu=self%local_map_ghost_cell_prol_gpu, &
+                                  rho_gpu=self%seam_rho_gpu)
+   endif
+   allocate(rows(count(map(:,9) == 1_I8P)))
+   if (size(rows, dim=1) == 0) return
+   h = 0
+   do r=1, size(map, dim=1)
+      if (map(r,9) /= 1_I8P) cycle
+      h = h + 1
+      rows(h) = r
+   enddo
+   nbk = maxval(map(:,2))
+   allocate(key(size(rows, dim=1)), ord(size(rows, dim=1)), copy(1:4, size(rows, dim=1)))
+   do r=1, size(rows, dim=1)
+      m = rows(r)
+      key(r) = int(pack_copy_ijk(i=map(m,6), j=map(m,7), k=map(m,8)), I8P) * nbk + map(m,2)
+      ord(r) = r
+   enddo
+   call merge_sort_by_key(key=key, ord=ord)
+   do r=1, size(rows, dim=1)
+      m = rows(ord(r))
+      copy(1,r) = int(map(m,1), I4P)
+      copy(2,r) = pack_copy_ijk(i=map(m,3), j=map(m,4), k=map(m,5))
+      copy(3,r) = int(map(m,2), I4P)
+      copy(4,r) = pack_copy_ijk(i=map(m,6), j=map(m,7), k=map(m,8))
+   enddo
+   call dev_assign_to_device(dst=self%local_map_ghost_copy_gpu, src=copy)
+   endsubroutine make_split_rows
+
+   pure function pack_copy_ijk(i, j, k) result(packed)
+   !< A cell (i, j, k) packed in one int32: COPY_IJK_BITS bits per index, each biased by COPY_IJK_BIAS (the ghost
+   !< indexes are negative); the device kernel unpacks it with `ibits`.
+   integer(I8P), intent(in) :: i, j, k !< Cell indexes.
+   integer(I4P)             :: packed  !< Packed cell.
+
+   packed = int((i + COPY_IJK_BIAS) + 2_I8P**COPY_IJK_BITS * ((j + COPY_IJK_BIAS) + &
+                2_I8P**COPY_IJK_BITS * (k + COPY_IJK_BIAS)), I4P)
+   endfunction pack_copy_ijk
+
+   pure subroutine merge_sort_by_key(key, ord)
+   !< Stable merge sort of `ord` by `key(ord)`.
+   integer(I8P), intent(in)    :: key(1:) !< Keys.
+   integer(I4P), intent(inout) :: ord(1:) !< Permutation (in: identity).
+   integer(I4P), allocatable   :: tmp(:)  !< Merge buffer.
+   integer(I4P)                :: width, lo, mid, hi, a, z, k !< Merge counters.
+
+   allocate(tmp(size(ord, dim=1)))
+   width = 1
+   do while (width < size(ord, dim=1))
+      lo = 1
+      do while (lo <= size(ord, dim=1))
+         mid = min(lo + width - 1, size(ord, dim=1)) ; hi = min(lo + 2 * width - 1, size(ord, dim=1))
+         a = lo ; z = mid + 1
+         do k=lo, hi
+            if (z > hi) then
+               tmp(k) = ord(a) ; a = a + 1
+            elseif (a > mid) then
+               tmp(k) = ord(z) ; z = z + 1
+            elseif (key(ord(a)) <= key(ord(z))) then
+               tmp(k) = ord(a) ; a = a + 1
+            else
+               tmp(k) = ord(z) ; z = z + 1
+            endif
+         enddo
+         lo = hi + 1
+      enddo
+      ord = tmp
+      width = 2 * width
+   enddo
+   endsubroutine merge_sort_by_key
 
    subroutine make_prolongation_rows(map, cflag, prol_gpu, rho_gpu, cvar, var)
    !< The device list of the flag-4 (coarse->fine) rows of a ghost-cell map and a scratch value per row, for the seam

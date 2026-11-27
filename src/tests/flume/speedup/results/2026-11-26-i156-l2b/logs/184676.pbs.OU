@@ -1,0 +1,143 @@
+job 184676.pbs 2026-11-26T07:12:57+01:00 nodes gpu-002.head.cm.local gpu-003.head.cm.local gpu-004.head.cm.local gpu-005.head.cm.local gpu-006.head.cm.local gpu-007.head.cm.local gpu-008.head.cm.local gpu-009.head.cm.local plan /lustre/projects/1026/CALCOLI/adam/speedup-133/plans/l2bD-n8.txt
+# Night 2026-11-26-i156-l2b: #156 lever 2 part 2 timed: B = 549d4f31 (part 1), D = B + the restricted eikonal exchanges; phase timer; 8 node(s)
+sh for t in l2bD-B-n8 l2bD-D-n8; do mkdir -p $W/phase/$t/dumps; ln -sfn $W/grid-study/dumps/wg-l4b38 $W/phase/$t/dumps/wg-l4b38; ln -sfn $W/matrix/dumps/leg2 $W/phase/$t/dumps/leg2; done
+ADAM_PHASE_TIMING=1 windows --np 32 --cases wg-l4b38 --conf $W/grid-study.conf --work $W/phase/l2bD-B-n8 --exe $HOME/adam-i156B/src/tests/flume/speedup/exe/fnl-nvf/adam_flume_fnl
+ADAM_PHASE_TIMING=1 windows --np 32 --cases wg-l4b38 --conf $W/grid-study.conf --work $W/phase/l2bD-D-n8 --exe $HOME/adam-i156D/src/tests/flume/speedup/exe/fnl-nvf/adam_flume_fnl
+ADAM_PHASE_TIMING=1 windows --np 32 --cases 2a --conf $W/grid-study.conf --work $W/phase/l2bD-B-n8 --exe $HOME/adam-i156B/src/tests/flume/speedup/exe/fnl-nvf/adam_flume_fnl
+ADAM_PHASE_TIMING=1 windows --np 32 --cases 2a --conf $W/grid-study.conf --work $W/phase/l2bD-D-n8 --exe $HOME/adam-i156D/src/tests/flume/speedup/exe/fnl-nvf/adam_flume_fnl
+--- GPUs before the plan (host index, reasons, enforced W, default W, MiB used)
+gpu-005 0, 0x0000000000000001, 699.00, 700.00, 1
+gpu-005 1, 0x0000000000000001, 699.00, 700.00, 1
+gpu-005 2, 0x0000000000000001, 699.00, 700.00, 1
+gpu-005 3, 0x0000000000000001, 699.00, 700.00, 1
+gpu-008 0, 0x0000000000000001, 699.00, 700.00, 1
+gpu-008 1, 0x0000000000000001, 699.00, 700.00, 1
+gpu-008 2, 0x0000000000000001, 699.00, 700.00, 1
+gpu-008 3, 0x0000000000000001, 699.00, 700.00, 1
+gpu-003 0, 0x0000000000000001, 699.00, 700.00, 1
+gpu-003 1, 0x0000000000000001, 699.00, 700.00, 1
+gpu-003 2, 0x0000000000000001, 699.00, 700.00, 1
+gpu-003 3, 0x0000000000000001, 699.00, 700.00, 1
+gpu-004 0, 0x0000000000000001, 699.00, 700.00, 1
+gpu-004 1, 0x0000000000000001, 699.00, 700.00, 1
+gpu-004 2, 0x0000000000000001, 699.00, 700.00, 1
+gpu-004 3, 0x0000000000000001, 699.00, 700.00, 1
+gpu-006 0, 0x0000000000000001, 699.00, 700.00, 1
+gpu-006 1, 0x0000000000000001, 699.00, 700.00, 1
+gpu-006 2, 0x0000000000000001, 699.00, 700.00, 1
+gpu-006 3, 0x0000000000000001, 699.00, 700.00, 1
+gpu-007 0, 0x0000000000000001, 699.00, 700.00, 1
+gpu-007 1, 0x0000000000000001, 699.00, 700.00, 1
+gpu-007 2, 0x0000000000000001, 699.00, 700.00, 1
+gpu-007 3, 0x0000000000000001, 699.00, 700.00, 1
+gpu-009 0, 0x0000000000000001, 699.00, 700.00, 1
+gpu-009 1, 0x0000000000000001, 699.00, 700.00, 1
+gpu-009 2, 0x0000000000000001, 699.00, 700.00, 1
+gpu-009 3, 0x0000000000000001, 699.00, 700.00, 1
+gpu-002 0, 0x0000000000000001, 699.00, 700.00, 1
+gpu-002 1, 0x0000000000000001, 699.00, 700.00, 1
+gpu-002 2, 0x0000000000000001, 699.00, 700.00, 1
+gpu-002 3, 0x0000000000000001, 699.00, 700.00, 1
+=== 2026-11-26T07:12:59+01:00 sh for t in l2bD-B-n8 l2bD-D-n8; do mkdir -p $W/phase/$t/dumps; ln -sfn $W/grid-study/dumps/wg-l4b38 $W/phase/$t/dumps/wg-l4b38; ln -sfn $W/matrix/dumps/leg2 $W/phase/$t/dumps/leg2; done
+=== 2026-11-26T07:12:59+01:00 ADAM_PHASE_TIMING=1 windows --np 32 --cases wg-l4b38 --conf $W/grid-study.conf --work $W/phase/l2bD-B-n8 --exe $HOME/adam-i156B/src/tests/flume/speedup/exe/fnl-nvf/adam_flume_fnl
+>> windows, fnl-nvf, 32 ranks: wg-l4b38 -> windows/fnl-nvf-np32
+   /lustre/projects/1026/CALCOLI/adam/speedup-133/phase/l2bD-B-n8/dumps/wg-l4b38/warmup/sphere-restart: step 20, time 0.003184072230619407, 4096 blocks on 4 ranks [1024, 1024, 1024, 1024], ratio 8, also .reference
+      -> /lustre/projects/1026/CALCOLI/adam/speedup-133/phase/l2bD-B-n8/windows/fnl-nvf-np32/wg-l4b38/dump/sphere-restart: 32 ranks, rule siblings, blocks per rank [128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128]
+   windows/fnl-nvf-np32/wg-l4b38/r1-n10: wall 24.546 s, exit 0
+      forest timing (max over ranks, s): loop     1.3677, steps     1.3539, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np32/wg-l4b38/r1-n110: wall 34.515 s, exit 0
+      forest timing (max over ranks, s): loop    13.0378, steps    12.8965, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np32/wg-l4b38/r2-n10: wall 22.814 s, exit 0
+      forest timing (max over ranks, s): loop     1.3614, steps     1.3503, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np32/wg-l4b38/r2-n110: wall 34.459 s, exit 0
+      forest timing (max over ranks, s): loop    13.0278, steps    12.9312, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np32/wg-l4b38/r3-n10: wall 22.713 s, exit 0
+      forest timing (max over ranks, s): loop     1.3986, steps     1.3886, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np32/wg-l4b38/r3-n110: wall 34.603 s, exit 0
+      forest timing (max over ranks, s): loop    13.0833, steps    13.0333, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+run.sh: done (windows, fnl-nvf, 32 ranks, work /lustre/projects/1026/CALCOLI/adam/speedup-133/phase/l2bD-B-n8)
+=== 2026-11-26T07:16:30+01:00 ADAM_PHASE_TIMING=1 windows --np 32 --cases wg-l4b38 --conf $W/grid-study.conf --work $W/phase/l2bD-D-n8 --exe $HOME/adam-i156D/src/tests/flume/speedup/exe/fnl-nvf/adam_flume_fnl
+>> windows, fnl-nvf, 32 ranks: wg-l4b38 -> windows/fnl-nvf-np32
+   /lustre/projects/1026/CALCOLI/adam/speedup-133/phase/l2bD-D-n8/dumps/wg-l4b38/warmup/sphere-restart: step 20, time 0.003184072230619407, 4096 blocks on 4 ranks [1024, 1024, 1024, 1024], ratio 8, also .reference
+      -> /lustre/projects/1026/CALCOLI/adam/speedup-133/phase/l2bD-D-n8/windows/fnl-nvf-np32/wg-l4b38/dump/sphere-restart: 32 ranks, rule siblings, blocks per rank [128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128]
+   windows/fnl-nvf-np32/wg-l4b38/r1-n10: wall 24.317 s, exit 0
+      forest timing (max over ranks, s): loop     1.1975, steps     1.1914, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np32/wg-l4b38/r1-n110: wall 32.883 s, exit 0
+      forest timing (max over ranks, s): loop    11.2204, steps    11.1785, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np32/wg-l4b38/r2-n10: wall 22.619 s, exit 0
+      forest timing (max over ranks, s): loop     1.0568, steps     1.0516, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np32/wg-l4b38/r2-n110: wall 32.933 s, exit 0
+      forest timing (max over ranks, s): loop    11.2219, steps    11.1656, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np32/wg-l4b38/r3-n10: wall 22.848 s, exit 0
+      forest timing (max over ranks, s): loop     1.1950, steps     1.1899, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np32/wg-l4b38/r3-n110: wall 32.810 s, exit 0
+      forest timing (max over ranks, s): loop    11.2314, steps    11.1724, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+run.sh: done (windows, fnl-nvf, 32 ranks, work /lustre/projects/1026/CALCOLI/adam/speedup-133/phase/l2bD-D-n8)
+=== 2026-11-26T07:19:51+01:00 ADAM_PHASE_TIMING=1 windows --np 32 --cases 2a --conf $W/grid-study.conf --work $W/phase/l2bD-B-n8 --exe $HOME/adam-i156B/src/tests/flume/speedup/exe/fnl-nvf/adam_flume_fnl
+>> windows, fnl-nvf, 32 ranks: 2a-sphere-uniform -> windows/fnl-nvf-np32
+   /lustre/projects/1026/CALCOLI/adam/speedup-133/phase/l2bD-B-n8/dumps/leg2/warmup/sphere-restart: step 663, time 0.15, 4096 blocks on 4 ranks [1024, 1024, 1024, 1024], ratio 8, also .reference
+      -> /lustre/projects/1026/CALCOLI/adam/speedup-133/phase/l2bD-B-n8/windows/fnl-nvf-np32/2a-sphere-uniform/dump/sphere-restart: 32 ranks, rule siblings, blocks per rank [128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128]
+   windows/fnl-nvf-np32/2a-sphere-uniform/r1-n10: wall 20.653 s, exit 0
+      forest timing (max over ranks, s): loop     0.5500, steps     0.5450, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np32/2a-sphere-uniform/r1-n110: wall 24.224 s, exit 0
+      forest timing (max over ranks, s): loop     4.4246, steps     4.3759, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np32/2a-sphere-uniform/r2-n10: wall 20.303 s, exit 0
+      forest timing (max over ranks, s): loop     0.5136, steps     0.5114, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np32/2a-sphere-uniform/r2-n110: wall 24.434 s, exit 0
+      forest timing (max over ranks, s): loop     4.4525, steps     4.3998, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np32/2a-sphere-uniform/r3-n10: wall 20.179 s, exit 0
+      forest timing (max over ranks, s): loop     0.5034, steps     0.5007, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np32/2a-sphere-uniform/r3-n110: wall 24.180 s, exit 0
+      forest timing (max over ranks, s): loop     4.4399, steps     4.4012, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+run.sh: done (windows, fnl-nvf, 32 ranks, work /lustre/projects/1026/CALCOLI/adam/speedup-133/phase/l2bD-B-n8)
+=== 2026-11-26T07:22:31+01:00 ADAM_PHASE_TIMING=1 windows --np 32 --cases 2a --conf $W/grid-study.conf --work $W/phase/l2bD-D-n8 --exe $HOME/adam-i156D/src/tests/flume/speedup/exe/fnl-nvf/adam_flume_fnl
+>> windows, fnl-nvf, 32 ranks: 2a-sphere-uniform -> windows/fnl-nvf-np32
+   /lustre/projects/1026/CALCOLI/adam/speedup-133/phase/l2bD-D-n8/dumps/leg2/warmup/sphere-restart: step 663, time 0.15, 4096 blocks on 4 ranks [1024, 1024, 1024, 1024], ratio 8, also .reference
+      -> /lustre/projects/1026/CALCOLI/adam/speedup-133/phase/l2bD-D-n8/windows/fnl-nvf-np32/2a-sphere-uniform/dump/sphere-restart: 32 ranks, rule siblings, blocks per rank [128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128]
+   windows/fnl-nvf-np32/2a-sphere-uniform/r1-n10: wall 21.843 s, exit 0
+      forest timing (max over ranks, s): loop     1.3662, steps     1.3595, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np32/2a-sphere-uniform/r1-n110: wall 23.546 s, exit 0
+      forest timing (max over ranks, s): loop     3.7632, steps     3.7337, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np32/2a-sphere-uniform/r2-n10: wall 20.199 s, exit 0
+      forest timing (max over ranks, s): loop     0.4359, steps     0.4296, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np32/2a-sphere-uniform/r2-n110: wall 23.495 s, exit 0
+      forest timing (max over ranks, s): loop     3.7354, steps     3.7130, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np32/2a-sphere-uniform/r3-n10: wall 20.264 s, exit 0
+      forest timing (max over ranks, s): loop     0.4735, steps     0.4656, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/fnl-nvf-np32/2a-sphere-uniform/r3-n110: wall 23.609 s, exit 0
+      forest timing (max over ranks, s): loop     3.8462, steps     3.8031, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+run.sh: done (windows, fnl-nvf, 32 ranks, work /lustre/projects/1026/CALCOLI/adam/speedup-133/phase/l2bD-D-n8)
+--- GPU health during the plan (busy = utilization > 0)
+gpustat.184676.gpu-002.log gpu0: busy 162 s, SM mean 1980 min 1980 MHz
+gpustat.184676.gpu-002.log gpu1: busy 170 s, SM mean 1980 min 1980 MHz
+gpustat.184676.gpu-002.log gpu2: busy 168 s, SM mean 1980 min 1980 MHz
+gpustat.184676.gpu-002.log gpu3: busy 161 s, SM mean 1980 min 1980 MHz
+gpustat.184676.gpu-003.log gpu0: busy 169 s, SM mean 1980 min 1980 MHz
+gpustat.184676.gpu-003.log gpu1: busy 163 s, SM mean 1980 min 1980 MHz
+gpustat.184676.gpu-003.log gpu2: busy 155 s, SM mean 1980 min 1980 MHz
+gpustat.184676.gpu-003.log gpu3: busy 158 s, SM mean 1980 min 1980 MHz
+gpustat.184676.gpu-004.log gpu0: busy 166 s, SM mean 1980 min 1980 MHz
+gpustat.184676.gpu-004.log gpu1: busy 166 s, SM mean 1980 min 1980 MHz
+gpustat.184676.gpu-004.log gpu2: busy 162 s, SM mean 1980 min 1980 MHz
+gpustat.184676.gpu-004.log gpu3: busy 163 s, SM mean 1980 min 1980 MHz
+gpustat.184676.gpu-005.log gpu0: busy 164 s, SM mean 1980 min 1980 MHz
+gpustat.184676.gpu-005.log gpu1: busy 158 s, SM mean 1980 min 1980 MHz
+gpustat.184676.gpu-005.log gpu2: busy 163 s, SM mean 1980 min 1980 MHz
+gpustat.184676.gpu-005.log gpu3: busy 160 s, SM mean 1980 min 1980 MHz
+gpustat.184676.gpu-006.log gpu0: busy 167 s, SM mean 1980 min 1980 MHz
+gpustat.184676.gpu-006.log gpu1: busy 164 s, SM mean 1980 min 1980 MHz
+gpustat.184676.gpu-006.log gpu2: busy 154 s, SM mean 1980 min 1980 MHz
+gpustat.184676.gpu-006.log gpu3: busy 163 s, SM mean 1980 min 1980 MHz
+gpustat.184676.gpu-007.log gpu0: busy 170 s, SM mean 1980 min 1980 MHz
+gpustat.184676.gpu-007.log gpu1: busy 169 s, SM mean 1980 min 1980 MHz
+gpustat.184676.gpu-007.log gpu2: busy 152 s, SM mean 1980 min 1980 MHz
+gpustat.184676.gpu-007.log gpu3: busy 151 s, SM mean 1980 min 1980 MHz
+gpustat.184676.gpu-008.log gpu0: busy 182 s, SM mean 1980 min 1980 MHz
+gpustat.184676.gpu-008.log gpu1: busy 161 s, SM mean 1980 min 1980 MHz
+gpustat.184676.gpu-008.log gpu2: busy 160 s, SM mean 1980 min 1980 MHz
+gpustat.184676.gpu-008.log gpu3: busy 161 s, SM mean 1980 min 1980 MHz
+gpustat.184676.gpu-009.log gpu0: busy 170 s, SM mean 1980 min 1980 MHz
+gpustat.184676.gpu-009.log gpu1: busy 161 s, SM mean 1980 min 1980 MHz
+gpustat.184676.gpu-009.log gpu2: busy 166 s, SM mean 1980 min 1980 MHz
+gpustat.184676.gpu-009.log gpu3: busy 160 s, SM mean 1980 min 1980 MHz
+PLAN-DONE 2026-11-26T07:25:09+01:00 status 0

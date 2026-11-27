@@ -1,0 +1,50 @@
+16:40:07 job 184411.pbs on gpu-001
+0, 0x0000000000000001, 699.00, 700.00, 1
+1, 0x0000000000000001, 699.00, 700.00, 1
+2, 0x0000000000000001, 699.00, 700.00, 1
+3, 0x0000000000000001, 699.00, 700.00, 1
+16:40:31 A 2c-sphere-fixed r1-n10: rc 0 wall 23.041 loop 3.4042, steps 3.4017,
+16:40:53 B 2c-sphere-fixed r1-n10: rc 0 wall 20.931 loop 2.1829, steps 2.1786,
+16:41:29 A 2c-sphere-fixed r1-n110: rc 0 wall 35.500 loop 16.7960, steps 16.7769,
+16:42:03 B 2c-sphere-fixed r1-n110: rc 0 wall 33.183 loop 14.3070, steps 14.2872,
+16:42:26 A 2c-sphere-fixed r2-n10: rc 0 wall 22.025 loop 3.0792, steps 3.0749,
+16:42:48 B 2c-sphere-fixed r2-n10: rc 0 wall 21.302 loop 2.2121, steps 2.2081,
+16:43:24 A 2c-sphere-fixed r2-n110: rc 0 wall 35.574 loop 16.7201, steps 16.6859,
+16:43:58 B 2c-sphere-fixed r2-n110: rc 0 wall 33.344 loop 14.2839, steps 14.2611,
+16:44:21 A 2c-sphere-fixed r3-n10: rc 0 wall 22.075 loop 3.0512, steps 3.0493,
+16:44:43 B 2c-sphere-fixed r3-n10: rc 0 wall 21.235 loop 2.2011, steps 2.1991,
+16:45:19 A 2c-sphere-fixed r3-n110: rc 0 wall 35.673 loop 16.7213, steps 16.6978,
+16:45:53 B 2c-sphere-fixed r3-n110: rc 0 wall 33.154 loop 14.3224, steps 14.3011,
+16:46:16 A 2b-sphere-runtime r1-n10: rc 0 wall 22.543 loop 3.6545, steps 3.0732,
+16:46:38 B 2b-sphere-runtime r1-n10: rc 0 wall 21.747 loop 2.7429, steps 2.1816,
+16:47:23 A 2b-sphere-runtime r1-n110: rc 0 wall 43.977 loop 25.4247, steps 18.9427,
+16:48:06 B 2b-sphere-runtime r1-n110: rc 0 wall 42.033 loop 23.1594, steps 16.6908,
+16:48:29 A 2b-sphere-runtime r2-n10: rc 0 wall 22.478 loop 3.6309, steps 3.0602,
+16:48:51 B 2b-sphere-runtime r2-n10: rc 0 wall 21.498 loop 2.7516, steps 2.1909,
+16:49:36 A 2b-sphere-runtime r2-n110: rc 0 wall 44.013 loop 25.4881, steps 18.9367,
+16:50:20 B 2b-sphere-runtime r2-n110: rc 0 wall 43.905 loop 24.9923, steps 16.6295,
+16:50:44 A 2b-sphere-runtime r3-n10: rc 0 wall 22.594 loop 3.6493, steps 3.0579,
+16:51:06 B 2b-sphere-runtime r3-n10: rc 0 wall 21.745 loop 2.7564, steps 2.1938,
+16:51:51 A 2b-sphere-runtime r3-n110: rc 0 wall 43.692 loop 25.3831, steps 18.8942,
+16:52:33 B 2b-sphere-runtime r3-n110: rc 0 wall 42.117 loop 23.0803, steps 16.6481,
+16:57:58 A 2a-sphere-uniform r1-n10: rc 0 wall 23.429 loop 2.5535, steps 2.5464,
+16:58:22 B 2a-sphere-uniform r1-n10: rc 0 wall 23.094 loop 2.5678, steps 2.5627,
+16:59:11 A 2a-sphere-uniform r1-n110: rc 0 wall 48.528 loop 27.8654, steps 27.7979,
+17:00:00 B 2a-sphere-uniform r1-n110: rc 0 wall 48.147 loop 27.7951, steps 27.7437,
+17:00:24 A 2a-sphere-uniform r2-n10: rc 0 wall 23.355 loop 2.5992, steps 2.5929,
+17:00:47 B 2a-sphere-uniform r2-n10: rc 0 wall 23.044 loop 2.5345, steps 2.5276,
+17:01:37 A 2a-sphere-uniform r2-n110: rc 0 wall 48.637 loop 27.9931, steps 27.9198,
+17:02:26 B 2a-sphere-uniform r2-n110: rc 0 wall 48.420 loop 27.7716, steps 27.7118,
+17:02:50 A 2a-sphere-uniform r3-n10: rc 0 wall 23.272 loop 2.5640, steps 2.5588,
+17:03:14 B 2a-sphere-uniform r3-n10: rc 0 wall 23.178 loop 2.5334, steps 2.5288,
+17:04:03 A 2a-sphere-uniform r3-n110: rc 0 wall 48.455 loop 27.9280, steps 27.8512,
+17:04:52 B 2a-sphere-uniform r3-n110: rc 0 wall 48.429 loop 27.8033, steps 27.7542,
+17:05:15 A 2c-sphere-fixed r1-n10: rc 0 wall 22.650 loop 3.6345, steps 3.6288,
+17:05:39 A 2a-sphere-uniform r1-n10: rc 0 wall 23.139 loop 2.8001, steps 2.7921,
+17:06:02 B 2c-sphere-fixed r1-n10: rc 0 wall 21.956 loop 3.0636, steps 3.0601,
+17:06:26 B 2a-sphere-uniform r1-n10: rc 0 wall 23.317 loop 2.7428, steps 2.7355,
+gpu0: busy 476 s, SM mean 1980 min 1980 MHz
+gpu1: busy 499 s, SM mean 1980 min 1980 MHz
+gpu2: busy 469 s, SM mean 1980 min 1980 MHz
+gpu3: busy 476 s, SM mean 1980 min 1980 MHz
+17:06:26 I157SP-H100-DONE

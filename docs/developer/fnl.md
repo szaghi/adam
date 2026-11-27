@@ -66,6 +66,23 @@ time integration uses the device layout alone.
 `DEVICEVAR` is defined in `fundal.H` and used at the top of every kernel file: it tells the compiler that the array
 lives on the device, so the OpenACC runtime inserts no host copy.
 
+### Device code that the OpenMP-offload compilers must also take
+
+Every kernel carries `!$acc` and `!$omp` directives alike, and the OpenMP twin is built by other compilers (AMD flang
+on the MI300X). Two rules come from that port ([#157](https://github.com/szaghi/adam/issues/157), Giacomo Rossi):
+
+- **No array constructor with variable elements in device code.** flang (AMD AFAR drop 23.2.1) lowers
+  `base = [i, j, k]` through a heap temporary: on the device, a `malloc`/`free` of the OpenMP device runtime, whose
+  heap is global and serialised by atomics. One such line in the seam fill's MP bound (`seam_mp_bound`) made the
+  MI300X 2:1 ghost fill 7.8 times slower than the H100's; one in `compute_eigenvectors` doubled the face-flux kernel.
+  nvfortran allocates nothing for the same line, so NVIDIA timings never show it. Assign the elements one by one
+  (`base(1) = i ; base(2) = j ; base(3) = k`): the same values, bitwise. Constructors of literals and named constants
+  (`[IA_U, IA_V, IA_W]`) are folded and pass. `src/tests/lint/check-device-array-constructors.sh`, run first by the
+  FLUME and PRISM regression suites, rejects the variable form in procedures with `!$acc routine` or
+  `!$omp declare target` and in the loop nests of kernel directives.
+- **No call to an internal procedure (a `contains` of a program or procedure) from a target region**: flang does not
+  lower it (`'fir.call' op using value defined outside the region`). Device routines live in modules.
+
 ### IB solid masking
 
 Kernels that modify field variables skip the cells inside a solid (`phi_gpu(b,i,j,k,all_solids) < 0`), tested in the
@@ -123,7 +140,8 @@ All routines carry `!$acc parallel loop independent` and `DEVICEVAR` on every de
 | `pack_blocks_transposed_dev`, `unpack_blocks_transposed_dev` | Layout transposition of the state |
 | `populate_send_buffer_ghost_gpu_dev` | Pack ghosts into the MPI send buffer: copies, fine → coarse restrictions, coarse → fine seam interpolations; with the density guard on, a first kernel computes the guard's part once per fine ghost, at the cell's density row ([#157](https://github.com/szaghi/adam/issues/157) B3) |
 | `receive_recv_buffer_ghost_gpu_dev` | Unpack the MPI receive buffer into ghosts |
-| `update_ghost_local_gpu_dev` | Intra-rank block-to-block ghost update: copies, fine → coarse restrictions (mean, 6-point Lagrange, WENO) and coarse → fine seam interpolations; with the density guard on, a first kernel computes the guard's part once per fine ghost, then the guarded fill; with the guard off, a fill without the guard's code ([#157](https://github.com/szaghi/adam/issues/157)) |
+| `update_ghost_local_gpu_dev` | Intra-rank block-to-block ghost update over a row map: copies, fine → coarse restrictions (mean, 6-point Lagrange, WENO) and coarse → fine seam interpolations; with the density guard on, a first kernel computes the guard's part once per fine ghost, then the guarded fill; with the guard off, a fill without the guard's code ([#157](https://github.com/szaghi/adam/issues/157)). The local fill passes it the heavy rows only |
+| `update_ghost_local_copy_gpu_dev` | The local fill's copy rows ([#157](https://github.com/szaghi/adam/issues/157) C4): four int32 per row, `[b_src, ijk_src, b_dst, ijk_dst]` (ijk packed, `COPY_IJK_BITS` bits per index biased by `COPY_IJK_BIAS`, unpacked with `ibits`), sorted with the receiving block fastest; one thread per (variable, row) |
 | `seam_guard_density_gpu_dev`, `seam_guard_value_gpu_dev` | The density guard of the seam fill ([#101](https://github.com/szaghi/adam/issues/101)) in two parts, device twins of the CPU's `seam_guard_prepare` and `seam_guard_value`: the interpolated density of a fine ghost clamped to its bound (once per ghost), then its application to one variable |
 
 ## WENO reconstruction
@@ -189,20 +207,30 @@ communication tables to the device, so ghost packing and unpacking need no CPU s
 | Device array | Columns | Content |
 |--------------|---------|---------|
 | `local_map_ghost_cell_gpu` | 10 | `(b_src, b_dst, i_src, j_src, k_src, i_dst, j_dst, k_dst, mode, meta)` |
-| `local_map_ghost_cell_prol_gpu` | — | The `mode = 4` rows of `local_map_ghost_cell_gpu` (null if none) |
-| `seam_rho_gpu` | — | Scratch of the local fill, one value per row: the clamped density of each `mode = 4` row (the guard's part, once per fine ghost) |
+| `local_map_ghost_heavy_gpu` | 10 | The rows of `local_map_ghost_cell_gpu` with `mode` 8 or 4, in its order: the local fill's first launch (null if none) |
+| `local_map_ghost_copy_gpu` | 4 (int32) | The `mode = 1` rows, `[b_src, ijk_src, b_dst, ijk_dst]`, sorted by destination cell then block: the local fill's second launch (null if none) |
+| `local_map_ghost_cell_prol_gpu` | — | The `mode = 4` rows of `local_map_ghost_heavy_gpu` (null if none) |
+| `seam_rho_gpu` | — | Scratch of the local fill, one value per heavy row: the clamped density of each `mode = 4` row (the guard's part, once per fine ghost) |
 | `comm_map_send_ghost_cell_gpu` | 8 | `(b_src, i, j, k, v, buf_idx, mode, meta)`, one row per cell and variable, the variables of a cell contiguous and in order |
 | `comm_map_send_density_rows_gpu` | — | The density rows of the `mode = 4` cells of the send map (null if none or the guard is off) |
 | `seam_rho_send_gpu` | — | Scratch of the pack, one value per row: the clamped density at those rows |
 | `comm_map_recv_ghost_cell_gpu` | 6 | `(buf_idx, b_dst, i, j, k, v_offset)` |
 | `send_buffer_ghost_gpu`, `recv_buffer_ghost_gpu` | — | Packed MPI buffers |
 | `local_map_bc_crown_gpu` | — | Boundary-condition crown map |
+| `seam_mpi_send_cell_gpu`, `seam_mpi_recv_cell_gpu` | 7, 5 | Cross-rank inter-realm seam rows: send `[rank, b, i, j, k, kind, meta]`, receive `[rank, b, i, j, k]` (issues #40, #52) |
+| `seam_mpi_send_rho_gpu` | — | Scratch of the seam pack, one value per send row: the clamped density of each `kind = 4` row (the guard's part, once per fine ghost); allocated with the rows at `copy_cpu_gpu`, not per pack |
 
 `mode = 1`: one-to-one cells (same level); `mode = 8`: fine → coarse restriction at an AMR interface (the mean of the
 2×2×2 fine cells, or the 6-point Lagrange or WENO restriction coded in `meta`); `mode = 4`: coarse → fine interpolation
-of the seam ghost (regime of `[amr] seam_ghost_fill`, anchor and octant packed in `meta`). The rows keep the order of
-the map build: grouping them by kind was measured and is slower on the H100 with the guard once per ghost (the
-prolongations become the tail of the launch; [ghost-fill benchmark](/developer/ghost-fill-benchmark#applied-the-density-guard-once-per-ghost)).
+of the seam ghost (regime of `[amr] seam_ghost_fill`, anchor and octant packed in `meta`). The local fill runs two
+launches over two device copies of these rows, both derived from the CPU map at `copy_cpu_gpu` (#157 C4): the heavy rows
+in the order of the map build (the children of a coarse anchor stay neighbours and share their footprints in the
+caches), then the copy rows packed and sorted with the receiving block fastest (consecutive threads write consecutive
+memory of the block-fastest field): the copies 4x faster, the tricubic 2:1 fill 34 % on an A30
+([ghost-fill benchmark](/developer/ghost-fill-benchmark#applied-the-copy-rows-in-their-own-launch)). The rows never
+overlap (each writes its own ghost from real cells, #22 F1), so the split and the order change no value. The full map
+stays on the device for `reduce_ghost_local_gpu_dev` (uniform grids only). The upload stops on a cell index outside the
+packed range (blocks up to ~500 cells per side).
 
 | Method | Purpose |
 |--------|---------|

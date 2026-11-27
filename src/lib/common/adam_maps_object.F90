@@ -119,6 +119,14 @@ type :: maps_object
    integer(I4P) :: seam_restriction_fallbacks = 0_I4P    !< Restriction rows whose fine pair is not inside the donor block
                                                          !< (they keep the mean, meta 0), counted by the last ghost-map
                                                          !< build (local rows, plus one per variable of the MPI send rows).
+   integer(I4P) :: ghost_maps_build = 0_I4P !< Builds of the ghost-cell maps so far (make_comm_local_maps_ghost): a map
+                                            !< derived from them (make_restricted_ghost_maps) records the build it read.
+   integer(I4P) :: parent_build = -1_I4P    !< Restricted maps: the parent's ghost_maps_build they were made from.
+   logical      :: restricted_uncovered=.true.  !< Restricted maps: some flagged cell of this rank is filled by no local or
+                                                !< MPI row (a boundary, null-axis or inter-realm ghost): the update needs the
+                                                !< boundary conditions.
+   logical      :: restricted_derived=.true.    !< Restricted maps: some kept row of any rank is not a plain copy (a seam
+                                                !< interpolant or restriction, which the positivity blend may touch).
    integer(I4P) :: refine_ratio(3) = 2_I4P !< Refinement ratio per axis of a 2:1 seam: 2, or 1 along an axis the tree does not
                                            !< refine (z of a quadtree, y and z of a binary tree, issue #46). Set from the tree.
    ! local maps
@@ -323,6 +331,7 @@ type :: maps_object
       procedure, pass(self) :: make_comm_local_maps       !< Make communication/local maps.
       procedure, pass(self) :: make_comm_local_maps_ghost !< Make communication/local maps of ghost cells.
       procedure, pass(self) :: make_local_maps_bc         !< Make local maps of boundary conditions.
+      procedure, pass(self) :: make_restricted_ghost_maps !< The ghost maps of a parent restricted to masked cells.
       procedure, pass(self) :: mpi_gather_nodes_data      !< Gather nodes data between MPI processes.
       procedure, pass(self) :: save_local_map             !< Save local map.
       ! private methods
@@ -628,6 +637,7 @@ contains
       call mpih%print_message('maps_object: '//trim(merge('lagrange6', 'weno6    ', self%seam_restriction /= &
                               SEAM_RESTRICT_WENO6))//' restriction, '//trim(str(self%seam_restriction_fallbacks))// &
                               ' rows keep the mean (fine pair outside the donor block)')
+   self%ghost_maps_build = self%ghost_maps_build + 1_I4P
    call mpih%print_message('maps_object%make_comm_local_maps_ghost finish')
    endsubroutine make_comm_local_maps_ghost
 
@@ -1899,4 +1909,191 @@ contains
    local_map_bc(fec,3:11) = ijk_min_max_delta
    local_map_bc(fec,12)   = fec_bc_type
    endsubroutine set_local_map_bc
+   subroutine make_restricted_ghost_maps(self, parent, ngc, keep)
+   !< Make `self` the ghost-cell maps of `parent` restricted to the receiving ghost cells flagged in `keep` (#156 L2).
+   !<
+   !< The local rows (`local_map_ghost_cell`) and the MPI rows (`comm_map_{send,recv}_ghost_cell`, one per cell and
+   !< variable) whose receiving cell is flagged are kept, in their order, with their donors, flags and metadata, so a
+   !< ghost update through `self` gives every flagged cell the value the update through `parent` gives (bitwise) and
+   !< leaves every other ghost cell untouched. The receiver alone knows its mask: each rank flags the slots of its
+   !< receive buffer and sends them back to the senders (one exchange), and both sides renumber the kept slots in
+   !< buffer order, segment by segment, so the compacted send and receive buffers stay matched. The seam settings and
+   !< the refinement ratio are copied; the boundary-condition and inter-realm maps are not (they stay unallocated).
+   !< Collective (every rank calls it, with or without flagged cells).
+   class(maps_object), intent(inout) :: self                     !< The restricted maps (built here).
+   type(maps_object),  intent(in)    :: parent                   !< The realm's full maps.
+   integer(I4P),       intent(in)    :: ngc                      !< Ghost cells number.
+   logical,            intent(in)    :: keep(1:,1-ngc:,1-ngc:,1-ngc:) !< Receiving ghost cells to fill [nb, i, j, k].
+   integer(I4P), allocatable         :: flag_recv(:), flag_send(:)    !< Kept buffer slots, receive and send side.
+   integer(I4P), allocatable         :: new_recv(:), new_send(:)      !< New slot of a kept old slot (0: dropped).
+   integer(I4P), allocatable         :: req(:)                        !< MPI requests.
+   integer(I4P)                      :: procs, p, c, r, n, ierr       !< Counters, sizes, MPI status.
+
+   procs = mpih%procs_number
+   call destroy_restricted(self)
+   self%seam_ghost_fill  = parent%seam_ghost_fill
+   self%seam_density_var = parent%seam_density_var
+   self%seam_restriction = parent%seam_restriction
+   self%refine_ratio     = parent%refine_ratio
+   self%parent_build     = parent%ghost_maps_build
+   ! local rows: [b_send, b_recv, i_send, j_send, k_send, i_recv, j_recv, k_recv, flag, meta]
+   if (allocated(parent%local_map_ghost_cell)) then
+      n = 0
+      do r=1, size(parent%local_map_ghost_cell, dim=1)
+         if (is_kept(parent%local_map_ghost_cell(r,2), parent%local_map_ghost_cell(r,6), &
+                     parent%local_map_ghost_cell(r,7), parent%local_map_ghost_cell(r,8))) n = n + 1
+      enddo
+      if (n > 0) then
+         allocate(self%local_map_ghost_cell(1:n, 1:size(parent%local_map_ghost_cell, dim=2)))
+         n = 0
+         do r=1, size(parent%local_map_ghost_cell, dim=1)
+            if (is_kept(parent%local_map_ghost_cell(r,2), parent%local_map_ghost_cell(r,6), &
+                        parent%local_map_ghost_cell(r,7), parent%local_map_ghost_cell(r,8))) then
+               n = n + 1
+               self%local_map_ghost_cell(n,:) = parent%local_map_ghost_cell(r,:)
+            endif
+         enddo
+      endif
+   endif
+   ! MPI rows
+   allocate(self%comm_map_send_ptr_ghost(0:procs), self%comm_map_recv_ptr_ghost(0:procs))
+   self%comm_map_send_ptr_ghost = 0_I4P
+   self%comm_map_recv_ptr_ghost = 0_I4P
+   if (.not.(allocated(parent%comm_map_recv_ptr_ghost) .and. allocated(parent%comm_map_send_ptr_ghost))) then
+      self%restricted_uncovered = .true. ; self%restricted_derived = .true. ! no MPI maps: keep the full BC and blend
+      return
+   endif
+   allocate(flag_recv(1:max(1_I4P, parent%comm_map_recv_ptr_ghost(procs))), source=0_I4P)
+   allocate(flag_send(1:max(1_I4P, parent%comm_map_send_ptr_ghost(procs))), source=0_I4P)
+   ! recv rows: [slot, b, i, j, k, v]
+   if (allocated(parent%comm_map_recv_ghost_cell)) then
+      do r=1, size(parent%comm_map_recv_ghost_cell, dim=1)
+         if (is_kept(parent%comm_map_recv_ghost_cell(r,2), parent%comm_map_recv_ghost_cell(r,3), &
+                     parent%comm_map_recv_ghost_cell(r,4), parent%comm_map_recv_ghost_cell(r,5))) &
+            flag_recv(parent%comm_map_recv_ghost_cell(r,1)) = 1_I4P
+      enddo
+   endif
+   ! the receive flags go back to the senders, into their send slots
+   allocate(req(0:2*procs-1), source=MPI_REQUEST_NULL)
+   do p=0, procs-1
+      n = parent%comm_map_send_ptr_ghost(p+1) - parent%comm_map_send_ptr_ghost(p)
+      if (n > 0) call MPI_IRECV(flag_send(parent%comm_map_send_ptr_ghost(p)+1), n, MPI_INTEGER, p, 156, &
+                                MPI_COMM_WORLD, req(p), ierr)
+   enddo
+   do p=0, procs-1
+      n = parent%comm_map_recv_ptr_ghost(p+1) - parent%comm_map_recv_ptr_ghost(p)
+      if (n > 0) call MPI_ISEND(flag_recv(parent%comm_map_recv_ptr_ghost(p)+1), n, MPI_INTEGER, p, 156, &
+                                MPI_COMM_WORLD, req(procs+p), ierr)
+   enddo
+   call MPI_WAITALL(2*procs, req, MPI_STATUSES_IGNORE, ierr)
+   ! new slots: the kept slots of each segment, in order
+   call renumber(ptr=parent%comm_map_recv_ptr_ghost, flag=flag_recv, new_ptr=self%comm_map_recv_ptr_ghost, &
+                 new_slot=new_recv)
+   call renumber(ptr=parent%comm_map_send_ptr_ghost, flag=flag_send, new_ptr=self%comm_map_send_ptr_ghost, &
+                 new_slot=new_send)
+   if (allocated(parent%comm_map_recv_ghost_cell)) then
+      n = count(new_recv(parent%comm_map_recv_ghost_cell(:,1)) > 0)
+      if (n > 0) then
+         allocate(self%comm_map_recv_ghost_cell(1:n, 1:size(parent%comm_map_recv_ghost_cell, dim=2)))
+         c = 0
+         do r=1, size(parent%comm_map_recv_ghost_cell, dim=1)
+            if (new_recv(parent%comm_map_recv_ghost_cell(r,1)) > 0) then
+               c = c + 1
+               self%comm_map_recv_ghost_cell(c,:) = parent%comm_map_recv_ghost_cell(r,:)
+               self%comm_map_recv_ghost_cell(c,1) = new_recv(parent%comm_map_recv_ghost_cell(r,1))
+            endif
+         enddo
+      endif
+   endif
+   ! send rows: [b, i, j, k, v, slot, flag, meta]
+   if (allocated(parent%comm_map_send_ghost_cell)) then
+      n = count(new_send(parent%comm_map_send_ghost_cell(:,6)) > 0)
+      if (n > 0) then
+         allocate(self%comm_map_send_ghost_cell(1:n, 1:size(parent%comm_map_send_ghost_cell, dim=2)))
+         c = 0
+         do r=1, size(parent%comm_map_send_ghost_cell, dim=1)
+            if (new_send(parent%comm_map_send_ghost_cell(r,6)) > 0) then
+               c = c + 1
+               self%comm_map_send_ghost_cell(c,:) = parent%comm_map_send_ghost_cell(r,:)
+               self%comm_map_send_ghost_cell(c,6) = new_send(parent%comm_map_send_ghost_cell(r,6))
+            endif
+         enddo
+      endif
+   endif
+   allocate(self%send_buffer_ghost(1:max(1_I4P, self%comm_map_send_ptr_ghost(procs))), source=0._R8P)
+   allocate(self%recv_buffer_ghost(1:max(1_I4P, self%comm_map_recv_ptr_ghost(procs))), source=0._R8P)
+   call set_restricted_flags
+   contains
+      subroutine set_restricted_flags
+      !< Which parts of a ghost update the kept rows need besides the copies: the boundary conditions when some flagged
+      !< cell of this rank is filled by no kept row; the positivity blend when some kept row of any rank is not a plain
+      !< copy (flag 1), since the blend touches only inadmissible ghosts and a copy of an admissible state is admissible.
+      logical, allocatable :: covered(:,:,:,:) !< Flagged cells filled by a kept row.
+      logical              :: derived          !< This rank's kept rows include a non-copy.
+
+      allocate(covered, mold=keep)
+      covered = .false.
+      derived = .false.
+      if (allocated(self%local_map_ghost_cell)) then
+         do r=1, size(self%local_map_ghost_cell, dim=1)
+            covered(self%local_map_ghost_cell(r,2), self%local_map_ghost_cell(r,6), self%local_map_ghost_cell(r,7), &
+                    self%local_map_ghost_cell(r,8)) = .true.
+            if (self%local_map_ghost_cell(r,9) /= 1_I8P) derived = .true.
+         enddo
+      endif
+      if (allocated(self%comm_map_recv_ghost_cell)) then
+         do r=1, size(self%comm_map_recv_ghost_cell, dim=1)
+            covered(self%comm_map_recv_ghost_cell(r,2), self%comm_map_recv_ghost_cell(r,3), &
+                    self%comm_map_recv_ghost_cell(r,4), self%comm_map_recv_ghost_cell(r,5)) = .true.
+         enddo
+      endif
+      if (allocated(self%comm_map_send_ghost_cell)) then
+         if (any(self%comm_map_send_ghost_cell(:,7) /= 1_I8P)) derived = .true.
+      endif
+      self%restricted_uncovered = any(keep .and. .not.covered)
+      call MPI_ALLREDUCE(derived, self%restricted_derived, 1, MPI_LOGICAL, MPI_LOR, MPI_COMM_WORLD, ierr)
+      endsubroutine set_restricted_flags
+
+      logical function is_kept(b, i, j, k)
+      !< Whether the receiving cell of a row is flagged.
+      integer(I8P), intent(in) :: b, i, j, k !< Cell.
+
+      is_kept = keep(b, i, j, k)
+      endfunction is_kept
+
+      subroutine renumber(ptr, flag, new_ptr, new_slot)
+      !< New slots of the flagged slots, segment by segment in order, and the new segment pointers.
+      integer(I4P),              intent(in)    :: ptr(0:)      !< Old segment pointers.
+      integer(I4P),              intent(in)    :: flag(1:)     !< Flagged slots (1).
+      integer(I4P),              intent(inout) :: new_ptr(0:)  !< New segment pointers.
+      integer(I4P), allocatable, intent(out)   :: new_slot(:)  !< New slot of each old slot (0: dropped).
+      integer(I4P)                             :: q, s, m      !< Counters.
+
+      allocate(new_slot(1:size(flag)), source=0_I4P)
+      new_ptr(0) = 0_I4P
+      m = 0
+      do q=0, size(ptr)-2
+         do s=ptr(q)+1, ptr(q+1)
+            if (flag(s) == 1_I4P) then
+               m = m + 1
+               new_slot(s) = m
+            endif
+         enddo
+         new_ptr(q+1) = m
+      enddo
+      endsubroutine renumber
+   endsubroutine make_restricted_ghost_maps
+
+   subroutine destroy_restricted(maps)
+   !< Free the arrays make_restricted_ghost_maps builds.
+   type(maps_object), intent(inout) :: maps !< The restricted maps.
+
+   if (allocated(maps%local_map_ghost_cell))     deallocate(maps%local_map_ghost_cell)
+   if (allocated(maps%comm_map_send_ptr_ghost))  deallocate(maps%comm_map_send_ptr_ghost)
+   if (allocated(maps%comm_map_recv_ptr_ghost))  deallocate(maps%comm_map_recv_ptr_ghost)
+   if (allocated(maps%comm_map_send_ghost_cell)) deallocate(maps%comm_map_send_ghost_cell)
+   if (allocated(maps%comm_map_recv_ghost_cell)) deallocate(maps%comm_map_recv_ghost_cell)
+   if (allocated(maps%send_buffer_ghost))        deallocate(maps%send_buffer_ghost)
+   if (allocated(maps%recv_buffer_ghost))        deallocate(maps%recv_buffer_ghost)
+   endsubroutine destroy_restricted
 endmodule adam_maps_object

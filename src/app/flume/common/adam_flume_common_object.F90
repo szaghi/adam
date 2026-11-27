@@ -19,6 +19,7 @@ use :: adam_flux_register_object,     only : face_tangential_ratios, flux_regist
 use :: adam_parameters,               only : AMR_PROLONGATION_CONSERVATIVE, TO_BE_DEREFINED, TO_BE_REFINED, TO_NOT_TOUCH
 use :: adam_flail_object,             only : FLAIL_BACKEND_AUTO, FLAIL_BACKEND_FFT, FLAIL_BACKEND_MULTIGRID
 use :: adam_poisson_mg_object,        only : MG_SEAM_GHOST_SCALE
+use :: adam_maps_object,              only : maps_object
 use :: adam_realm_object,             only : realm_object
 use :: adam_turbulence_object,        only : turbulence_object
 use :: adam_tree_object,              only : NODE_BOUNDARY_CONDITION, NODE_STANDARD
@@ -106,6 +107,10 @@ type, extends(realm_object) :: flume_common_object
    type(amr_criterion_pointer), allocatable :: amr_criteria(:) !< Registered refinement criteria (issue #110, P4).
    type(amr_criterion_pointer), allocatable :: amr_marker_list(:) !< The `[amr_marker_N]` criteria, in input order:
                                                                   !< built-in and registered (issue #110, P4.2).
+   ! immersed solids
+   type(maps_object)              :: ib_maps             !< The ghost maps restricted to the cells the eikonal sweeps read
+                                                         !< (#156 L2): ghost layer 1 next to a solid cell, on a block face.
+   integer(I4P)                   :: ib_maps_generation=0_I4P !< Builds of ib_maps so far (a backend copy follows it).
    ! IO
    logical                        :: save_auxiliary_fields=.false. !< Save the auxiliary variables with the fields.
    ! GLM and div(B) monitors
@@ -180,6 +185,7 @@ type, extends(realm_object) :: flume_common_object
       procedure, pass(self) :: allocate_common       !< Allocate common data.
       procedure, pass(self) :: compute_fields_number !< Compute the block-sized fields allocated per block.
       procedure, pass(self) :: compute_phi           !< Compute the immersed solids distance function (host).
+      procedure, pass(self) :: make_ib_maps          !< Build the ghost maps of the eikonal sweeps (#156 L2).
       procedure, pass(self) :: destroy_common        !< Free common data.
       procedure, pass(self) :: glm_lambda            !< Return the GLM bound of the local dt, c_h max sum_d 1/dx_d.
       procedure, pass(self) :: initialize            !< Initialize the common data.
@@ -1205,11 +1211,62 @@ contains
 
    subroutine compute_phi(self)
    !< Compute the distance function of the immersed solids on the host (a no-op without solids); the solids are
-   !< static, so the backends compute it once per grid (initialization, restart, initial AMR).
+   !< static, so the backends compute it once per grid (initialization, restart, initial AMR). The ghost maps of the
+   !< eikonal sweeps follow the distance function (make_ib_maps).
    class(flume_common_object), intent(inout) :: self !< The equation.
 
-   if (self%ib%solids_number > 0_I4P) call self%ib%compute_phi(field=self%adam%field, grid=self%adam%grid, verbose=.true.)
+   if (self%ib%solids_number > 0_I4P) then
+      call self%ib%compute_phi(field=self%adam%field, grid=self%adam%grid, verbose=.true.)
+      call self%make_ib_maps
+   endif
    endsubroutine compute_phi
+
+   subroutine make_ib_maps(self)
+   !< Build the ghost maps of the eikonal sweeps (#156 L2): the realm's ghost maps restricted to the ghost cells the
+   !< sweeps read. A sweep updates only the interior cells inside a solid (phi > 0) from their six face neighbours
+   !< (`ib_object%evolve_eikonal` and its FNL twin), so the only ghost values it reads lie in the ghost layer next to a
+   !< solid cell on a block face. The exchanges before and between the sweeps fill those cells only; the main exchange
+   !< after the sweeps fills every ghost. Collective. Rebuilt with phi, after every map change.
+   class(flume_common_object), intent(inout) :: self !< The equation.
+   logical, allocatable                      :: keep(:,:,:,:) !< Ghost cells the sweeps read [nb, i, j, k].
+   integer(I4P)                              :: b, i, j, k, s !< Counters.
+
+   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nb=>self%blocks_number, phi=>self%ib%phi, &
+             solids=>self%ib%solids_number)
+   allocate(keep(1:nb, 1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc), source=.false.)
+   do b=1, nb
+      do k=1, nk
+         do j=1, nj
+            do i=1, ni
+               if (.not.any(phi(1:solids,i,j,k,b) > 0._R8P)) cycle
+               if (i == 1)  keep(b,0,j,k)    = .true.
+               if (i == ni) keep(b,ni+1,j,k) = .true.
+               if (j == 1)  keep(b,i,0,k)    = .true.
+               if (j == nj) keep(b,i,nj+1,k) = .true.
+               if (k == 1)  keep(b,i,j,0)    = .true.
+               if (k == nk) keep(b,i,j,nk+1) = .true.
+            enddo
+         enddo
+      enddo
+   enddo
+   call self%ib_maps%make_restricted_ghost_maps(parent=self%adam%maps, ngc=ngc, keep=keep)
+   self%ib_maps_generation = self%ib_maps_generation + 1_I4P
+   call mpih%print_message('eikonal ghost maps (#156 L2): '//trim(str(count(keep)))//' ghost cells, '//               &
+                           trim(str(rows(self%ib_maps%local_map_ghost_cell)))//' of '//                             &
+                           trim(str(rows(self%adam%maps%local_map_ghost_cell)))//' local rows, '//                  &
+                           trim(str(self%ib_maps%comm_map_recv_ptr_ghost(mpih%procs_number)))//' of '//             &
+                           trim(str(self%adam%maps%comm_map_recv_ptr_ghost(mpih%procs_number)))//' MPI receive slots, '// &
+                           merge('with   ', 'without', self%ib_maps%restricted_uncovered)//' BC, '//            &
+                           merge('with   ', 'without', self%ib_maps%restricted_derived)//' blend')
+   endassociate
+   contains
+      pure integer(I4P) function rows(map)
+      !< Rows of a map (0 when unallocated).
+      integer(I8P), allocatable, intent(in) :: map(:,:) !< The map.
+
+      rows = 0_I4P ; if (allocated(map)) rows = int(size(map, dim=1), I4P)
+      endfunction rows
+   endsubroutine make_ib_maps
 
    subroutine compute_fields_number(self, file_parameters, fields_number)
    !< Compute the block-sized fields FLUME allocates per block, the `fields_number` of the blocks budget.

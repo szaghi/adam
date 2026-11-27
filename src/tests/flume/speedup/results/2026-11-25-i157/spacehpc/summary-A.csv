@@ -1,0 +1,4 @@
+leg,case,role,backend,np,repetitions,step_cost_s,spread,steps_cost_s,regrid_cost_s,seam_cost_s,cells_mean,ns_per_cell_step,reduced,commit,notes,kind,series,cells_per_device,strong_ref_np,strong_efficiency,weak_group,weak_ref_np,weak_efficiency
+2,2a-sphere-uniform,uniform,fnl-nvf,4,3,0.25364000000000003,0.003232928560163743,0.252924,0.000366,0.0,56623104.0,17.917774341724538,0,b8641a59,,matrix,sphere,14155776.0,,,sphere 14.2 M/dev,,
+2,2b-sphere-runtime,runtime,fnl-nvf,4,3,0.21770200000000003,0.005668298867258972,0.15869499999999997,0.058949,0.0,14068408.32,61.89811812342962,0,b8641a59,,matrix,,3517102.08,,,,,
+2,2c-sphere-fixed,frozen,fnl-nvf,4,3,0.13640899999999997,0.020401879641372495,0.13611,0.000125,0.0,14045184.0,38.84861885753863,0,b8641a59,spread 2.0% above 2%,matrix,,3511296.0,,,,,

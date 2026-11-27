@@ -30,6 +30,7 @@ use :: adam_stepper_object,       only : LAYOUT_V_LAST
 use :: adam_fnl_field_kernels,    only : compute_normL2_residuals_dev, pack_blocks_transposed_dev, pack_seam_rows_dev, &
                                          seam_ghosts_to_state_dev, unpack_blocks_transposed_dev, unpack_seam_rows_dev
 use :: adam_fnl_field_object,     only : field_fnl_object
+use :: adam_fnl_maps_object,      only : maps_fnl_object
 use :: adam_fnl_poisson_fft_object, only : poisson_fft_fnl_object
 use :: adam_fnl_poisson_mg_object, only : poisson_mg_fnl_object
 use :: adam_fnl_ib_object,        only : ib_fnl_object
@@ -378,6 +379,8 @@ type, extends(flume_common_object) :: flume_fnl_object
    ! FNL helpers
    type(field_fnl_object) :: field_fnl                    !< Field helper (coordinates, maps, ghost exchange).
    type(ib_fnl_object)    :: ib_fnl                       !< Immersed boundary helper.
+   type(maps_fnl_object)  :: ib_maps_fnl                  !< Device copy of ib_maps, the eikonal sweeps' ghost maps (#156 L2).
+   integer(I4P)           :: ib_maps_fnl_generation=0_I4P !< The ib_maps build the device copy holds (0: none).
    ! device data
    real(R8P), pointer     :: q_gpu(:,:,:,:,:)=>null()     !< Conservative variables [nb, i, j, k, nv].
    real(R8P), pointer     :: dq_gpu(:,:,:,:,:)=>null()    !< Residuals [nb, i, j, k, nv].
@@ -2814,22 +2817,44 @@ contains
    endif
    endsubroutine free_inflow_df_rows
 
-   subroutine update_ghost(self, q_gpu)
+   subroutine update_ghost(self, q_gpu, ib_rows)
    !< Update ghost cells on the device: intra-realm local copies, GPU-direct MPI exchange, boundary conditions, then the
-   !< positivity blend of the inadmissible face ghosts (issue #50, D2; see the CPU `update_ghost`).
-   class(flume_fnl_object), intent(inout) :: self              !< The equation.
-   real(R8P),               intent(inout) :: q_gpu(1:,         &
-                                                   1-self%ngc:,&
-                                                   1-self%ngc:,&
-                                                   1-self%ngc:,&
-                                                   1:)         !< Conservative variables.
-   integer(I4P)                           :: blended           !< Face ghosts blended toward the interior.
+   !< positivity blend of the inadmissible face ghosts (issue #50, D2; see the CPU `update_ghost`). With `ib_rows`, the
+   !< local copies and the MPI exchange fill only the ghost cells the eikonal sweeps read (`ib_maps`, #156 L2); the
+   !< device copy of those maps follows their host builds.
+   class(flume_fnl_object), intent(inout)        :: self              !< The equation.
+   real(R8P),               intent(inout)        :: q_gpu(1:,         &
+                                                          1-self%ngc:,&
+                                                          1-self%ngc:,&
+                                                          1-self%ngc:,&
+                                                          1:)         !< Conservative variables.
+   logical,                 intent(in), optional :: ib_rows           !< Only the ghost cells of the eikonal sweeps.
+   integer(I4P)                                  :: blended           !< Face ghosts blended toward the interior.
+   logical                                       :: ib_rows_          !< Only the ghost cells of the eikonal sweeps, local.
 
-   call self%field_fnl%update_ghost_local_gpu(q_gpu=q_gpu)
-   call self%field_fnl%update_ghost_mpi_gpu(comm_map_send_ptr_ghost=self%adam%maps%comm_map_send_ptr_ghost, &
-                                            comm_map_recv_ptr_ghost=self%adam%maps%comm_map_recv_ptr_ghost, &
-                                            q_gpu=q_gpu)
-   call self%set_boundary_conditions(q_gpu=q_gpu)
+   ib_rows_ = .false. ; if (present(ib_rows)) ib_rows_ = ib_rows
+   ! restricted maps made from an older build of the ghost maps (a map change not followed by compute_phi): the full update
+   if (ib_rows_) ib_rows_ = self%ib_maps%parent_build == self%adam%maps%ghost_maps_build
+   if (ib_rows_) then
+      if (self%ib_maps_fnl_generation /= self%ib_maps_generation) then
+         call self%ib_maps_fnl%copy_cpu_gpu(maps=self%ib_maps)
+         self%ib_maps_fnl_generation = self%ib_maps_generation
+      endif
+      call self%field_fnl%update_ghost_local_gpu_maps(maps=self%ib_maps_fnl, q_gpu=q_gpu)
+      call self%field_fnl%update_ghost_mpi_gpu_maps(maps=self%ib_maps_fnl,                               &
+                                                    comm_map_send_ptr_ghost=self%ib_maps%comm_map_send_ptr_ghost, &
+                                                    comm_map_recv_ptr_ghost=self%ib_maps%comm_map_recv_ptr_ghost, &
+                                                    q_gpu=q_gpu)
+   else
+      call self%field_fnl%update_ghost_local_gpu(q_gpu=q_gpu)
+      call self%field_fnl%update_ghost_mpi_gpu(comm_map_send_ptr_ghost=self%adam%maps%comm_map_send_ptr_ghost, &
+                                               comm_map_recv_ptr_ghost=self%adam%maps%comm_map_recv_ptr_ghost, &
+                                               q_gpu=q_gpu)
+   endif
+   ! restricted: the boundary conditions only when a flagged cell is filled by no row; the blend only when a kept row is
+   ! not a plain copy (it touches only inadmissible ghosts: the stale ones were blended when written)
+   if (.not.ib_rows_ .or. self%ib_maps%restricted_uncovered) call self%set_boundary_conditions(q_gpu=q_gpu)
+   if (ib_rows_ .and. .not.self%ib_maps%restricted_derived) return
    blended = 0_I4P
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nb=>self%blocks_number, is_null=>self%adam%grid%null_xyz)
    select case(self%physics%model)
@@ -3297,7 +3322,8 @@ contains
    call pack_seam_rows_dev(row_start=row_start, row_count=row_count, nv=self%nv, ngc=self%ngc,              &
                            regime=self%adam%maps%seam_ghost_fill,                                          &
                            rows_gpu=self%field_fnl%maps%seam_mpi_send_cell_gpu, q_gpu=a, buf_gpu=buf_gpu,  &
-                           density_var=self%adam%maps%seam_density_var, ratio=self%adam%maps%refine_ratio)
+                           density_var=self%adam%maps%seam_density_var, ratio=self%adam%maps%refine_ratio, &
+                           rho_gpu=self%field_fnl%maps%seam_mpi_send_rho_gpu)
    call dev_memcpy_from_device(dst=buf, src=buf_gpu)
    call dev_free(buf_gpu, mydev)
    endsubroutine pack_seam_cells_forest
@@ -3989,11 +4015,15 @@ contains
    integer(I4P)                                         :: e                 !< Eikonal iterations counter.
 
    if (self%ib%solids_number > 0_I4P) then
-      call self%update_ghost(q_gpu=q_gpu)
+      ! the sweeps read only the ghost cells next to a solid cell on a block face: the exchanges before and between them
+      ! fill those (ib_maps); the main exchange below fills every ghost (issue #156, lever 2)
+      call self%update_ghost(q_gpu=q_gpu, ib_rows=.true.)
       do e=1, self%ib%n_eikonal
          call self%ib_fnl%evolve_eikonal(grid=self%adam%grid, field=self%adam%field, ib=self%ib, dq_gpu=dq_gpu, &
                                          q_gpu=q_gpu, dxyz_gpu=self%field_fnl%dxyz_gpu)
-         call self%update_ghost(q_gpu=q_gpu)
+         ! the exchange after the last sweep is the main one below: invert_eikonal and apply_floors are pointwise on
+         ! the interior cells and read no ghost cell, so the main update_ghost fills the same ghosts (issue #156, lever 2)
+         if (e < self%ib%n_eikonal) call self%update_ghost(q_gpu=q_gpu, ib_rows=.true.)
       enddo
       call self%ib_fnl%invert_eikonal(grid=self%adam%grid, field=self%adam%field, ib=self%ib, q_gpu=q_gpu)
    endif
@@ -4323,11 +4353,15 @@ contains
    integer(I4P)                                         :: fallbacks(3)      !< Riemann solver fallbacks per direction.
 
    if (self%ib%solids_number > 0_I4P) then
-      call self%update_ghost(q_gpu=q_gpu)
+      ! the sweeps read only the ghost cells next to a solid cell on a block face: the exchanges before and between them
+      ! fill those (ib_maps); the main exchange below fills every ghost (issue #156, lever 2)
+      call self%update_ghost(q_gpu=q_gpu, ib_rows=.true.)
       do e=1, self%ib%n_eikonal
          call self%ib_fnl%evolve_eikonal(grid=self%adam%grid, field=self%adam%field, ib=self%ib, dq_gpu=dq_gpu, &
                                          q_gpu=q_gpu, dxyz_gpu=self%field_fnl%dxyz_gpu)
-         call self%update_ghost(q_gpu=q_gpu)
+         ! the exchange after the last sweep is the main one below: invert_eikonal and apply_floors are pointwise on
+         ! the interior cells and read no ghost cell, so the main update_ghost fills the same ghosts (issue #156, lever 2)
+         if (e < self%ib%n_eikonal) call self%update_ghost(q_gpu=q_gpu, ib_rows=.true.)
       enddo
       call self%ib_fnl%invert_eikonal(grid=self%adam%grid, field=self%adam%field, ib=self%ib, q_gpu=q_gpu)
    endif

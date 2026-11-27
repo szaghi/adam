@@ -1,0 +1,10 @@
+ucx_perftest /lustre/software/NVHPC/Linux_x86_64/26.3/comm_libs/12.9/hpcx/hpcx-2.25.1/ucx/bin/ucx_perftest; nodes gpu-001.head.cm.local -> gpu-003.head.cm.local; site UCX_NET_DEVICES=mlx5_0:1,mlx5_2:1
+columns of the final line: iterations, latency (typical, avg, overall usec), bandwidth (average, overall MB/s), message rate
+inter-node host->host 33 MB [site]: Final:                    60      0.221   373.932   373.932    85577.12   85577.12        2674        2674
+inter-node cuda->cuda 33 MB GPU0 [site]: Final:                    60      0.232   614.917   614.917    52039.52   52039.52        1626        1626
+inter-node cuda->cuda 33 MB GPU1 [site]: Final:                    60      0.212   684.583   684.583    46743.77   46743.77        1461        1461
+inter-node cuda->cuda 8 MB GPU0 [site]: Final:                    60      0.231   153.351   153.351    52167.96   52167.96        6521        6521
+inter-node cuda->cuda 33 MB GPU0 [own HCA mlx5_1]: Final:                    60      0.211   686.602   686.602    46606.34   46606.34        1456        1456
+inter-node cuda->cuda 33 MB GPU1 [own HCA mlx5_0]: Final:                    60      0.220   684.083   684.083    46777.98   46777.98        1462        1462
+inter-node cuda->cuda 33 MB GPU0 [no GPUDirect RDMA]: Final:                    60      0.211  3774.552  3774.552     8477.83    8477.83         265         265
+NETBW-DONE

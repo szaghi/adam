@@ -28,7 +28,8 @@ A case **fails** when its outputs differ from its goldens or when its run exits 
 `REGRESSION_ALLOW_MPIRUN_FAILURE=1` downgrades that to a warning). A case **skips** when it has no golden for the
 backend; in PRISM's count the two directories that are not cases (`reproducers/`, `slices/`) also show as SKIP. Each
 case runs in its own `work-<backend>/` directory. Both suites start with the lints: the GPU race-shape check
-(`check-gpu-race-shapes.sh`), then the removed-keys lint (T4).
+(`check-gpu-race-shapes.sh`), the device array-constructor check (`check-device-array-constructors.sh`), then the
+removed-keys lint (T4).
 
 **Reference.** [The harness](/reference/regression#the-harness); the usage comments at the top of each `run.sh`.
 

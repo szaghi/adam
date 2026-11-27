@@ -47,9 +47,10 @@ use :: adam_common_library,             only : realm_object
 use :: adam_parameters,                 only : TO_BE_REFINED, TO_NOT_TOUCH
 use :: adam_mpih_global,                only : mpih
 use :: adam_fnl_field_object,           only : field_fnl_object
+use :: adam_fnl_field_kernels,          only : update_ghost_local_copy_gpu_dev
 use :: adam_fnl_field_kernels,          only : update_ghost_local_gpu_dev, interp_seam_ghost_gpu_dev, &
-                                               interp_seam_value_gpu_dev, &
-                                               restrict_seam_high_order_gpu_dev
+                                               interp_seam_value_gpu_dev, seam_guard_density_gpu_dev,  &
+                                               seam_guard_value_gpu_dev, restrict_seam_high_order_gpu_dev
 use :: adam_fnl_mpih_global,            only : mpih_fnl
 use :: adam_seam_interpolation_library, only : SEAM_FILL_TRICUBIC, seam_interpolate_tricubic, SEAM_DENSITY_GUARD, &
                                                seam_meta_unpack, seam_mp_bound, seam_bracket_nodes, seam_bracket_range
@@ -58,6 +59,7 @@ use :: adam_seam_interpolation_library, only : SEAM_RESTRICT_MEAN, SEAM_SUB_COIN
                                                seam_quintic_centered_pos, seam_meta_pack, seam_restriction_code,   &
                                                seam_restriction_meta_pack
 use :: fundal
+use :: iso_c_binding,                   only : c_ptr, c_loc, c_f_pointer
 use :: mpi
 use :: penf,                            only : I4P, I8P, R8P, str
 
@@ -106,6 +108,32 @@ integer(I4P), pointer       :: no_rows(:) => null() !< No flag-4 rows (V0s copy 
 integer(I8P), pointer       :: rows_kind(:,:) => null()
 integer(I4P), pointer       :: prol_kind(:) => null()
 real(R8P),    pointer       :: rho_kind(:) => null()
+! C (#157 C): compact rows, three int32 per row: the donor and receiver cell offsets in one variable plane of q_gpu
+! (b fastest), and 0 for a copy or the row's index in ADAM's map for a restriction or a prolongation (its stencil reads
+! the full row); in ADAM's order (Ca) and sorted by receiver offset, so that the receiving block runs fastest (Cb)
+integer(I4P), pointer       :: ca_s(:) => null(), ca_r(:) => null(), ca_x(:) => null()
+integer(I4P), pointer       :: cb_s(:) => null(), cb_r(:) => null(), cb_x(:) => null()
+integer(I4P), pointer       :: cc_s(:) => null(), cc_r(:) => null(), cc_x(:) => null()
+integer(I4P), pointer       :: ce_s(:) => null(), ce_r(:) => null(), ce_x(:) => null() !< Ce: prolongations, restrictions,
+                                                                                     !< then copies, block fastest.
+integer(I4P), pointer       :: cf_s(:) => null(), cf_r(:) => null(), cf_x(:) => null() !< Cf: the heavy rows in ADAM's
+                                                                                     !< order, then the copies, block fastest.
+integer(I4P), pointer       :: cg_s(:) => null(), cg_r(:) => null(), cg_x(:) => null() !< Cg: the copies, block fastest, then
+                                                                                     !< the heavy rows in ADAM's order.
+real(R8P),    pointer       :: q_flat(:) => null()  !< q_gpu seen as one array (the same device memory).
+integer(I4P), pointer       :: hh_s(:) => null(), hh_r(:) => null(), hh_x(:) => null() !< The heavy rows alone, ADAM's
+                                                                                     !< order (Ch's first launch).
+integer(I4P), pointer       :: kp(:,:) => null()          !< Kp: the copy rows as (donor b, donor ijk, receiver b,
+                                                          !< receiver ijk), ijk packed 10 bits each (+512), sorted as Kb.
+integer(I8P), pointer       :: heavy_rows(:,:) => null() !< Ci: ADAM's rows without the copies, ADAM's order.
+integer(I4P), pointer       :: full_prol(:) => null()    !< C*: the flag-4 rows of ADAM's full map (since #157 C4 the
+real(R8P),    pointer       :: full_rho(:) => null()     !< maps' own list and scratch index its heavy rows), scratch.
+integer(I4P), pointer       :: heavy_prol(:) => null()   !< Ci: its flag-4 rows.
+real(R8P),    pointer       :: heavy_rho(:) => null()    !< Ci: the guard's scratch per row.
+integer(I4P), pointer       :: ka_s(:) => null(), ka_r(:) => null() !< The copy rows alone, ADAM's order (Ka).
+integer(I4P), pointer       :: kb_s(:) => null(), kb_r(:) => null() !< The copy rows alone, receiver block fastest (Kb).
+integer(I4P), pointer       :: kd_s(:) => null(), kd_r(:) => null() !< The copy rows alone, donor block fastest (Kd).
+integer(I4P)                :: plane                !< Cells of one variable plane of q_gpu (with the ghosts).
 real(R8P),    allocatable   :: t(:)
 
 call mpih%initialize(do_mpi_init=.true., do_device_init=.false.)
@@ -117,12 +145,16 @@ call build_device_state()
 allocate(t(nrep))
 
 call time_v0()
+call build_compact()
+call time_c()
+call time_k()
 call time_v0p()
 call time_v0k()
 call time_v0s()
 call time_d(2_I4P)
 call time_d(1_I4P)
 call time_v0ng_d3()
+call time_parts()
 call mpih%finalize
 
 contains
@@ -594,7 +626,12 @@ contains
    real(R8P)    :: t0
 
    call reset()
-   do r=1, 3 ; call field_fnl%update_ghost_local_gpu(q_gpu=q_gpu) ; enddo
+   ! V0 is the first variant timed: fill for one second first, or the GPU is not yet at speed (on an A30 three fills
+   ! left V0 38 % slower than the same fill timed at the end of the run, V0b)
+   t0 = wall()
+   do while (wall() - t0 < 1._R8P)
+      call field_fnl%update_ghost_local_gpu(q_gpu=q_gpu) ; !$acc wait
+   enddo
    do r=1, nrep
       !$acc wait
       t0 = wall() ; call field_fnl%update_ghost_local_gpu(q_gpu=q_gpu) ; !$acc wait
@@ -603,6 +640,503 @@ contains
    call fetch(q_ref)
    print '(A,F10.3,A)', 'V0  ADAM rows, one launch       median ', median(t)*1e3_R8P, ' ms'
    endsubroutine time_v0
+
+   subroutine build_compact()
+   !< The compact rows of the C variants from ADAM's rows: Ca in ADAM's order; Cb sorted by receiver offset (within one
+   !< variable plane: the receiving block fastest, then i, j, k); Cc sorted by kind, then receiver offset. Every row
+   !< writes one ghost and reads real cells only (#22 F1), so any order gives the same values.
+   integer(I4P), allocatable :: s_(:), r_(:), x_(:), ord(:), key2(:)
+   integer(I4P)              :: nr, m, nbt, nt, k
+   integer(I8P)              :: kk
+   type(c_ptr)               :: cp
+   integer(I8P), allocatable :: hm(:,:) !< Ci: the heavy rows.
+   integer(I4P)              :: h, np4  !< Ci: heavy rows, flag-4 rows.
+
+   nbt = size(q_gpu, dim=1) ; nt = n + 2 * ngc
+   if (int(nbt, I8P) * int(nt, I8P)**3 * int(NV, I8P) >= int(huge(1_I4P), I8P)) error stop 'C: field too large for int32'
+   plane = nbt * nt**3
+   cp = c_loc(q_gpu)
+   call c_f_pointer(cp, q_flat, [plane * NV])
+   associate(cm => realm%adam%maps%local_map_ghost_cell)
+   nr = size(cm, dim=1)
+   allocate(s_(nr), r_(nr), x_(nr), ord(nr), key2(nr))
+   do m=1, nr
+      s_(m) = int(cm(m,1) - 1 + nbt * ((cm(m,3) + ngc - 1) + nt * ((cm(m,4) + ngc - 1) + nt * (cm(m,5) + ngc - 1))), I4P)
+      r_(m) = int(cm(m,2) - 1 + nbt * ((cm(m,6) + ngc - 1) + nt * ((cm(m,7) + ngc - 1) + nt * (cm(m,8) + ngc - 1))), I4P)
+      x_(m) = 0 ; if (cm(m,9) /= 1) x_(m) = m
+      key2(m) = 0 ; if (cm(m,9) == 8) key2(m) = 1 ; if (cm(m,9) == 4) key2(m) = 2
+   enddo
+   endassociate
+   call dev_assign_to_device(dst=ca_s, src=s_) ; call dev_assign_to_device(dst=ca_r, src=r_)
+   call dev_assign_to_device(dst=ca_x, src=x_)
+   ord = [(m, m=1, nr)]
+   call sort_rows(ord, r_)
+   call dev_assign_to_device(dst=cb_s, src=s_(ord)) ; call dev_assign_to_device(dst=cb_r, src=r_(ord))
+   call dev_assign_to_device(dst=cb_x, src=x_(ord))
+   ord = [(m, m=1, nr)]
+   do m=1, nr ; kk = int(key2(m), I8P) * int(plane, I8P) + int(r_(m), I8P) ; enddo
+   call sort_rows_kind(ord, r_, key2)
+   call dev_assign_to_device(dst=cc_s, src=s_(ord)) ; call dev_assign_to_device(dst=cc_r, src=r_(ord))
+   call dev_assign_to_device(dst=cc_x, src=x_(ord))
+   ! Ce: the heavy rows first (prolongation, restriction), so that they start first and no tail is left, then the copies
+   ord = [(m, m=1, nr)]
+   call sort_rows_kind(ord, r_, 2 - key2)
+   call dev_assign_to_device(dst=ce_s, src=s_(ord)) ; call dev_assign_to_device(dst=ce_r, src=r_(ord))
+   call dev_assign_to_device(dst=ce_x, src=x_(ord))
+   ! Cf, Cg: the heavy rows keep ADAM's order (the children of an anchor stay neighbours: their footprints are shared in
+   ! the caches), the copies sorted by receiver offset; heavy rows first (Cf) or last (Cg)
+   do m=1, nr ; key2(m) = merge(m, r_(m), x_(m) /= 0) ; enddo
+   ord = [(m, m=1, nr)]
+   call sort_rows_kind(ord, key2, merge(0, 1, x_ /= 0))
+   call dev_assign_to_device(dst=cf_s, src=s_(ord)) ; call dev_assign_to_device(dst=cf_r, src=r_(ord))
+   call dev_assign_to_device(dst=cf_x, src=x_(ord))
+   ord = [(m, m=1, nr)]
+   call sort_rows_kind(ord, key2, merge(1, 0, x_ /= 0))
+   call dev_assign_to_device(dst=cg_s, src=s_(ord)) ; call dev_assign_to_device(dst=cg_r, src=r_(ord))
+   call dev_assign_to_device(dst=cg_x, src=x_(ord))
+   ! C*: the flag-4 rows of the full map and a scratch per row (run_c indexes the full map)
+   if (count(realm%adam%maps%local_map_ghost_cell(:,9) == 4) > 0) then
+      call dev_assign_to_device(dst=full_prol, src=pack([(m, m=1, nr)], realm%adam%maps%local_map_ghost_cell(:,9) == 4))
+      call dev_assign_to_device(dst=full_rho, src=spread(0._R8P, dim=1, ncopies=nr))
+   endif
+   ! Ci: ADAM's rows without the copies (int64, ADAM's order), for ADAM's own kernel, its flag-4 rows and scratch
+   associate(cm => realm%adam%maps%local_map_ghost_cell)
+      allocate(hm(count(cm(:,9) /= 1), size(cm, dim=2)))
+      h = 0 ; np4 = 0
+      do m=1, size(cm, dim=1)
+         if (cm(m,9) == 1) cycle
+         h = h + 1 ; hm(h,:) = cm(m,:) ; if (cm(m,9) == 4) np4 = np4 + 1
+      enddo
+      call dev_assign_to_device(dst=heavy_rows, src=hm)
+      if (np4 > 0) then
+         call dev_assign_to_device(dst=heavy_prol, src=pack([(m, m=1, h)], hm(:,9) == 4))
+         call dev_assign_to_device(dst=heavy_rho, src=spread(0._R8P, dim=1, ncopies=h))
+      endif
+   endassociate
+   ! the heavy rows alone, ADAM's order (Ch: their launch, then the copies' launch Kb)
+   call dev_assign_to_device(dst=hh_s, src=pack(s_, x_ /= 0)) ; call dev_assign_to_device(dst=hh_r, src=pack(r_, x_ /= 0))
+   call dev_assign_to_device(dst=hh_x, src=pack(x_, x_ /= 0))
+   ! Kp: the copy rows packed for the 5-D field, receiver offset order
+   associate(cm => realm%adam%maps%local_map_ghost_cell)
+      ord = [(m, m=1, size(r_))]
+      call sort_rows(ord, r_)
+      if (allocated(hm)) deallocate(hm)
+      allocate(hm(4, count(x_ == 0))) ; h = 0
+      do m=1, size(ord)
+         if (x_(ord(m)) /= 0) cycle
+         h = h + 1
+         hm(1,h) = cm(ord(m),1) ; hm(3,h) = cm(ord(m),2)
+         hm(2,h) = (cm(ord(m),3) + 512) + 1024 * ((cm(ord(m),4) + 512) + 1024 * (cm(ord(m),5) + 512))
+         hm(4,h) = (cm(ord(m),6) + 512) + 1024 * ((cm(ord(m),7) + 512) + 1024 * (cm(ord(m),8) + 512))
+      enddo
+      call dev_assign_to_device(dst=kp, src=int(hm, I4P))
+      deallocate(hm)
+   endassociate
+   ! the copy rows alone (flag 1): ADAM's order, receiver offset order, donor offset order
+   nr = count(x_ == 0)
+   call dev_assign_to_device(dst=ka_s, src=pack(s_, x_ == 0)) ; call dev_assign_to_device(dst=ka_r, src=pack(r_, x_ == 0))
+   ord = [(m, m=1, size(r_))]
+   call sort_rows(ord, r_)
+   call dev_assign_to_device(dst=kb_s, src=pack(s_(ord), x_(ord) == 0))
+   call dev_assign_to_device(dst=kb_r, src=pack(r_(ord), x_(ord) == 0))
+   ord = [(m, m=1, size(r_))]
+   call sort_rows(ord, s_)
+   call dev_assign_to_device(dst=kd_s, src=pack(s_(ord), x_(ord) == 0))
+   call dev_assign_to_device(dst=kd_r, src=pack(r_(ord), x_(ord) == 0))
+   k = nr
+   endsubroutine build_compact
+
+   subroutine sort_rows(ord, key)
+   !< Stable merge sort of ord by key(ord).
+   integer(I4P), intent(inout) :: ord(:)
+   integer(I4P), intent(in)    :: key(:)
+   integer(I4P), allocatable   :: k2(:)
+
+   allocate(k2(size(key))) ; k2 = 0
+   call sort_rows_kind(ord, key, k2)
+   endsubroutine sort_rows
+
+   subroutine sort_rows_kind(ord, key, key0)
+   !< Stable merge sort of ord by (key0, key).
+   integer(I4P), intent(inout) :: ord(:)
+   integer(I4P), intent(in)    :: key(:), key0(:)
+   integer(I4P), allocatable   :: tmp(:)
+   integer(I4P)                :: width, lo, mid, hi, a, z, k
+   logical                     :: take_a
+
+   allocate(tmp(size(ord)))
+   width = 1
+   do while (width < size(ord))
+      lo = 1
+      do while (lo <= size(ord))
+         mid = min(lo + width - 1, size(ord)) ; hi = min(lo + 2 * width - 1, size(ord))
+         a = lo ; z = mid + 1 ; k = lo
+         do while (k <= hi)
+            if (z > hi) then
+               take_a = .true.
+            elseif (a > mid) then
+               take_a = .false.
+            else
+               take_a = key0(ord(a)) < key0(ord(z)) .or. &
+                        (key0(ord(a)) == key0(ord(z)) .and. key(ord(a)) <= key(ord(z)))
+            endif
+            if (take_a) then
+               tmp(k) = ord(a) ; a = a + 1
+            else
+               tmp(k) = ord(z) ; z = z + 1
+            endif
+            k = k + 1
+         enddo
+         lo = hi + 1
+      enddo
+      ord = tmp
+      width = 2 * width
+   enddo
+   endsubroutine sort_rows_kind
+
+   subroutine time_c()
+   !< The C variants (guard on, as V0): Ca, Cb, Cc, each checked bit for bit against V0.
+   integer(I4P) :: r, w
+   real(R8P)    :: t0
+   character(len=40), parameter :: label(9) = [character(len=40) :: 'Ca  compact rows, ADAM order', &
+                                               'Cb  compact rows, receiver block fastest', &
+                                               'Cc  compact rows, by kind, block fastest', &
+                                               'Ce  compact rows, heavy first, then copies', &
+                                               'Cf  heavy rows in ADAM order, then copies', &
+                                               'Cg  copies, then heavy rows in ADAM order', &
+                                               'Ch  heavy rows launch, then copies (Kb)', &
+                                               'Ci  ADAM kernel on heavy rows, then Kb', &
+                                               'Cj  ADAM kernel on heavy rows, then Kp']
+
+   do w=1, 9
+      call reset()
+      do r=1, nrep+3
+         !$acc wait
+         t0 = wall()
+         select case(w)
+         case(1) ; call run_c(ca_s, ca_r, ca_x, field_fnl%maps%local_map_ghost_cell_gpu, q_gpu, q_flat)
+         case(2) ; call run_c(cb_s, cb_r, cb_x, field_fnl%maps%local_map_ghost_cell_gpu, q_gpu, q_flat)
+         case(3) ; call run_c(cc_s, cc_r, cc_x, field_fnl%maps%local_map_ghost_cell_gpu, q_gpu, q_flat)
+         case(4) ; call run_c(ce_s, ce_r, ce_x, field_fnl%maps%local_map_ghost_cell_gpu, q_gpu, q_flat)
+         case(5) ; call run_c(cf_s, cf_r, cf_x, field_fnl%maps%local_map_ghost_cell_gpu, q_gpu, q_flat)
+         case(6) ; call run_c(cg_s, cg_r, cg_x, field_fnl%maps%local_map_ghost_cell_gpu, q_gpu, q_flat)
+         case(7) ; call run_c(hh_s, hh_r, hh_x, field_fnl%maps%local_map_ghost_cell_gpu, q_gpu, q_flat)
+                   call run_copy(kb_s, kb_r, q_flat)
+         case(8) ; call update_ghost_local_gpu_dev(ngc=ngc, seam_ghost_fill=fill, seam_restriction=restr, ri=ri, rj=rj, &
+                                                   rk=rk, l_map_ghost_cell_gpu=heavy_rows, q_gpu=q_gpu, seam_density_var=1, &
+                                                   prolongation_rows_gpu=heavy_prol, seam_rho_gpu=heavy_rho)
+                   call run_copy(kb_s, kb_r, q_flat)
+         case(9) ; call update_ghost_local_gpu_dev(ngc=ngc, seam_ghost_fill=fill, seam_restriction=restr, ri=ri, rj=rj, &
+                                                   rk=rk, l_map_ghost_cell_gpu=heavy_rows, q_gpu=q_gpu, seam_density_var=1, &
+                                                   prolongation_rows_gpu=heavy_prol, seam_rho_gpu=heavy_rho)
+                   call run_copy_packed(kp, q_gpu)
+         endselect
+         !$acc wait
+         if (r > 3) t(r-3) = wall() - t0
+      enddo
+      call fetch(q_chk)
+      print '(A,A,F10.3,A,L1)', label(w), ' median ', median(t)*1e3_R8P, ' ms  bitwise vs V0 ', all(q_chk == q_ref)
+      if (.not.all(q_chk == q_ref)) print '(A,I12)', '   cells that differ: ', count(q_chk /= q_ref)
+   enddo
+   endsubroutine time_c
+
+   subroutine time_parts()
+   !< The production fill's two launches timed apart (#157 C4), and V0 again at the end of the run (order effects).
+   integer(I4P) :: r, w
+   real(R8P)    :: t0
+   character(len=44), parameter :: label(5) = [character(len=44) :: 'P1  ADAM heavy launch on the maps heavy rows', &
+                                               'P2  ADAM copy kernel on the maps copy rows', &
+                                               'V0b ADAM fill again (end of run)', &
+                                               'X1  heavy launch, guard MP path off (diag)', &
+                                               'X0  heavy launch, the same harness kernel   ']
+
+   do w=1, 5
+      call reset()
+      do r=1, nrep+3
+         !$acc wait
+         t0 = wall()
+         select case(w)
+         case(1) ; call update_ghost_local_gpu_dev(ngc=ngc, seam_ghost_fill=fill, seam_restriction=restr, ri=ri, rj=rj,  &
+                                                   rk=rk, l_map_ghost_cell_gpu=field_fnl%maps%local_map_ghost_heavy_gpu, &
+                                                   q_gpu=q_gpu, seam_density_var=1,                                  &
+                                                   prolongation_rows_gpu=field_fnl%maps%local_map_ghost_cell_prol_gpu,&
+                                                   seam_rho_gpu=field_fnl%maps%seam_rho_gpu)
+         case(2) ; call update_ghost_local_copy_gpu_dev(ngc=ngc, copy_rows_gpu=field_fnl%maps%local_map_ghost_copy_gpu, &
+                                                        q_gpu=q_gpu)
+         case(3) ; call field_fnl%update_ghost_local_gpu(q_gpu=q_gpu)
+         case(4) ; call run_heavy_nomp(field_fnl%maps%local_map_ghost_heavy_gpu, field_fnl%maps%local_map_ghost_cell_prol_gpu, &
+                                       field_fnl%maps%seam_rho_gpu, q_gpu, .true.)
+         case(5) ; call run_heavy_nomp(field_fnl%maps%local_map_ghost_heavy_gpu, field_fnl%maps%local_map_ghost_cell_prol_gpu, &
+                                       field_fnl%maps%seam_rho_gpu, q_gpu, .false.)
+         endselect
+         !$acc wait
+         if (r > 3) t(r-3) = wall() - t0
+      enddo
+      print '(A,A,F10.3,A)', label(w), ' median ', median(t)*1e3_R8P, ' ms'
+   enddo
+   endsubroutine time_parts
+
+   subroutine run_heavy_nomp(m, prol, rho_s, qd, nomp)
+   !< Diagnostic, not bitwise: the heavy launch of the C4 fill (restriction and prolongation rows, the guard once per
+   !< ghost) with the guard's MP path switched off: a density or a velocity outside its bracketing cells' range is
+   !< clamped to that range instead of the MP bound. Bounds what removing the MP path's divergence from the launch
+   !< could gain (#157, after B5).
+   integer(I8P), pointer, intent(in) :: m(:,:)
+   integer(I4P), pointer, intent(in) :: prol(:)
+   real(R8P),    pointer             :: rho_s(:)
+   real(R8P),    intent(inout)       :: qd(1:,1-ngc:,1-ngc:,1-ngc:,1:)
+   logical,      intent(in)          :: nomp   !< The MP path off (X1), or the library's guard (X0, the control).
+   integer(I4P)          :: ic, jc, kc, mf, v, p, b_send, b_recv, i_send, j_send, k_send, i_recv, j_recv, k_recv, flag
+   integer(I4P)          :: fill_, restr_, ri_, rj_, rk_, ngc_, meta
+   logical               :: nomp_
+   real(R8P)             :: value_, rho, interpolant
+
+   if (.not.associated(m)) return
+   fill_ = fill ; restr_ = restr ; ri_ = ri ; rj_ = rj ; rk_ = rk ; ngc_ = ngc ; nomp_ = nomp
+   if (associated(prol)) then
+      !$acc parallel loop independent gang vector DEVICEVAR(m, qd, rho_s, prol) firstprivate(fill_, ngc_, nomp_) &
+      !$acc& private(mf, meta, b_send, i_send, j_send, k_send, value_, rho)
+      do p=1, size(prol, dim=1)
+         mf = prol(p)
+         b_send = int(m(mf,1), I4P) ; i_send = int(m(mf,3), I4P) ; j_send = int(m(mf,4), I4P)
+         k_send = int(m(mf,5), I4P) ; meta = int(m(mf,10), I4P)
+         value_ = interp_seam_value_gpu_dev(regime=fill_, meta=meta, ngc=ngc_, q_gpu=qd, v=1, b_send=b_send, &
+                                            i_send=i_send, j_send=j_send, k_send=k_send)
+         if (nomp_) then
+            rho = guard_density_nomp(meta, ngc_, qd, b_send, i_send, j_send, k_send, value_)
+         else
+            rho = seam_guard_density_gpu_dev(meta=meta, ngc=ngc_, q_gpu=qd, b_send=b_send, i_send=i_send, &
+                                             j_send=j_send, k_send=k_send, density_var=1, rho_in=value_)
+         endif
+         rho_s(mf) = rho
+      enddo
+   endif
+   !$acc parallel loop independent gang vector collapse(2) DEVICEVAR(m, qd, rho_s) &
+   !$acc& firstprivate(fill_, restr_, ri_, rj_, rk_, ngc_, nomp_) private(meta, value_, rho, interpolant)
+   do v=1, NV
+      do mf=1, size(m, dim=1)
+         b_send = int(m(mf,1), I4P) ; b_recv = int(m(mf,2), I4P)
+         i_send = int(m(mf,3), I4P) ; j_send = int(m(mf,4), I4P) ; k_send = int(m(mf,5), I4P)
+         i_recv = int(m(mf,6), I4P) ; j_recv = int(m(mf,7), I4P) ; k_recv = int(m(mf,8), I4P)
+         flag = int(m(mf,9), I4P) ; meta = int(m(mf,10), I4P)
+         if (flag == 4) then
+            interpolant = 0._R8P
+            if (v /= 1) interpolant = interp_seam_value_gpu_dev(regime=fill_, meta=meta, ngc=ngc_, q_gpu=qd, v=v, &
+                                                                b_send=b_send, i_send=i_send, j_send=j_send, k_send=k_send)
+            rho = rho_s(mf)
+            if (nomp_) then
+               value_ = guard_value_nomp(meta, ngc_, qd, v, b_send, i_send, j_send, k_send, rho, interpolant)
+            else
+               value_ = seam_guard_value_gpu_dev(meta=meta, ngc=ngc_, q_gpu=qd, v=v, b_send=b_send, i_send=i_send, &
+                                                 j_send=j_send, k_send=k_send, density_var=1, rho=rho, &
+                                                 value_in=interpolant)
+            endif
+            qd(b_recv,i_recv,j_recv,k_recv,v) = value_
+         elseif (restr_ /= SEAM_RESTRICT_MEAN .and. meta /= 0) then
+            qd(b_recv,i_recv,j_recv,k_recv,v) = restrict_seam_high_order_gpu_dev(meta=meta, ngc=ngc_, q_gpu=qd, &
+                                                   v=v, b_send=b_send, i_send=i_send, j_send=j_send, k_send=k_send)
+         else
+            qd(b_recv,i_recv,j_recv,k_recv,v) = 0._R8P
+            do kc=0,rk_-1 ; do jc=0,rj_-1 ; do ic=0,ri_-1
+               qd(b_recv,i_recv,j_recv,k_recv,v) = qd(b_recv,i_recv,j_recv,k_recv,v) + &
+                                                      qd(b_send,i_send+ic,j_send+jc,k_send+kc,v)
+            enddo ; enddo ; enddo
+            qd(b_recv,i_recv,j_recv,k_recv,v) = qd(b_recv,i_recv,j_recv,k_recv,v) / real(ri_*rj_*rk_, R8P)
+         endif
+      enddo
+   enddo
+   endsubroutine run_heavy_nomp
+
+   pure function guard_density_nomp(meta, ngc_, qd, b, i, j, k, rho_in) result(rho)
+   !< seam_guard_density_gpu_dev without the MP bound (diagnostic): the density clamped to its bracketing cells' range.
+   integer(I4P), intent(in) :: meta, ngc_, b, i, j, k
+   real(R8P),    intent(in) :: qd(1:,1-ngc_:,1-ngc_:,1-ngc_:,1:)
+   real(R8P),    intent(in) :: rho_in
+   real(R8P)                :: rho, fp(1:4,1:4,1:4), lo, hi
+   integer(I4P)             :: sub(3), p4(3), p3(3), p6(3), n2(3), b_lo(3), b_hi(3), ii, jj, kk
+   logical                  :: edge(3)
+   !$acc routine seq
+
+   call seam_meta_unpack(meta=meta, sub=sub, p4=p4, p3=p3, p6=p6)
+   call seam_bracket_nodes(sub=sub, anchor_pos=p4, n2=n2, edge=edge, b_lo=b_lo, b_hi=b_hi)
+   fp = 0._R8P
+   fp(p4(1),p4(2),p4(3)) = qd(b, i, j, k, 1)
+   do kk=b_lo(3), b_hi(3) ; do jj=b_lo(2), b_hi(2) ; do ii=b_lo(1), b_hi(1)
+      fp(ii,jj,kk) = qd(b, i+ii-p4(1), j+jj-p4(2), k+kk-p4(3), 1)
+   enddo ; enddo ; enddo
+   call seam_bracket_range(footprint=fp, anchor_pos=p4, b_lo=b_lo, b_hi=b_hi, lo=lo, hi=hi)
+   rho = rho_in
+   if (rho < lo) rho = lo
+   if (rho > hi) rho = hi
+   endfunction guard_density_nomp
+
+   pure function guard_value_nomp(meta, ngc_, qd, v, b, i, j, k, rho, value_in) result(value_)
+   !< seam_guard_value_gpu_dev without the MP bound (diagnostic): a velocity clamped to its bracketing cells' range.
+   integer(I4P), intent(in) :: meta, ngc_, v, b, i, j, k
+   real(R8P),    intent(in) :: qd(1:,1-ngc_:,1-ngc_:,1-ngc_:,1:)
+   real(R8P),    intent(in) :: rho, value_in
+   real(R8P)                :: value_, fp(1:4,1:4,1:4), lo, hi, u
+   integer(I4P)             :: sub(3), p4(3), p3(3), p6(3), n2(3), b_lo(3), b_hi(3), ii, jj, kk
+   logical                  :: edge(3)
+   !$acc routine seq
+
+   value_ = value_in
+   if (.not.(rho > SEAM_DENSITY_GUARD * qd(b, i, j, k, 1))) then
+      value_ = qd(b, i, j, k, v)
+   elseif (v == 1) then
+      value_ = rho
+   elseif (v <= 4) then
+      call seam_meta_unpack(meta=meta, sub=sub, p4=p4, p3=p3, p6=p6)
+      call seam_bracket_nodes(sub=sub, anchor_pos=p4, n2=n2, edge=edge, b_lo=b_lo, b_hi=b_hi)
+      u = value_in / rho
+      fp = 0._R8P
+      do kk=b_lo(3), b_hi(3) ; do jj=b_lo(2), b_hi(2) ; do ii=b_lo(1), b_hi(1)
+         fp(ii,jj,kk) = qd(b, i+ii-p4(1), j+jj-p4(2), k+kk-p4(3), v) / qd(b, i+ii-p4(1), j+jj-p4(2), k+kk-p4(3), 1)
+      enddo ; enddo ; enddo
+      call seam_bracket_range(footprint=fp, anchor_pos=p4, b_lo=b_lo, b_hi=b_hi, lo=lo, hi=hi)
+      if (u < lo) u = lo
+      if (u > hi) u = hi
+      value_ = rho * u
+   endif
+   endfunction guard_value_nomp
+
+   subroutine time_k()
+   !< The copy rows alone over compact rows (Ka, Kb, Kd), against V0s's copy launch (ADAM's kernel on the flag-1 rows),
+   !< each checked bit for bit on the copied ghosts against V0s's copy launch from the same initial state.
+   integer(I4P) :: r, w
+   real(R8P)    :: t0
+   real(R8P), allocatable :: q_k(:,:,:,:,:)
+   character(len=40), parameter :: label(0:4) = [character(len=40) :: 'K0  copy rows, ADAM kernel (V0s copy)', &
+                                                'Ka  copy rows, compact, ADAM order', &
+                                                'Kb  copy rows, compact, receiver fastest', &
+                                                'Kd  copy rows, compact, donor fastest', &
+                                                'Kp  copy rows, packed b+ijk, receiver fastest']
+
+   do w=0, 4
+      call reset()
+      do r=1, nrep+3
+         !$acc wait
+         t0 = wall()
+         select case(w)
+         case(0) ; call run_rows(0)
+         case(1) ; call run_copy(ka_s, ka_r, q_flat)
+         case(2) ; call run_copy(kb_s, kb_r, q_flat)
+         case(3) ; call run_copy(kd_s, kd_r, q_flat)
+         case(4) ; call run_copy_packed(kp, q_gpu)
+         endselect
+         !$acc wait
+         if (r > 3) t(r-3) = wall() - t0
+      enddo
+      if (w == 0) then
+         call fetch(q_k)
+         print '(A,A,F10.3,A)', label(w), ' median ', median(t)*1e3_R8P, ' ms'
+      else
+         call fetch(q_chk)
+         print '(A,A,F10.3,A,L1)', label(w), ' median ', median(t)*1e3_R8P, ' ms  bitwise vs K0 ', all(q_chk == q_k)
+      endif
+   enddo
+   endsubroutine time_k
+
+   subroutine run_copy(cs, cr, qf)
+   !< Copy rows over compact offsets: one thread per (variable, row), the row fastest.
+   integer(I4P), pointer, intent(in) :: cs(:), cr(:)
+   real(R8P),    pointer             :: qf(:)
+   integer(I4P)                      :: v, p, plane_
+
+   plane_ = plane
+   !$acc parallel loop independent gang vector collapse(2) DEVICEVAR(cs, cr, qf) firstprivate(plane_)
+   do v=1, NV
+      do p=1, size(cs, dim=1)
+         qf(cr(p) + 1 + (v - 1) * plane_) = qf(cs(p) + 1 + (v - 1) * plane_)
+      enddo
+   enddo
+   endsubroutine run_copy
+
+   subroutine run_copy_packed(cp, qd)
+   !< Copy rows packed as (donor b, donor ijk, receiver b, receiver ijk) on the 5-D field: one thread per (variable,
+   !< row), the row fastest.
+   integer(I4P), pointer, intent(in) :: cp(:,:)
+   real(R8P),    intent(inout)       :: qd(1:,1-ngc:,1-ngc:,1-ngc:,1:)
+   integer(I4P)                      :: v, p, bs, ps, br, pr
+
+   !$acc parallel loop independent gang vector collapse(2) DEVICEVAR(cp, qd) private(bs, ps, br, pr)
+   do v=1, NV
+      do p=1, size(cp, dim=2)
+         bs = cp(1,p) ; ps = cp(2,p) ; br = cp(3,p) ; pr = cp(4,p)
+         qd(br, ibits(pr, 0, 10) - 512, ibits(pr, 10, 10) - 512, ibits(pr, 20, 10) - 512, v) = &
+            qd(bs, ibits(ps, 0, 10) - 512, ibits(ps, 10, 10) - 512, ibits(ps, 20, 10) - 512, v)
+      enddo
+   enddo
+   endsubroutine run_copy_packed
+
+   subroutine run_c(cs, cr, cx, m, qd, qf)
+   !< A fill over compact rows: pass A, the guard's density of every prolongation row once (ADAM's first kernel, by
+   !< ADAM's routines, into the maps' scratch at the row's index); pass B, one thread per (variable, row), a copy by the
+   !< two offsets, a restriction or a prolongation by ADAM's routines on the full row. The field is a dummy argument (a
+   !< deviceptr on the host-associated q_gpu faulted), seen whole (qd) and flat (qf, the same memory).
+   integer(I4P), pointer, intent(in) :: cs(:), cr(:), cx(:)
+   integer(I8P), pointer, intent(in) :: m(:,:)
+   real(R8P),    intent(inout)       :: qd(1:,1-ngc:,1-ngc:,1-ngc:,1:)
+   real(R8P),    pointer             :: qf(:)
+   real(R8P),    pointer             :: rho_s(:)
+   integer(I4P), pointer             :: prol(:)
+   integer(I4P)          :: ic, jc, kc, mf, v, p, x, b_send, b_recv, i_send, j_send, k_send, i_recv, j_recv, k_recv
+   integer(I4P)          :: fill_, restr_, ri_, rj_, rk_, ngc_, plane_, meta
+   real(R8P)             :: value_, rho, interpolant
+
+   fill_ = fill ; restr_ = restr ; ri_ = ri ; rj_ = rj ; rk_ = rk ; ngc_ = ngc ; plane_ = plane
+   rho_s => full_rho ; prol => full_prol
+   if (associated(prol)) then
+      !$acc parallel loop independent gang vector DEVICEVAR(m, qd, rho_s, prol) firstprivate(fill_, ngc_) &
+      !$acc& private(mf, meta, b_send, i_send, j_send, k_send, value_, rho)
+      do p=1, size(prol, dim=1)
+         mf = prol(p)
+         b_send = int(m(mf,1), I4P) ; i_send = int(m(mf,3), I4P) ; j_send = int(m(mf,4), I4P)
+         k_send = int(m(mf,5), I4P) ; meta = int(m(mf,10), I4P)
+         value_ = interp_seam_value_gpu_dev(regime=fill_, meta=meta, ngc=ngc_, q_gpu=qd, v=1, b_send=b_send, &
+                                            i_send=i_send, j_send=j_send, k_send=k_send)
+         rho = seam_guard_density_gpu_dev(meta=meta, ngc=ngc_, q_gpu=qd, b_send=b_send, i_send=i_send, j_send=j_send, &
+                                          k_send=k_send, density_var=1, rho_in=value_)
+         rho_s(mf) = rho
+      enddo
+   endif
+   !$acc parallel loop independent gang vector collapse(2) DEVICEVAR(cs, cr, cx, m, qd, qf, rho_s) &
+   !$acc& firstprivate(fill_, restr_, ri_, rj_, rk_, ngc_, plane_) private(meta, value_, rho, interpolant)
+   do v=1, NV
+      do p=1, size(cs, dim=1)
+         x = cx(p)
+         if (x == 0) then
+            qf(cr(p) + 1 + (v - 1) * plane_) = qf(cs(p) + 1 + (v - 1) * plane_)
+         else
+            b_send = int(m(x,1), I4P) ; b_recv = int(m(x,2), I4P)
+            i_send = int(m(x,3), I4P) ; j_send = int(m(x,4), I4P) ; k_send = int(m(x,5), I4P)
+            i_recv = int(m(x,6), I4P) ; j_recv = int(m(x,7), I4P) ; k_recv = int(m(x,8), I4P)
+            meta = int(m(x,10), I4P)
+            if (m(x,9) == 4) then
+               interpolant = 0._R8P
+               if (v /= 1) interpolant = interp_seam_value_gpu_dev(regime=fill_, meta=meta, ngc=ngc_, q_gpu=qd, v=v, &
+                                                                   b_send=b_send, i_send=i_send, j_send=j_send,     &
+                                                                   k_send=k_send)
+               rho = rho_s(x)
+               value_ = seam_guard_value_gpu_dev(meta=meta, ngc=ngc_, q_gpu=qd, v=v, b_send=b_send, i_send=i_send, &
+                                                 j_send=j_send, k_send=k_send, density_var=1, rho=rho,             &
+                                                 value_in=interpolant)
+               qd(b_recv,i_recv,j_recv,k_recv,v) = value_
+            elseif (restr_ /= SEAM_RESTRICT_MEAN .and. meta /= 0) then
+               qd(b_recv,i_recv,j_recv,k_recv,v) = restrict_seam_high_order_gpu_dev(meta=meta, ngc=ngc_, q_gpu=qd, &
+                                                      v=v, b_send=b_send, i_send=i_send, j_send=j_send, k_send=k_send)
+            else
+               qd(b_recv,i_recv,j_recv,k_recv,v) = 0._R8P
+               do kc=0,rk_-1 ; do jc=0,rj_-1 ; do ic=0,ri_-1
+                  qd(b_recv,i_recv,j_recv,k_recv,v) = qd(b_recv,i_recv,j_recv,k_recv,v) + &
+                                                         qd(b_send,i_send+ic,j_send+jc,k_send+kc,v)
+               enddo ; enddo ; enddo
+               qd(b_recv,i_recv,j_recv,k_recv,v) = qd(b_recv,i_recv,j_recv,k_recv,v) / real(ri_*rj_*rk_, R8P)
+            endif
+         endif
+      enddo
+   enddo
+   endsubroutine run_c
 
    subroutine time_v0k()
    !< V0k: ADAM's kernel on ADAM's rows sorted by kind (#157 A1, measured: sorting leaves the prolongations as the tail

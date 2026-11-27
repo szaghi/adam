@@ -1,0 +1,24 @@
+PHASE TIMING: ranks 32, steps timed 100, barriers skipped F, gradual underflow F
+PHASE TIMING: phase          ms/step min      mean       max  calls/step  share of step
+PHASE TIMING: step (loop)        45.563     45.563     45.563        1.00     100.0 %
+PHASE TIMING: dt local            0.083      0.087      0.091        1.00       0.2 %
+PHASE TIMING: dt allreduce        0.007      0.013      0.017        1.00       0.0 %
+PHASE TIMING: IB kernels          0.372      0.436      0.617        9.00       1.0 %
+PHASE TIMING: ghost local         5.154      5.183      5.242       12.00      11.4 %
+PHASE TIMING: ghost MPI           5.666      8.276     10.210       12.00      18.2 %
+PHASE TIMING:   pack              0.768      1.016      1.282       12.00       2.2 %
+PHASE TIMING:   post              0.058      0.088      0.123       12.00       0.2 %
+PHASE TIMING:   waitall           3.499      5.518      6.684       12.00      12.1 %
+PHASE TIMING:   barrier 1         0.000      0.000      0.000        0.00       0.0 %
+PHASE TIMING:   unpack            1.105      1.650      2.200       12.00       3.6 %
+PHASE TIMING:   barrier 2         0.000      0.000      0.000        0.00       0.0 %
+PHASE TIMING: BC + blend          7.861     10.000     12.644       12.00      21.9 %
+PHASE TIMING: q_aux               0.680      0.685      0.692        3.00       1.5 %
+PHASE TIMING: face fluxes        18.455     18.653     18.817        3.00      40.9 %
+PHASE TIMING: flux diff           0.727      0.744      0.758        3.00       1.6 %
+PHASE TIMING: integrator          1.027      1.037      1.057       11.00       2.3 %
+PHASE TIMING: residuals save      0.000      0.001      0.001        1.00       0.0 %
+PHASE TIMING: post step           0.111      0.113      0.116        1.00       0.2 %
+PHASE TIMING: regrid+is_done      0.082      0.292      0.518        2.00       0.6 %
+PHASE TIMING: progress            0.025      0.035      0.043        1.00       0.1 %
+PHASE TIMING: evolve             44.933     45.157     45.366        1.00      99.1 %
