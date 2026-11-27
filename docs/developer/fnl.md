@@ -66,6 +66,23 @@ time integration uses the device layout alone.
 `DEVICEVAR` is defined in `fundal.H` and used at the top of every kernel file: it tells the compiler that the array
 lives on the device, so the OpenACC runtime inserts no host copy.
 
+### Device code that the OpenMP-offload compilers must also take
+
+Every kernel carries `!$acc` and `!$omp` directives alike, and the OpenMP twin is built by other compilers (AMD flang
+on the MI300X). Two rules come from that port ([#157](https://github.com/szaghi/adam/issues/157), Giacomo Rossi):
+
+- **No array constructor with variable elements in device code.** flang (AMD AFAR drop 23.2.1) lowers
+  `base = [i, j, k]` through a heap temporary: on the device, a `malloc`/`free` of the OpenMP device runtime, whose
+  heap is global and serialised by atomics. One such line in the seam fill's MP bound (`seam_mp_bound`) made the
+  MI300X 2:1 ghost fill 7.8 times slower than the H100's; one in `compute_eigenvectors` doubled the face-flux kernel.
+  nvfortran allocates nothing for the same line, so NVIDIA timings never show it. Assign the elements one by one
+  (`base(1) = i ; base(2) = j ; base(3) = k`): the same values, bitwise. Constructors of literals and named constants
+  (`[IA_U, IA_V, IA_W]`) are folded and pass. `src/tests/lint/check-device-array-constructors.sh`, run first by the
+  FLUME and PRISM regression suites, rejects the variable form in procedures with `!$acc routine` or
+  `!$omp declare target` and in the loop nests of kernel directives.
+- **No call to an internal procedure (a `contains` of a program or procedure) from a target region**: flang does not
+  lower it (`'fir.call' op using value defined outside the region`). Device routines live in modules.
+
 ### IB solid masking
 
 Kernels that modify field variables skip the cells inside a solid (`phi_gpu(b,i,j,k,all_solids) < 0`), tested in the

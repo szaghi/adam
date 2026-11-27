@@ -64,7 +64,7 @@
 
    d1 = mod(d, 3) + 1
    d2 = mod(d + 1, 3) + 1
-   u  = [qa(IA_U), qa(IA_V), qa(IA_W)]
+   u(1) = qa(IA_U) ; u(2) = qa(IA_V) ; u(3) = qa(IA_W)
    a  = qa(IA_A)
    er = 0._R8P
    el = 0._R8P

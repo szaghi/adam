@@ -46,7 +46,7 @@
 
    d1 = mod(d, 3) + 1
    d2 = mod(d + 1, 3) + 1
-   u  = [qa(IA_U), qa(IA_V), qa(IA_W)]
+   u(1) = qa(IA_U) ; u(2) = qa(IA_V) ; u(3) = qa(IA_W)
    a  = qa(IA_A)
    H  = qa(IA_H)
    b2 = (gamma - 1._R8P) / (a * a)

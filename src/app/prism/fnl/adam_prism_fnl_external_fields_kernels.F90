@@ -153,7 +153,7 @@ contains
       do j = 1 - ngc, nj + ngc
       do i = 1 - ngc, ni + ngc
       do b = 1, blocks_number
-         cell_coord = [x_cell_gpu(b,i), y_cell_gpu(b,j), z_cell_gpu(b,k)]
+         cell_coord(1) = x_cell_gpu(b,i) ; cell_coord(2) = y_cell_gpu(b,j) ; cell_coord(3) = z_cell_gpu(b,k)
          x = cell_coord(ef_alpha)
          y = cell_coord(ef_beta)
          r = sqrt(x*x + y*y)
@@ -248,7 +248,7 @@ contains
       do j = 1 - ngc, nj + ngc
       do i = 1 - ngc, ni + ngc
       do b = 1, blocks_number
-         cell_coord = [x_cell_gpu(b,i), y_cell_gpu(b,j), z_cell_gpu(b,k)]
+         cell_coord(1) = x_cell_gpu(b,i) ; cell_coord(2) = y_cell_gpu(b,j) ; cell_coord(3) = z_cell_gpu(b,k)
          x = cell_coord(ef_alpha)
          y = cell_coord(ef_beta)
          r = sqrt(x*x + y*y)
@@ -440,7 +440,7 @@ contains
       do k=1-ngc,nk+ngc
       do j=1-ngc,nj+ngc
       do i=1-ngc,ni+ngc
-         idx = [i,j,k]
+         idx(1) = i ; idx(2) = j ; idx(3) = k
          sample = idx
          sign_D = 1._R8P
          sign_B = 1._R8P
@@ -462,9 +462,9 @@ contains
          else
             do m=1,2
                if (m==1) then
-                  coord=[x_cell_gpu(b,i),y_cell_gpu(b,j),z_cell_gpu(b,k)]
+                  coord(1) = x_cell_gpu(b,i) ; coord(2) = y_cell_gpu(b,j) ; coord(3) = z_cell_gpu(b,k)
                else
-                  coord=[x_cell_gpu(b,sample(1)),y_cell_gpu(b,sample(2)),z_cell_gpu(b,sample(3))]
+                  coord(1) = x_cell_gpu(b,sample(1)) ; coord(2) = y_cell_gpu(b,sample(2)) ; coord(3) = z_cell_gpu(b,sample(3))
                endif
                x=coord(alpha); y=coord(beta); r=sqrt(x*x+y*y)
                theta=atan2(y,x); phase=omega*time_stage-theta

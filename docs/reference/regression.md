@@ -14,7 +14,8 @@ conservation property) and run for the part a change touches. This page is the r
 
 Both suites share one harness pattern, `run.sh {cpu|fnl} [--no-build] [--varset <name>]`:
 
-1. It runs the lints: the GPU race-shape check (`src/tests/lint/check-gpu-race-shapes.sh`), then the removed-keys check
+1. It runs the lints: the GPU race-shape check (`src/tests/lint/check-gpu-race-shapes.sh`), the device array-constructor
+   check (`src/tests/lint/check-device-array-constructors.sh`, #157), then the removed-keys check
    (`src/tests/lint/check-removed-input-keys.sh`).
 2. It creates a Python venv at `exe/.regression-venv/` on the first run and installs `h5py` and `numpy` for
    `digest.py`. The venv lives under `exe/`, not `src/`, because `fobis` and the API-doc generator scan `src/`.
