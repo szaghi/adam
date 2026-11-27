@@ -11,6 +11,7 @@ modes = test-amr-geo-box-gnu                          test-amr-geo-box-gnu-debug
         test-seam-interpolation-fnl-nvf
         test-seam-interpolation-fnl-omp-amd
         test-amr-ghost-bench-fnl-nvf
+        test-amr-ghost-bench-fnl-omp-amd
 
 [test-amr-geo-box-gnu]
 template = template-gnu
@@ -113,5 +114,12 @@ output   = test_quadtree_seam_ghost_fnl
 # descriptor kernels; one GPU, np 1
 template = template-nvf
 preproc  = -D_FNL -D_MPI_ -DDEV_OAC -DCOMPILER_NVF -w
+target   = test_amr_ghost_bench.F90
+output   = test_amr_ghost_bench_fnl
+
+[test-amr-ghost-bench-fnl-omp-amd]
+# the same benchmark on an AMD GPU (OpenMP offload), the twin of test-amr-ghost-bench-fnl-nvf
+template = template-omp-amd
+preproc  = -D_FNL -D_MPI_ -DDEV_OMP -DDEV_HIP -w
 target   = test_amr_ghost_bench.F90
 output   = test_amr_ghost_bench_fnl
