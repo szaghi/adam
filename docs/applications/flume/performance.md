@@ -59,6 +59,20 @@ The channel's CPU node is 8 % slower per step at HEAD than with the build of the
 executables alternated: 3.53 against 3.26 s; time steps +6.9 %), a slowdown of the CPU channel path not yet located;
 the step case did not slow down (1.26 → 1.22 s with flush to zero).
 
+**On the H100 node** (ESA SpaceHPC; [#160](https://github.com/szaghi/adam/issues/160)): the same comparison inside one
+machine, the CPU backend on its 2 AMD EPYC 9454 (96 cores, gfortran 16.2.0 with flush to zero, the medooza CPU leg's
+toolchain) against its 4 H100, from the same window dumps:
+
+| Case | CPU node (s) | GPU node (s) | GPU node / CPU node | medooza |
+|---|---|---|---|---|
+| 2a sphere | 3.90 | 0.187 | 20.8 | 14.2 |
+| 3a channel | 1.56 | 0.0609 | 25.7 | 16.2 |
+| step (2-D) | 0.578 | 0.0863 | 6.7 | 5.7 |
+
+The H100 node runs the 3-D flows 21–26 times faster than its own CPUs: the H100 is 2.5–3.6 times the A30, the EPYC
+node 2.0–2.3 times the Xeon node (1.35–1.53 per core). GPU costs of the C4 tree, as the medooza column here; the
+channel's CPU cost carries the slowdown above.
+
 ## What a cell costs on one A30
 
 ![Grind time of the uniform sphere against the block edge: on 1 A30, and the same grids on 1, 2 and 4 A30](/flume/perf-grid-study.png)

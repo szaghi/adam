@@ -135,7 +135,32 @@ The factor is not one number: on the same flow it is 11.4-12.6 with the grid and
 build flushed subnormals). The channel's 16.2 (#160 step 1.3, job 1370499, spread 6.7 %) is not flush to zero: on one
 node (A/B job 1370519, 3 pairs alternated) the HEAD build costs 3.53 s per step against 3.26 for the 2026-11-18 build
 of the 3.17 row, +8.3 % (time steps +6.9 %), a slowdown of the CPU channel between the two builds, not yet located (a
-follow-up issue); at the 2026-11-18 cost the factor would be 14.7. On the CPU node 2a costs 14.4 us per
+follow-up issue); at the 2026-11-18 cost the factor would be 14.7.
+
+**The same on the H100 node** (ESA SpaceHPC, #160 step 1.2, 2026-11-27): the CPU node and the GPU node are one machine,
+2 x AMD EPYC 9454 (96 cores, 4 NUMA domains) and its 4 H100. CPU: HEAD 5b200ffa, gfortran 16.2.0 + Open MPI 5.0.11 with
+`-mdaz-ftz` (the toolchain of medooza's CPU leg), 96 ranks bound to cores (job 185046, gpu-005); the windows start from
+the dumps of the H100 values (2a: `matrix/dumps/leg2`, the H100 re-measure's; 1a and 3a: medooza's `work/dumps`, the
+H100 legs' windows; `results/2026-11-27-i160-spacehpc-cpu/`). GPU: the C4 tree (the H100 tables of "#157 C4" below),
+as the medooza column:
+
+| Case | CPU node, 96 EPYC cores (s) | GPU node, 4 H100 (s) | GPU node / CPU node | medooza (64 Xeon / 4 A30) |
+|---|---|---|---|---|
+| 2a sphere | 3.902 (spread 4.5 %) | 0.1874 | **20.8** | 14.2 |
+| 3a channel | 1.564 (6.0 %) | 0.0609 | **25.7** | 16.2 |
+| 1a step (2-D) | 0.578 (4.4 %) | 0.0863 | **6.7** | 5.7 |
+
+- **The H100 node outruns its own CPUs 21-26 times on the 3-D flows** (14-16 on medooza): the H100 is 2.5-3.6 times
+  the A30, the EPYC node 2.0-2.3 times the Xeon node (1.35-1.53 per core: Zen 4 against Ice Lake; the GNU builds are `-O2`
+  without `-march`, the same generic x86-64 code on both).
+- With the GPU costs before C4 (the paper's table): 20.0, 24.5 and 6.7 on SpaceHPC, 13.7, 15.6 and 5.7 on medooza.
+- The channel's CPU cost carries the 8 % slowdown found on medooza (the same build): its two factors are high by
+  about that much.
+- Per socket, the cell updates per second: 7.26, 2.01 and 3.57 M on an EPYC (48 cores), 3.58, 0.88 and 1.69 M on a
+  Xeon (32 cores), for 2a, 3a and 1a.
+- On 2a the CPU node books 0.41 s per step (10 %) in the step-end wait for the slowest rank (the forest's "regrid"
+  timer, since b8641a59): 96 ranks of 589,824 cells; which ranks are slower is not measured here.
+ On the CPU node 2a costs 14.4 us per
 cell-step per core, against 12.4 for `wg-b24` (8 blocks per rank) and 10.2 for `wg-b38` (job 1369687; spreads 5.3 and
 0.7 %). The 2a figure is inflated by subnormal arithmetic in its developed state, which slows the CPU ranks that hold it
 and not the A30 ("Where a step's time goes" below): with flush to zero 2a costs 8.74 us per cell-step per core, the cold
@@ -1101,6 +1126,7 @@ never (leg 3): a flow with more churn pays more regrid.
 | `results/2026-11-26-i157-c4/` | #157 C4: the sphere on SpaceHPC (`spacehpc/`: analyze.py summaries of A = 80582712 and B = C4, the job logs and scripts of 184727-184729, 184742, 184743) and the nine cases on medooza (`medooza/`: the same for jobs 1370470, 1370471, 1370477; `medooza-b4fix/`: the step leg with A, B and C = B4's scratch persistent, job 1370492); the step and the channel on SpaceHPC (`spacehpc-legs/`: analyze.py summaries of A and B, the job logs of 184907-184912 and `sp-leg.pbs`) |
 | `results/2026-11-26-remeasure-l2/` | the sphere re-measured at HEAD 0984b5f5 after #156 lever 2: medooza (`medooza/`: the analyze.py summaries of the work tree `speedup-133/l2` and of the CPU rerun `l2-cpu2`, the job logs and scripts) and ESA SpaceHPC (`spacehpc/`: the final analyze.py summary of the work tree `speedup-133/l2` on SpaceHPC, jobs 184703-184706 and 184730) |
 | `results/2026-11-27-i160-medooza-cpu/` | #160 step 1.3: the medooza CPU windows of 3a and 1a with `-mdaz-ftz` at HEAD 5b200ffa (analyze.py summary; job 1370499: the build and the windows, its script and toolchain record; the in-job git commit of the tarball tree failed, so `run.info` says `commit=HEAD`, `src_modified=yes`: the tree is 5b200ffa) and the 3a A/B against the 2026-11-18 build (job 1370519 and its script) |
+| `results/2026-11-27-i160-spacehpc-cpu/` | #160 step 1.2: the CPU node of the H100 node (2a, 3a, 1a on 96 EPYC cores; analyze.py summary; job 185046, the toolchain job 184997, the plan, the toolchain record) |
 | `results/2026-11-25-spacehpc/` | the H100 runs: summaries, phase reports, job logs with the GPU health, the node reconnaissance (`recon.pbs`) and the bandwidth tests (`netbw.sh`), the plans, `fetch.sh` |
 | `build.sh` | builds one backend from a clean tree into `exe/<backend>/` (it still calls backends "legs") |
 | `templates/sphere-legacy.ini` | the removed matrix's sphere input, a record (stale, does not run) |

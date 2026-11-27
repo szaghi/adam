@@ -1,0 +1,15 @@
+job 184997.pbs 2026-11-27T09:41:24+01:00 cpu-032 AMD EPYC 9654 96-Core Processor
+GNU Fortran (GCC) 16.2.0
+=== 09:41:24 Open MPI 5.0.11
+                Open MPI: 5.0.11
+        Fort use mpi_f08: yes
+                 MCA btl: self (MCA v2.1.0, API v3.3.0, Component v5.0.11)
+                 MCA btl: sm (MCA v2.1.0, API v3.3.0, Component v5.0.11)
+                 MCA btl: tcp (MCA v2.1.0, API v3.3.0, Component v5.0.11)
+=== 09:52:58 gnu.sh
+GNU Fortran (GCC) 16.2.0
+=== 09:52:58 HDF5 (szip, zlib, parallel HDF5 with Fortran, static)
+                   HDF5 Version: 2.3.0
+               Fortran Compiler: /lustre/home/u10260003/gnu/openmpi-5.0.11-gcc16.2.0/bin/mpifort 
+                     Parallel HDF5: ON
+=== 09:55:59 GNU-TOOLCHAIN-DONE
