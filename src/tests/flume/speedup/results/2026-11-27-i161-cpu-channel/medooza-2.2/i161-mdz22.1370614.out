@@ -1,0 +1,21 @@
+start 2026-11-27T17:45:02+01:00 on gnode16.e4-cluster.lan, job 1370614; exe sha256 ece2fda427c1d6dc
+>> windows, cpu, 64 ranks: 3a-channel-uniform -> windows/cpu-np64
+   /ifs/hpc/home/szaghi/adam-tests/speedup-133/i161/work22/dumps/leg3/warmup/channel-restart: step 51626, time 150.0, 512 blocks on 4 ranks [128, 128, 128, 128], ratio 8, also .reference
+      -> /ifs/hpc/home/szaghi/adam-tests/speedup-133/i161/work22/windows/cpu-np64/3a-channel-uniform/dump/channel-restart: 64 ranks, rule siblings, blocks per rank [8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8]
+   windows/cpu-np64/3a-channel-uniform/r1-n10: wall 100.812 s, exit 0
+      forest timing (max over ranks, s): loop    32.1920, steps    32.1559, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/cpu-np64/3a-channel-uniform/r1-n110: wall 370.478 s, exit 0
+      forest timing (max over ranks, s): loop   358.6324, steps   358.2152, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/cpu-np64/3a-channel-uniform/r2-n10: wall 124.835 s, exit 0
+      forest timing (max over ranks, s): loop    32.6395, steps    32.5973, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/cpu-np64/3a-channel-uniform/r2-n110: wall 551.826 s, exit 0
+      forest timing (max over ranks, s): loop   352.7261, steps   352.2698, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/cpu-np64/3a-channel-uniform/r3-n10: wall 145.681 s, exit 0
+      forest timing (max over ranks, s): loop    33.8523, steps    33.8158, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/cpu-np64/3a-channel-uniform/r3-n110: wall 491.744 s, exit 0
+      forest timing (max over ranks, s): loop   352.7949, steps   352.3096, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+run.sh: done (windows, cpu, 64 ranks, work /ifs/hpc/home/szaghi/adam-tests/speedup-133/i161/work22)
+WINDOWS rc 0 after 1803 s
+ANALYZE rc 0
+| 3 | 3a-channel-uniform | U | cpu | 64 | 3.201 | 2.3% (!) | 3.197 | 0.003149 | 0 | 6,291,456 | 98,304 | 3.26e+04 |
+I161-MDZ22-DONE 2026-11-27T18:15:05+01:00

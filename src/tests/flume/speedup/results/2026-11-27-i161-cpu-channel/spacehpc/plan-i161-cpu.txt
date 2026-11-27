@@ -1,0 +1,11 @@
+# night 2026-11-27-i161-cpu-channel (#161 2.2): build the fix (adam-i161 = adam-i160 + one MPI_Barrier before the posts of
+# update_ghost_mpi), then the 3a windows on 96 ranks alternated: fix, HEAD (the #160 executable, sha256 f52666b2), fix, HEAD
+build
+windows --cases 3a --work $W/i161/fix1
+windows --cases 3a --work $W/i161/head1 --exe /lustre/home/u10260003/adam-i160/src/tests/flume/speedup/exe/cpu/adam_flume_cpu
+windows --cases 3a --work $W/i161/fix2
+windows --cases 3a --work $W/i161/head2 --exe /lustre/home/u10260003/adam-i160/src/tests/flume/speedup/exe/cpu/adam_flume_cpu
+analyze $W/i161/fix1
+analyze $W/i161/head1
+analyze $W/i161/fix2
+analyze $W/i161/head2

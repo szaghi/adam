@@ -1,0 +1,2 @@
+leg,case,role,backend,np,repetitions,step_cost_s,spread,steps_cost_s,regrid_cost_s,seam_cost_s,cells_mean,ns_per_cell_step,reduced,commit,notes,kind,series,cells_per_device,strong_ref_np,strong_efficiency,weak_group,weak_ref_np,weak_efficiency
+3,3a-channel-uniform,uniform,cpu,96,3,1.478186,0.04471494115084304,1.4743680000000001,0.033725,0.0,6291456.0,22555.328369140625,0,unknown,built from sources that differ from the recorded commit (src_modified=yes); spread 4.5% above 2%,matrix,,65536.0,,,,,

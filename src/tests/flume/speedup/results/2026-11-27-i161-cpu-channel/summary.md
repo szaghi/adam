@@ -128,3 +128,19 @@ rmf-hyperbolic (the known pre-existing mismatch), SKIP 10; RIPPLE oracles PASSED
 collective again) PASSED at np 2 and 4 (10 legs each); the A/B of every FLUME and PRISM case base against fix: 91
 bitwise, pic-periodic and pic-slab-pulse not completing on the CPU with either executable (as in the #157 night's A/B).
 The comment in the fix was reworded after these jobs; the code they built is the committed one.
+
+## The channel's ratios after the fix (2.2)
+
+| Machine, job | Runs | 3a CPU node (s per step) | Spread | GPU node (s) | GPU node / CPU node |
+|---|---|---|---|---|---|
+| medooza, 1370614 (gnode16), `medooza-2.2/` | `run.sh windows --cases 3a`, 64 ranks, the fix (sha256 `ece2fda4`) | **3.201** | 2.3 % | 0.2219 (C4) | **14.4** (13.9 with 0.230, before C4) |
+| SpaceHPC, 185266 (gpu-015), `spacehpc/` | 4 windows alternated, 96 ranks: fix1, head1, fix2, head2 | **1.478 / 1.466** (fix), 1.532 / 1.466 (HEAD) | 4.5 / 1.2 %, 7.1 / 6.0 % | 0.0609 (C4) | **24.2** (23.1 with 0.0638, before C4) |
+
+- medooza: 1.0 % above the #133 build's 3.17 (gate: within 3 %); the step-end wait 0.0031 s per step (0.1288 in #160's
+  HEAD run, 3.59 s). The channel's factor 16.2 of #160 becomes 14.4.
+- SpaceHPC (the EPYC node): HEAD runs as fast as the fix in the same job (step-end wait 0.043-0.051 against
+  0.030-0.034): the barriers' removal did not cost the EPYC node what it cost medooza's Xeon nodes, and the fix is
+  neutral there. The 3a cost of #160 (1.564 on gpu-005) against 1.47 here is the spread between nodes, not the fix;
+  the ratio 24.2 (25.7 in #160) is this job's.
+- The tree of the SpaceHPC build is `adam-i160` (07a414ba, HEAD on the CPU path) with the fixed field object, hence
+  "src/ modified" in `spacehpc/toolchain.md` (executable sha256 `25c8c2aa`).

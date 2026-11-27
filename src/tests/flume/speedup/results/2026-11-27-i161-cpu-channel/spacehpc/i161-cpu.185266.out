@@ -1,0 +1,237 @@
+job 185266.pbs 2026-11-27T16:02:44+01:00 gpu-015 plan /lustre/projects/1026/CALCOLI/adam/speedup-133/plans/plan-i161-cpu.txt; GNU Fortran (GCC) 16.2.0; mpirun (Open MPI) 5.0.11
+Thread(s) per core:  1
+Core(s) per socket:  48
+Socket(s):           2
+Model name:          AMD EPYC 9454 48-Core Processor
+NUMA node0 CPU(s):   0-23
+NUMA node1 CPU(s):   24-47
+NUMA node2 CPU(s):   48-71
+NUMA node3 CPU(s):   72-95
+cpuset of the job: 96 logical CPUs, 0-95
+# night 2026-11-27-i161-cpu-channel (#161 2.2): build the fix (adam-i161 = adam-i160 + one MPI_Barrier before the posts of
+# update_ghost_mpi), then the 3a windows on 96 ranks alternated: fix, HEAD (the #160 executable, sha256 f52666b2), fix, HEAD
+build
+windows --cases 3a --work $W/i161/fix1
+windows --cases 3a --work $W/i161/head1 --exe /lustre/home/u10260003/adam-i160/src/tests/flume/speedup/exe/cpu/adam_flume_cpu
+windows --cases 3a --work $W/i161/fix2
+windows --cases 3a --work $W/i161/head2 --exe /lustre/home/u10260003/adam-i160/src/tests/flume/speedup/exe/cpu/adam_flume_cpu
+analyze $W/i161/fix1
+analyze $W/i161/head1
+analyze $W/i161/fix2
+analyze $W/i161/head2
+=== 2026-11-27T16:02:44+01:00 build
+warning: Not a git repository. Use --no-index to compare two paths outside a working tree
+usage: git diff --no-index [<options>] <path> <path>
+
+Diff output format options
+    -p, --patch           generate patch
+    -s, --no-patch        suppress diff output
+    -u                    generate patch
+    -U, --unified[=<n>]   generate diffs with <n> lines context
+    -W, --[no-]function-context
+                          generate diffs with <n> lines context
+    --raw                 generate the diff in raw format
+    --patch-with-raw      synonym for '-p --raw'
+    --patch-with-stat     synonym for '-p --stat'
+    --numstat             machine friendly --stat
+    --shortstat           output only the last line of --stat
+    -X, --dirstat[=<param1,param2>...]
+                          output the distribution of relative amount of changes for each sub-directory
+    --cumulative          synonym for --dirstat=cumulative
+    --dirstat-by-file[=<param1,param2>...]
+                          synonym for --dirstat=files,param1,param2...
+    --check               warn if changes introduce conflict markers or whitespace errors
+    --summary             condensed summary such as creations, renames and mode changes
+    --name-only           show only names of changed files
+    --name-status         show only names and status of changed files
+    --stat[=<width>[,<name-width>[,<count>]]]
+                          generate diffstat
+    --stat-width <width>  generate diffstat with a given width
+    --stat-name-width <width>
+                          generate diffstat with a given name width
+    --stat-graph-width <width>
+                          generate diffstat with a given graph width
+    --stat-count <count>  generate diffstat with limited lines
+    --[no-]compact-summary
+                          generate compact summary in diffstat
+    --binary              output a binary diff that can be applied
+    --[no-]full-index     show full pre- and post-image object names on the "index" lines
+    --[no-]color[=<when>] show colored diff
+    --ws-error-highlight <kind>
+                          highlight whitespace errors in the 'context', 'old' or 'new' lines in the diff
+    -z                    do not munge pathnames and use NULs as output field terminators in --raw or --numstat
+    --[no-]abbrev[=<n>]   use <n> digits to display object names
+    --src-prefix <prefix> show the given source prefix instead of "a/"
+    --dst-prefix <prefix> show the given destination prefix instead of "b/"
+    --line-prefix <prefix>
+                          prepend an additional prefix to every line of output
+    --no-prefix           do not show any source or destination prefix
+    --default-prefix      use default prefixes a/ and b/
+    --inter-hunk-context <n>
+                          show context between diff hunks up to the specified number of lines
+    --output-indicator-new <char>
+                          specify the character to indicate a new line instead of '+'
+    --output-indicator-old <char>
+                          specify the character to indicate an old line instead of '-'
+    --output-indicator-context <char>
+                          specify the character to indicate a context instead of ' '
+
+Diff rename options
+    -B, --break-rewrites[=<n>[/<m>]]
+                          break complete rewrite changes into pairs of delete and create
+    -M, --find-renames[=<n>]
+                          detect renames
+    -D, --irreversible-delete
+                          omit the preimage for deletes
+    -C, --find-copies[=<n>]
+                          detect copies
+    --[no-]find-copies-harder
+                          use unmodified files as source to find copies
+    --no-renames          disable rename detection
+    --[no-]rename-empty   use empty blobs as rename source
+    --[no-]follow         continue listing the history of a file beyond renames
+    -l <n>                prevent rename/copy detection if the number of rename/copy targets exceeds given limit
+
+Diff algorithm options
+    --minimal             produce the smallest possible diff
+    -w, --ignore-all-space
+                          ignore whitespace when comparing lines
+    -b, --ignore-space-change
+                          ignore changes in amount of whitespace
+    --ignore-space-at-eol ignore changes in whitespace at EOL
+    --ignore-cr-at-eol    ignore carrier-return at the end of line
+    --ignore-blank-lines  ignore changes whose lines are all blank
+    -I, --[no-]ignore-matching-lines <regex>
+                          ignore changes whose all lines match <regex>
+    --[no-]indent-heuristic
+                          heuristic to shift diff hunk boundaries for easy reading
+    --patience            generate diff using the "patience diff" algorithm
+    --histogram           generate diff using the "histogram diff" algorithm
+    --diff-algorithm <algorithm>
+                          choose a diff algorithm
+    --anchored <text>     generate diff using the "anchored diff" algorithm
+    --word-diff[=<mode>]  show word diff, using <mode> to delimit changed words
+    --word-diff-regex <regex>
+                          use <regex> to decide what a word is
+    --color-words[=<regex>]
+                          equivalent to --word-diff=color --word-diff-regex=<regex>
+    --[no-]color-moved[=<mode>]
+                          moved lines of code are colored differently
+    --[no-]color-moved-ws <mode>
+                          how white spaces are ignored in --color-moved
+
+Other diff options
+    --[no-]relative[=<prefix>]
+                          when run from subdir, exclude changes outside and show relative paths
+    -a, --[no-]text       treat all files as text
+    -R                    swap two inputs, reverse the diff
+    --[no-]exit-code      exit with 1 if there were differences, 0 otherwise
+    --[no-]quiet          disable all output of the program
+    --[no-]ext-diff       allow an external diff helper to be executed
+    --[no-]textconv       run external text conversion filters when comparing binary files
+    --ignore-submodules[=<when>]
+                          ignore changes to submodules in the diff generation
+    --submodule[=<format>]
+                          specify how differences in submodules are shown
+    --ita-invisible-in-index
+                          hide 'git add -N' entries from the index
+    --ita-visible-in-index
+                          treat 'git add -N' entries as real in the index
+    -S <string>           look for differences that change the number of occurrences of the specified string
+    -G <regex>            look for differences that change the number of occurrences of the specified regex
+    --pickaxe-all         show all changes in the changeset with -S or -G
+    --pickaxe-regex       treat <string> in -S as extended POSIX regular expression
+    -O <file>             control the order in which files appear in the output
+    --rotate-to <path>    show the change in the specified path first
+    --skip-to <path>      skip the output to the specified path
+    --find-object <object-id>
+                          look for differences that change the number of occurrences of the specified object
+    --diff-filter [(A|C|D|M|R|T|U|X|B)...[*]]
+                          select files by diff type
+    --output <file>       output to a specific file
+
+fatal: not a git repository (or any parent up to mount point /)
+Stopping at filesystem boundary (GIT_DISCOVERY_ACROSS_FILESYSTEM not set).
+build.sh: flume-cpu-gnu built in 50 s -> /lustre/home/u10260003/adam-i161/src/tests/flume/speedup/exe/cpu/adam_flume_cpu; toolchain in /lustre/home/u10260003/adam-i161/src/tests/flume/speedup/builds/cpu/toolchain.md
+build.txt: -mdaz-ftz 1 times
+=== 2026-11-27T16:03:34+01:00 windows --cases 3a --work $W/i161/fix1
+>> windows, cpu, 96 ranks: 3a-channel-uniform -> windows/cpu-np96
+   /lustre/projects/1026/CALCOLI/adam/speedup-133/i161/fix1/dumps/leg3/warmup/channel-restart: step 51626, time 150.0, 512 blocks on 4 ranks [128, 128, 128, 128], ratio 8, also .reference
+      -> /lustre/projects/1026/CALCOLI/adam/speedup-133/i161/fix1/windows/cpu-np96/3a-channel-uniform/dump/channel-restart: 96 ranks, rule siblings, blocks per rank [6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5]
+   windows/cpu-np96/3a-channel-uniform/r1-n10: wall 18.917 s, exit 0
+      forest timing (max over ranks, s): loop    15.1890, steps    14.9901, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/cpu-np96/3a-channel-uniform/r1-n110: wall 166.123 s, exit 0
+      forest timing (max over ranks, s): loop   162.4800, steps   161.5383, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/cpu-np96/3a-channel-uniform/r2-n10: wall 19.873 s, exit 0
+      forest timing (max over ranks, s): loop    16.2794, steps    16.2250, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/cpu-np96/3a-channel-uniform/r2-n110: wall 167.748 s, exit 0
+      forest timing (max over ranks, s): loop   164.0980, steps   163.6618, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/cpu-np96/3a-channel-uniform/r3-n10: wall 18.854 s, exit 0
+      forest timing (max over ranks, s): loop    15.1289, steps    15.1064, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/cpu-np96/3a-channel-uniform/r3-n110: wall 172.632 s, exit 0
+      forest timing (max over ranks, s): loop   169.0296, steps   168.4392, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+run.sh: done (windows, cpu, 96 ranks, work /lustre/projects/1026/CALCOLI/adam/speedup-133/i161/fix1)
+=== 2026-11-27T16:13:01+01:00 windows --cases 3a --work $W/i161/head1 --exe /lustre/home/u10260003/adam-i160/src/tests/flume/speedup/exe/cpu/adam_flume_cpu
+>> windows, cpu, 96 ranks: 3a-channel-uniform -> windows/cpu-np96
+   /lustre/projects/1026/CALCOLI/adam/speedup-133/i161/head1/dumps/leg3/warmup/channel-restart: step 51626, time 150.0, 512 blocks on 4 ranks [128, 128, 128, 128], ratio 8, also .reference
+      -> /lustre/projects/1026/CALCOLI/adam/speedup-133/i161/head1/windows/cpu-np96/3a-channel-uniform/dump/channel-restart: 96 ranks, rule siblings, blocks per rank [6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5]
+   windows/cpu-np96/3a-channel-uniform/r1-n10: wall 18.620 s, exit 0
+      forest timing (max over ranks, s): loop    14.9409, steps    14.9208, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/cpu-np96/3a-channel-uniform/r1-n110: wall 162.014 s, exit 0
+      forest timing (max over ranks, s): loop   158.4045, steps   157.9395, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/cpu-np96/3a-channel-uniform/r2-n10: wall 17.965 s, exit 0
+      forest timing (max over ranks, s): loop    14.3550, steps    14.3058, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/cpu-np96/3a-channel-uniform/r2-n110: wall 172.341 s, exit 0
+      forest timing (max over ranks, s): loop   168.6566, steps   167.8924, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/cpu-np96/3a-channel-uniform/r3-n10: wall 18.763 s, exit 0
+      forest timing (max over ranks, s): loop    15.1184, steps    15.0985, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/cpu-np96/3a-channel-uniform/r3-n110: wall 171.982 s, exit 0
+      forest timing (max over ranks, s): loop   168.3205, steps   167.8128, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+run.sh: done (windows, cpu, 96 ranks, work /lustre/projects/1026/CALCOLI/adam/speedup-133/i161/head1)
+=== 2026-11-27T16:22:25+01:00 windows --cases 3a --work $W/i161/fix2
+>> windows, cpu, 96 ranks: 3a-channel-uniform -> windows/cpu-np96
+   /lustre/projects/1026/CALCOLI/adam/speedup-133/i161/fix2/dumps/leg3/warmup/channel-restart: step 51626, time 150.0, 512 blocks on 4 ranks [128, 128, 128, 128], ratio 8, also .reference
+      -> /lustre/projects/1026/CALCOLI/adam/speedup-133/i161/fix2/windows/cpu-np96/3a-channel-uniform/dump/channel-restart: 96 ranks, rule siblings, blocks per rank [6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5]
+   windows/cpu-np96/3a-channel-uniform/r1-n10: wall 19.097 s, exit 0
+      forest timing (max over ranks, s): loop    15.4787, steps    15.4576, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/cpu-np96/3a-channel-uniform/r1-n110: wall 166.886 s, exit 0
+      forest timing (max over ranks, s): loop   163.2572, steps   162.7372, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/cpu-np96/3a-channel-uniform/r2-n10: wall 19.369 s, exit 0
+      forest timing (max over ranks, s): loop    15.7497, steps    15.7071, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/cpu-np96/3a-channel-uniform/r2-n110: wall 165.394 s, exit 0
+      forest timing (max over ranks, s): loop   161.7698, steps   161.4880, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/cpu-np96/3a-channel-uniform/r3-n10: wall 18.731 s, exit 0
+      forest timing (max over ranks, s): loop    15.1065, steps    15.0443, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/cpu-np96/3a-channel-uniform/r3-n110: wall 165.379 s, exit 0
+      forest timing (max over ranks, s): loop   161.7408, steps   160.9987, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+run.sh: done (windows, cpu, 96 ranks, work /lustre/projects/1026/CALCOLI/adam/speedup-133/i161/fix2)
+=== 2026-11-27T16:31:42+01:00 windows --cases 3a --work $W/i161/head2 --exe /lustre/home/u10260003/adam-i160/src/tests/flume/speedup/exe/cpu/adam_flume_cpu
+>> windows, cpu, 96 ranks: 3a-channel-uniform -> windows/cpu-np96
+   /lustre/projects/1026/CALCOLI/adam/speedup-133/i161/head2/dumps/leg3/warmup/channel-restart: step 51626, time 150.0, 512 blocks on 4 ranks [128, 128, 128, 128], ratio 8, also .reference
+      -> /lustre/projects/1026/CALCOLI/adam/speedup-133/i161/head2/windows/cpu-np96/3a-channel-uniform/dump/channel-restart: 96 ranks, rule siblings, blocks per rank [6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5]
+   windows/cpu-np96/3a-channel-uniform/r1-n10: wall 18.305 s, exit 0
+      forest timing (max over ranks, s): loop    14.5537, steps    14.5163, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/cpu-np96/3a-channel-uniform/r1-n110: wall 162.423 s, exit 0
+      forest timing (max over ranks, s): loop   158.8316, steps   157.9733, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/cpu-np96/3a-channel-uniform/r2-n10: wall 19.096 s, exit 0
+      forest timing (max over ranks, s): loop    15.5070, steps    15.4847, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/cpu-np96/3a-channel-uniform/r2-n110: wall 172.308 s, exit 0
+      forest timing (max over ranks, s): loop   168.6173, steps   168.1560, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/cpu-np96/3a-channel-uniform/r3-n10: wall 17.924 s, exit 0
+      forest timing (max over ranks, s): loop    14.3216, steps    14.2391, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+   windows/cpu-np96/3a-channel-uniform/r3-n110: wall 164.560 s, exit 0
+      forest timing (max over ranks, s): loop   160.8735, steps   159.7580, imbalance before reflux     0.0000, reflux reduce     0.0000, reflux apply     0.0000, seam imbalance     0.0000, seam wait     0.0000; 0 register faces
+run.sh: done (windows, cpu, 96 ranks, work /lustre/projects/1026/CALCOLI/adam/speedup-133/i161/head2)
+=== 2026-11-27T16:40:58+01:00 analyze $W/i161/fix1
+analyze: 1 windows, 0 AMR ratio rows, 0 backend speedups -> /lustre/projects/1026/CALCOLI/adam/speedup-133/i161/fix1/results/summary.md, /lustre/projects/1026/CALCOLI/adam/speedup-133/i161/fix1/results/summary.csv
+   warning: cpu np 96 3a-channel-uniform: built from sources that differ from the recorded commit (src_modified=yes); spread 4.5% above 2%
+=== 2026-11-27T16:40:59+01:00 analyze $W/i161/head1
+analyze: 1 windows, 0 AMR ratio rows, 0 backend speedups -> /lustre/projects/1026/CALCOLI/adam/speedup-133/i161/head1/results/summary.md, /lustre/projects/1026/CALCOLI/adam/speedup-133/i161/head1/results/summary.csv
+   warning: cpu np 96 3a-channel-uniform: built from sources that differ from the recorded commit (src_modified=yes); spread 7.1% above 2%
+=== 2026-11-27T16:40:59+01:00 analyze $W/i161/fix2
+analyze: 1 windows, 0 AMR ratio rows, 0 backend speedups -> /lustre/projects/1026/CALCOLI/adam/speedup-133/i161/fix2/results/summary.md, /lustre/projects/1026/CALCOLI/adam/speedup-133/i161/fix2/results/summary.csv
+   warning: cpu np 96 3a-channel-uniform: built from sources that differ from the recorded commit (src_modified=yes)
+=== 2026-11-27T16:40:59+01:00 analyze $W/i161/head2
+analyze: 1 windows, 0 AMR ratio rows, 0 backend speedups -> /lustre/projects/1026/CALCOLI/adam/speedup-133/i161/head2/results/summary.md, /lustre/projects/1026/CALCOLI/adam/speedup-133/i161/head2/results/summary.csv
+   warning: cpu np 96 3a-channel-uniform: built from sources that differ from the recorded commit (src_modified=yes); spread 6.0% above 2%
+CPU-PLAN-DONE status 0 2026-11-27T16:40:59+01:00

@@ -45,19 +45,20 @@ T(CPU node) / T(GPU node) on the uniform grids:
 | Case | Grid | Blocks | GPU node / CPU node |
 |---|---|---|---|
 | 2a sphere (3-D, WENO-5, IB, SSP-33) | 56.6 M cells, L4 | 4096 of 24³ | 13.8 since #156 lever 2 (11.4 before it; 16.3 before the CPU build flushed subnormals) |
-| 3a channel (3-D, hybrid, viscous, SSP-54) | 6.29 M cells, L3 | 512 of 32×24×16 | 16.2 with the CPU flushing subnormals at HEAD (13.8 before; 14.7 at the CPU cost of the #133 matrix build of 2026-11-23, see below) |
+| 3a channel (3-D, hybrid, viscous, SSP-54) | 6.29 M cells, L3 | 512 of 32×24×16 | 14.4 with the CPU fix of [#161](https://github.com/szaghi/adam/issues/161) (16.2 at HEAD before it, 13.8 before the GPU's C4) |
 | sphere, grid study | 7.08 M cells, L3 | 512 of 24³ | 11.9 |
 | sphere, grid study | 28.1 M cells, L3 | 512 of 38³ | 12.6 |
 
-A GPU node runs the uniform 3-D flows 11 to 16 times faster than a CPU node; on the same flow the factor moves with
+A GPU node runs the uniform 3-D flows 11 to 14 times faster than a CPU node; on the same flow the factor moves with
 the grid. On the CPU node the sphere costs 14.4 µs per cell-step per core on 2a, 12.4 on the 24³ grid and 10.2 on the
 38³ grid. The 2a figure is inflated by subnormal arithmetic in its developed state, which slows a few CPU ranks and
 not the GPU ([What does not scale](#what-does-not-scale-and-why)): with flush to zero 2a costs 8.74 µs, the cold 24³
 grid 8.81–9.54. The two grid-study grids load the GPU node with 1.8 and 7.0 M cells per A30, below 2a's
 14.2 M ([what a cell costs](#what-a-cell-costs-on-one-a30)). Larger blocks make both nodes cheaper per cell.
-The channel's CPU node is 8 % slower per step at HEAD than with the build of the first table (the same node, the two
-executables alternated: 3.53 against 3.26 s; time steps +6.9 %): the CPU ghost exchange without its barrier, located and
-fixed in [#161](https://github.com/szaghi/adam/issues/161) (see [What does not scale](#what-does-not-scale-and-why), lever 4);
+The channel's CPU node was 8-20 % slower per step at HEAD than with the build of the first table (the same node, the
+executables alternated): the CPU ghost exchange without its barrier, located and fixed in
+[#161](https://github.com/szaghi/adam/issues/161) (see [What does not scale](#what-does-not-scale-and-why), lever 4).
+With the fix it costs 3.20 s per step, 1.0 % above the #133 build;
 the step case did not slow down (1.26 → 1.22 s with flush to zero).
 
 **On the H100 node** (ESA SpaceHPC; [#160](https://github.com/szaghi/adam/issues/160)): the same comparison inside one
@@ -67,12 +68,13 @@ toolchain) against its 4 H100, from the same window dumps:
 | Case | CPU node (s) | GPU node (s) | GPU node / CPU node | medooza |
 |---|---|---|---|---|
 | 2a sphere | 3.90 | 0.187 | 20.8 | 14.2 |
-| 3a channel | 1.56 | 0.0609 | 25.7 | 16.2 |
+| 3a channel | 1.47 | 0.0609 | 24.2 | 14.4 |
 | step (2-D) | 0.578 | 0.0863 | 6.7 | 5.7 |
 
-The H100 node runs the 3-D flows 21–26 times faster than its own CPUs: the H100 is 2.5–3.6 times the A30, the EPYC
-node 2.0–2.3 times the Xeon node (1.35–1.53 per core). GPU costs of the C4 tree, as the medooza column here; the
-channel's CPU cost carries the slowdown above.
+The H100 node runs the 3-D flows 21–24 times faster than its own CPUs: the H100 is 2.5–3.6 times the A30, the EPYC
+node 2.0–2.3 times the Xeon node (1.35–1.53 per core). GPU costs of the C4 tree, as the medooza column here. The
+channel's CPU costs are those of the #161 fix on both machines; on the EPYC node the fix is neutral (HEAD ran as fast in
+the same job), on medooza's Xeon nodes it removed the slowdown.
 
 ## What a cell costs on one A30
 

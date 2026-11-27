@@ -127,7 +127,8 @@ for performance; their timings are kept as baselines ("The accuracy-first paths"
 | 2a sphere (3-D, WENO-5, IB, SSP-33) | 56.6 M | 4096 of 24^3 | 12.7 | 0.780 | 16.3 |
 | 2a sphere, CPU linked with `-mdaz-ftz` (2026-11-24) | 56.6 M | 4096 of 24^3 | 8.917 | 0.780 | **11.4** |
 | 3a channel (3-D, hybrid-kep-weno, viscous, SSP-54), before `-mdaz-ftz` | 6.29 M | 512 of 32x24x16 | 3.17 | 0.230 | 13.8 |
-| 3a channel, CPU with `-mdaz-ftz`, HEAD 5b200ffa (2026-11-27; GPU: the C4 tree) | 6.29 M | 512 of 32x24x16 | 3.59 | 0.2219 | **16.2** |
+| 3a channel, CPU with `-mdaz-ftz`, HEAD 5b200ffa (2026-11-27; GPU: the C4 tree) | 6.29 M | 512 of 32x24x16 | 3.59 | 0.2219 | 16.2 |
+| 3a channel, CPU with the #161 fix (2026-11-27; GPU: the C4 tree) | 6.29 M | 512 of 32x24x16 | 3.201 | 0.2219 | **14.4** |
 | `wg-b24` sphere, L3 (2026-11-24) | 7.08 M | 512 of 24^3 | 1.366 | 0.1147 | 11.9 |
 | `wg-b38` sphere, L3 (2026-11-24) | 28.1 M | 512 of 38^3 | 4.458 | 0.355 | 12.6 |
 
@@ -135,8 +136,9 @@ The factor is not one number: on the same flow it is 11.4-12.6 with the grid and
 build flushed subnormals). The channel's 16.2 (#160 step 1.3, job 1370499, spread 6.7 %) is not flush to zero: on one
 node (A/B job 1370519, 3 pairs alternated) the HEAD build costs 3.53 s per step against 3.26 for the #133 matrix build
 of the 3.17 row (2026-11-23), +8.3 % (time steps +6.9 %), a slowdown of the CPU channel between the two builds,
-located and fixed in [#161](https://github.com/szaghi/adam/issues/161): see "Fixed: the CPU channel" below; at the #133
-build's cost the factor would be 14.7.
+located and fixed in [#161](https://github.com/szaghi/adam/issues/161): see "Fixed: the CPU channel" below. With the fix
+the channel's CPU node costs 3.201 s per step (job 1370614, spread 2.3 %; 1.0 % above the #133 build's 3.17) and the
+factor is **14.4** (13.9 with the GPU cost before C4).
 
 **Fixed: the CPU channel** ([#161](https://github.com/szaghi/adam/issues/161), 2026-11-27,
 `results/2026-11-27-i161-cpu-channel/`). The six commits on the CPU path between the #133 build (b516b303, rebuilt to its
@@ -163,17 +165,20 @@ as the medooza column:
 | Case | CPU node, 96 EPYC cores (s) | GPU node, 4 H100 (s) | GPU node / CPU node | medooza (64 Xeon / 4 A30) |
 |---|---|---|---|---|
 | 2a sphere | 3.902 (spread 4.5 %) | 0.1874 | **20.8** | 14.2 |
-| 3a channel | 1.564 (6.0 %) | 0.0609 | **25.7** | 16.2 |
+| 3a channel | 1.472 (1.2-4.5 %, with the #161 fix; HEAD 1.564) | 0.0609 | **24.2** | 14.4 |
 | 1a step (2-D) | 0.578 (4.4 %) | 0.0863 | **6.7** | 5.7 |
 
-- **The H100 node outruns its own CPUs 21-26 times on the 3-D flows** (14-16 on medooza): the H100 is 2.5-3.6 times
+- **The H100 node outruns its own CPUs 21-24 times on the 3-D flows** (14 on medooza): the H100 is 2.5-3.6 times
   the A30, the EPYC node 2.0-2.3 times the Xeon node (1.35-1.53 per core: Zen 4 against Ice Lake; the GNU builds are `-O2`
   without `-march`, the same generic x86-64 code on both).
-- With the GPU costs before C4 (the paper's table): 20.0, 24.5 and 6.7 on SpaceHPC, 13.7, 15.6 and 5.7 on medooza.
-- The channel's CPU cost carries the 8 % slowdown found on medooza (the same build): its two factors are high by
-  about that much.
-- Per socket, the cell updates per second: 7.26, 2.01 and 3.57 M on an EPYC (48 cores), 3.58, 0.88 and 1.69 M on a
-  Xeon (32 cores), for 2a, 3a and 1a.
+- With the GPU costs before C4 (the paper's table): 20.0, 23.1 and 6.7 on SpaceHPC, 13.7, 13.9 and 5.7 on medooza.
+- The channel's CPU row is the #161 fix's (job 185266, gpu-015, the 3a windows alternated with HEAD's executable:
+  fix 1.478 and 1.466, HEAD 1.532 and 1.466 s per step, the step-end wait 0.030-0.034 against 0.043-0.051). The
+  barriers' removal did not slow the EPYC node as it slowed medooza's Xeon nodes: the fix is neutral there, and the
+  change from #160's 1.564 (gpu-005) is the spread between nodes. The 2a and 1a rows are HEAD's (job 185046): 1a is not
+  affected on medooza either; 2a is (-3.1 % with the fix on medooza, job 1370601), not re-measured on the EPYC node.
+- Per socket, the cell updates per second: 7.26, 2.14 and 3.57 M on an EPYC (48 cores), 3.58, 0.98 and 1.69 M on a
+  Xeon (32 cores), for 2a, 3a and 1a (3a with the #161 fix).
 - On 2a the CPU node books 0.41 s per step (10 %) in the step-end wait for the slowest rank (the forest's "regrid"
   timer, since b8641a59): 96 ranks of 589,824 cells; which ranks are slower is not measured here.
  On the CPU node 2a costs 14.4 us per
@@ -1145,7 +1150,7 @@ never (leg 3): a flow with more churn pays more regrid.
 | `results/2026-11-26-remeasure-l2/` | the sphere re-measured at HEAD 0984b5f5 after #156 lever 2: medooza (`medooza/`: the analyze.py summaries of the work tree `speedup-133/l2` and of the CPU rerun `l2-cpu2`, the job logs and scripts) and ESA SpaceHPC (`spacehpc/`: the final analyze.py summary of the work tree `speedup-133/l2` on SpaceHPC, jobs 184703-184706 and 184730) |
 | `results/2026-11-27-i160-medooza-cpu/` | #160 step 1.3: the medooza CPU windows of 3a and 1a with `-mdaz-ftz` at HEAD 5b200ffa (analyze.py summary; job 1370499: the build and the windows, its script and toolchain record; the in-job git commit of the tarball tree failed, so `run.info` says `commit=HEAD`, `src_modified=yes`: the tree is 5b200ffa) and the 3a A/B against the #133 matrix build of 2026-11-23 (job 1370519 and its script) |
 | `results/2026-11-27-i160-spacehpc-cpu/` | #160 step 1.2: the CPU node of the H100 node (2a, 3a, 1a on 96 EPYC cores; analyze.py summary; job 185046, the toolchain job 184997, the plan, the toolchain record) |
-| `results/2026-11-27-i161-cpu-channel/` | #161: the CPU channel slowdown located (the six CPU-path commits between the #133 build and 5b200ffa built and timed on one node, jobs 1370554-1370557; the exchange timed per rank, job 1370596, `logs/instrument.py`) and fixed (the fix against HEAD and the #133 build) |
+| `results/2026-11-27-i161-cpu-channel/` | #161: the CPU channel slowdown located (the six CPU-path commits between the #133 build and 5b200ffa built and timed on one node, jobs 1370554-1370557; the exchange timed per rank, job 1370596, `logs/instrument.py`) and fixed (the fix against HEAD and the #133 build, jobs 1370599-1370601, the gate 1370600); the channel's 3a CPU windows with the fix on medooza (`medooza-2.2/`, job 1370614) and on SpaceHPC alternated with HEAD (`spacehpc/`, job 185266) |
 | `results/2026-11-25-spacehpc/` | the H100 runs: summaries, phase reports, job logs with the GPU health, the node reconnaissance (`recon.pbs`) and the bandwidth tests (`netbw.sh`), the plans, `fetch.sh` |
 | `build.sh` | builds one backend from a clean tree into `exe/<backend>/` (it still calls backends "legs") |
 | `templates/sphere-legacy.ini` | the removed matrix's sphere input, a record (stale, does not run) |
