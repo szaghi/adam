@@ -32,8 +32,6 @@ contains
    real(R8P),    intent(inout) :: psi_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)   !< Sensor, [nb, i, j, k, 1].
    integer(I4P)                :: s1, s2, s3                            !< Steps along x, y, z: 1 active, 0 null.
    real(R8P)                   :: w1, w2, w3                            !< Weights along x, y, z: 1 active, 0 null.
-   real(R8P)                   :: rdx(3)                                !< Private inverse steps, 0 along null.
-   real(R8P)                   :: g(3,3)                                !< Private velocity gradient.
    real(R8P)                   :: rmax                                  !< Private largest inverse step.
    real(R8P)                   :: p                                     !< Private sensor.
    real(R8P)                   :: jump                                  !< Private relative density jump.
@@ -42,13 +40,18 @@ contains
    s1 = merge(0_I4P, 1_I4P, is_null(1)) ; s2 = merge(0_I4P, 1_I4P, is_null(2)) ; s3 = merge(0_I4P, 1_I4P, is_null(3))
    w1 = real(s1, R8P) ; w2 = real(s2, R8P) ; w3 = real(s3, R8P)
    !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(dxyz_gpu,q_aux_gpu,psi_gpu)   &
-   !$acc& firstprivate(ni,nj,nk,blocks_number,floor,jump_max,s1,s2,s3,w1,w2,w3) private(rdx,g,rmax,p,jump)
+   !$acc& firstprivate(ni,nj,nk,blocks_number,floor,jump_max,s1,s2,s3,w1,w2,w3) private(rmax,p,jump)
    !$omp OMPLOOP collapse(4) DEVICEPTR(dxyz_gpu,q_aux_gpu,psi_gpu)                                  &
-   !$omp& firstprivate(ni,nj,nk,blocks_number,floor,jump_max,s1,s2,s3,w1,w2,w3) private(rdx,g,rmax,p,jump)
+   !$omp& firstprivate(ni,nj,nk,blocks_number,floor,jump_max,s1,s2,s3,w1,w2,w3) private(rmax,p,jump)
    do k=1-2*s3, nk+2*s3
    do j=1-2*s2, nj+2*s2
    do i=1-2*s1, ni+2*s1
    do b=1, blocks_number
+      block
+      ! locals of the loop body, not private clauses: flang maps a private array of a target region to and from
+      ! the host at every launch (a synchronous copy each; #157, the MI300X 2-D step)
+      real(R8P) :: rdx(3)
+      real(R8P) :: g(3,3)
       rdx(1) = w1 / dxyz_gpu(b,1) ; rdx(2) = w2 / dxyz_gpu(b,2) ; rdx(3) = w3 / dxyz_gpu(b,3)
       rmax = max(rdx(1), rdx(2), rdx(3))
       !$acc loop seq
@@ -67,6 +70,7 @@ contains
       call seth_ducros(eps=floor * (q_aux_gpu(b,i,j,k,IA_A) * rmax)**2, g=g, phi=p)
       if (jump > jump_max) p = 1._R8P ! a contact: the Ducros ratio cannot see it, a central flux rings
       psi_gpu(b,i,j,k,1) = p
+      endblock
    enddo
    enddo
    enddo
@@ -113,20 +117,23 @@ contains
    real(R8P),    intent(in)    :: q_aux_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Auxiliary variables.
    real(R8P),    intent(in)    :: psi_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)   !< Sensor, [nb, i, j, k, 1].
    real(R8P),    intent(inout) :: fl_gpu(1:,1-di:,1-dj:,1-dk:,1:)       !< Face fluxes of direction `d`.
-   real(R8P)                   :: w(5,-2:3)                             !< Private cell states.
-   real(R8P)                   :: f(5)                                  !< Private central flux.
    integer(I4P)                :: nd, l, lo, hi                         !< Cells along `d`, private face index, its flag indexes.
    integer(I4P)                :: b, i, j, k, m, n                      !< Counters.
 
    nd = ni * di + nj * dj + nk * dk ; lo = 2_I4P * d - 1_I4P ; hi = 2_I4P * d
    !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(faces_gpu,q_aux_gpu,psi_gpu,fl_gpu)  &
-   !$acc& firstprivate(d,di,dj,dk,ni,nj,nk,nd,lo,hi,blocks_number,gamma,threshold) private(w,f,l)
+   !$acc& firstprivate(d,di,dj,dk,ni,nj,nk,nd,lo,hi,blocks_number,gamma,threshold) private(l)
    !$omp OMPLOOP collapse(4) DEVICEPTR(faces_gpu,q_aux_gpu,psi_gpu,fl_gpu)                                 &
-   !$omp& firstprivate(d,di,dj,dk,ni,nj,nk,nd,lo,hi,blocks_number,gamma,threshold) private(w,f,l)
+   !$omp& firstprivate(d,di,dj,dk,ni,nj,nk,nd,lo,hi,blocks_number,gamma,threshold) private(l)
    do k=1-dk, nk
    do j=1-dj, nj
    do i=1-di, ni
    do b=1, blocks_number
+      block
+      ! locals of the loop body, not private clauses: flang maps a private array of a target region to and from
+      ! the host at every launch (a synchronous copy each; #157, the MI300X 2-D step)
+      real(R8P) :: w(5,-2:3)
+      real(R8P) :: f(5)
       l = i * di + j * dj + k * dk
       if (.not.((l <= 2_I4P .and. faces_gpu(b,lo) /= 0_I4P) .or. (l >= nd - 2_I4P .and. faces_gpu(b,hi) /= 0_I4P)) .and. &
           psi_gpu(b,i-di,j-dj,k-dk,1) < threshold .and. psi_gpu(b,i,j,k,1) < threshold .and.                                  &
@@ -145,6 +152,7 @@ contains
             fl_gpu(b,i,j,k,n) = f(n)
          enddo
       endif
+      endblock
    enddo
    enddo
    enddo

@@ -11,18 +11,21 @@
    real(R8P),    intent(in)    :: R                                     !< Gas constant.
    real(R8P),    intent(in)    :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)     !< Conservative variables.
    real(R8P),    intent(inout) :: q_aux_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Auxiliary variables.
-   real(R8P)                   :: q_(NV_K)                              !< Private conservative variables of one cell.
-   real(R8P)                   :: qa_(NV_AUX_K)                         !< Private auxiliary variables of one cell.
    integer(I4P)                :: b, i, j, k, v                         !< Counters.
 
    !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(q_gpu,q_aux_gpu) &
-   !$acc& firstprivate(ni,nj,nk,ngc,blocks_number,gamma,R) private(q_,qa_)
+   !$acc& firstprivate(ni,nj,nk,ngc,blocks_number,gamma,R) 
    !$omp OMPLOOP collapse(4) DEVICEPTR(q_gpu,q_aux_gpu) &
-   !$omp& firstprivate(ni,nj,nk,ngc,blocks_number,gamma,R) private(q_,qa_)
+   !$omp& firstprivate(ni,nj,nk,ngc,blocks_number,gamma,R) 
    do k=1-ngc, nk+ngc
    do j=1-ngc, nj+ngc
    do i=1-ngc, ni+ngc
    do b=1, blocks_number
+      block
+      ! locals of the loop body, not private clauses: flang maps a private array of a target region to and from
+      ! the host at every launch (a synchronous copy each; #157, the MI300X 2-D step)
+      real(R8P) :: q_(NV_K)
+      real(R8P) :: qa_(NV_AUX_K)
       !$acc loop seq
       do v=1, NV_K
          q_(v) = q_gpu(b,i,j,k,v)
@@ -32,6 +35,7 @@
       do v=1, NV_AUX_K
          q_aux_gpu(b,i,j,k,v) = qa_(v)
       enddo
+      endblock
    enddo
    enddo
    enddo

@@ -1104,7 +1104,7 @@ contains
    integer(I4P)                               :: i_min, i_max, j_min, j_max, k_min, k_max
    real(R8P)                                  :: dx, dy, dz, charge_density
    real(R8P)                                  :: wx, wy, wz, weight
-   real(R8P)                                  :: xcx(7), xcy(7), xcz(7), wx7(7), wy7(7), wz7(7), pu_error
+   real(R8P) :: pu_error
    integer(I4P)                               :: m, i_lo, j_lo, k_lo
    logical                                    :: closed
    real(R8P),    pointer                      :: x_cell_gpu(:,:), y_cell_gpu(:,:), z_cell_gpu(:,:), dxyz_gpu(:,:)
@@ -1134,11 +1134,20 @@ contains
 
    !$acc parallel loop independent DEVICEVAR(q_gpu, q_pic_gpu, x_cell_gpu, y_cell_gpu, z_cell_gpu, dxyz_gpu, neighbour_list_gpu)&
    !$acc& private(block_p, i_p, j_p, k_p, i_min, i_max, j_min, j_max, k_min, k_max, dx, dy, dz, charge_density, wx, wy, wz, weight)&
-   !$acc& private(closed, xcx, xcy, xcz, wx7, wy7, wz7, pu_error, m, i_lo, j_lo, k_lo)
+   !$acc& private(closed, pu_error, m, i_lo, j_lo, k_lo)
    !$omp OMPLOOP DEVICEPTR(q_gpu, q_pic_gpu, x_cell_gpu, y_cell_gpu, z_cell_gpu, dxyz_gpu, neighbour_list_gpu) &
    !$omp& private(block_p, i_p, j_p, k_p, i_min, i_max, j_min, j_max, k_min, k_max, dx, dy, dz, charge_density, wx, wy, wz, weight)&
-   !$omp& private(closed, xcx, xcy, xcz, wx7, wy7, wz7, pu_error, m, i_lo, j_lo, k_lo)
+   !$omp& private(closed, pu_error, m, i_lo, j_lo, k_lo)
    do n = 1, self%particle_number
+      block
+      ! locals of the loop body, not private clauses: flang maps a private array of a target region to and from
+      ! the host at every launch (a synchronous copy each; #157, the MI300X 2-D step)
+      real(R8P) :: xcx(7)
+      real(R8P) :: xcy(7)
+      real(R8P) :: xcz(7)
+      real(R8P) :: wx7(7)
+      real(R8P) :: wy7(7)
+      real(R8P) :: wz7(7)
       block_p = neighbour_list_gpu(n,1)
       if (block_p <= 0_I4P) cycle
       i_p = neighbour_list_gpu(n,2)
@@ -1231,6 +1240,7 @@ contains
             enddo
          enddo
       enddo
+      endblock
    enddo
    endsubroutine deposit_bspline_charge_dev
 

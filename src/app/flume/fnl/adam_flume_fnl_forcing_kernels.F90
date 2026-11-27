@@ -121,9 +121,9 @@ contains
    logical                     :: tsff                               !< Its eddy viscosity on sqrt(|tau_w|/rho) on the face (#121 P4b).
    logical                     :: vcf                                !< Coupled through the wall viscosity on the face (#126).
    real(R8P)                   :: va1, va2, va3, taum                !< Viscosity coupling: the first cell's wall-parallel velocity, the stress magnitude.
-   real(R8P)                   :: rc(WM_CONV_CELLS), rv1, rv2, rv3, rv4, ue_, un_, rr !< Resolved stress of the cells; its averages; u_e, u_eta, rho.
+   real(R8P) :: rv1, rv2, rv3, rv4, ue_, un_, rr  !< Resolved stress of the cells; its averages; u_e, u_eta, rho.
    integer(I4P)                :: ab                                 !< Average slot.
-   real(R8P)                   :: cc(WM_CONV_CELLS), sd, fcv, ut, gp, gm, g0 !< Convection of the cells, sign away from the wall, work.
+   real(R8P) :: sd, fcv, ut, gp, gm, g0  !< Convection of the cells, sign away from the wall, work.
    integer(I4P)                :: nc, c, oc, ic, jc, kc, tt, jd, sg  !< Cells with a convection, cell, its index, components, step away from the wall.
    logical                     :: nlj                                !< Null direction.
 
@@ -144,14 +144,19 @@ contains
       k0 = merge(l, 1_I4P, dk == 1_I4P) ; k1 = merge(l, nk, dk == 1_I4P)
       !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(faces_gpu,dxyz_gpu,q_aux_gpu,fl_gpu,avg_gpu)                                                 &
       !$acc& firstprivate(d,di,dj,dk,f,n,side,s,twf,hwf,slf,tff,e,commit,ivf,uef,tef,pgf,nl1,nl2,nl3,tpf,ep,ypf,cvf,rsff,tsff,vcf,R,cp,pr,mu0,tref,suth, omega_mu,blocks_number,i0,i1,j0,j1,k0,k1)     &
-      !$acc& private(u1,u2,u3,us,ts,ps,rs,tau,q,h,t1,t2,t3,w,m,o1,o2,ia,ja,ka,px,g,g2,t,ei,ej,ek,cc,sd,fcv,ut,gp,gm,g0,nc,c,oc,ic,jc,kc,tt,jd,sg,nlj,rc,rv1,rv2,rv3,rv4,ue_,un_,rr,ab,va1,va2,va3,taum)
+      !$acc& private(u1,u2,u3,us,ts,ps,rs,tau,q,h,t1,t2,t3,w,m,o1,o2,ia,ja,ka,px,g,g2,t,ei,ej,ek,sd,fcv,ut,gp,gm,g0,nc,c,oc,ic,jc,kc,tt,jd,sg,nlj,rv1,rv2,rv3,rv4,ue_,un_,rr,ab,va1,va2,va3,taum)
       !$omp OMPLOOP collapse(4) DEVICEPTR(faces_gpu,dxyz_gpu,q_aux_gpu,fl_gpu,avg_gpu)                                                                &
       !$omp& firstprivate(d,di,dj,dk,f,n,side,s,twf,hwf,slf,tff,e,commit,ivf,uef,tef,pgf,nl1,nl2,nl3,tpf,ep,ypf,cvf,rsff,tsff,vcf,R,cp,pr,mu0,tref,suth, omega_mu,blocks_number,i0,i1,j0,j1,k0,k1)     &
-      !$omp& private(u1,u2,u3,us,ts,ps,rs,tau,q,h,t1,t2,t3,w,m,o1,o2,ia,ja,ka,px,g,g2,t,ei,ej,ek,cc,sd,fcv,ut,gp,gm,g0,nc,c,oc,ic,jc,kc,tt,jd,sg,nlj,rc,rv1,rv2,rv3,rv4,ue_,un_,rr,ab,va1,va2,va3,taum)
+      !$omp& private(u1,u2,u3,us,ts,ps,rs,tau,q,h,t1,t2,t3,w,m,o1,o2,ia,ja,ka,px,g,g2,t,ei,ej,ek,sd,fcv,ut,gp,gm,g0,nc,c,oc,ic,jc,kc,tt,jd,sg,nlj,rv1,rv2,rv3,rv4,ue_,un_,rr,ab,va1,va2,va3,taum)
       do k=k0, k1
       do j=j0, j1
       do i=i0, i1
       do b=1, blocks_number
+         block
+         ! locals of the loop body, not private clauses: flang maps a private array of a target region to and from
+         ! the host at every launch (a synchronous copy each; #157, the MI300X 2-D step)
+         real(R8P) :: cc(WM_CONV_CELLS)
+         real(R8P) :: rc(WM_CONV_CELLS)
          if (faces_gpu(b,f) /= 0_I4P) then
             call sample_cells(hwm=hwf, dx=dxyz_gpu(b,d), n=n, m=m, w=w, h=h)
             o1 = merge(m, 1_I4P - m, side == 1) ; o2 = merge(m + 1_I4P, -m, side == 1)
@@ -296,6 +301,7 @@ contains
             if (dk == 0_I4P) fl_gpu(b,i,j,k,IQ_RW) = -s * tau * t3
             fl_gpu(b,i,j,k,IQ_RE) = -s * q
          endif
+         endblock
       enddo
       enddo
       enddo

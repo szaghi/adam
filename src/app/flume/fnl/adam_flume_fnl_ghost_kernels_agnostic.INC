@@ -15,8 +15,6 @@
    integer(I4P), intent(out)   :: blended                            !< Ghosts blended.
    integer(I8P), parameter     :: EXPONENT_MASK=2047_I8P             !< The 11 exponent bits of a binary64.
    logical                     :: isnf, ok                           !< Private non-finite ghost, admissible ghost flags.
-   real(R8P)                   :: qg(NV_K), qi(NV_K), dc(NV_K)       !< Private ghost, interior anchor, difference.
-   real(R8P)                   :: qt(NV_K)                           !< Private segment state.
    real(R8P)                   :: rb, eb, er, ee, r1, e1, t          !< Private anchor values, floors, segment values.
    integer(I4P)                :: lo(3), hi(3), ia(3)                !< Ghost slab bounds, interior index along `d`.
    integer(I4P)                :: il, iu, jl, ju, kl, ku             !< Ghost slab bounds (scalar copies for the launch).
@@ -39,13 +37,20 @@
             ai = ia(1) ; aj = ia(2) ; ak = ia(3)
             n = 0_I4P
             !$acc parallel loop independent gang vector collapse(4) reduction(+:n) DEVICEVAR(q_gpu) &
-            !$acc& firstprivate(d,ai,aj,ak,blocks_number,to_anchor) private(isnf,ok,qg,qi,dc,qt,rb,eb,er,ee,r1,e1,t,ii,jj,kk)
+            !$acc& firstprivate(d,ai,aj,ak,blocks_number,to_anchor) private(isnf,ok,rb,eb,er,ee,r1,e1,t,ii,jj,kk)
             !$omp OMPLOOP collapse(4) reduction(+:n) DEVICEPTR(q_gpu) &
-            !$omp& firstprivate(d,ai,aj,ak,blocks_number,to_anchor) private(isnf,ok,qg,qi,dc,qt,rb,eb,er,ee,r1,e1,t,ii,jj,kk)
+            !$omp& firstprivate(d,ai,aj,ak,blocks_number,to_anchor) private(isnf,ok,rb,eb,er,ee,r1,e1,t,ii,jj,kk)
             do k=kl, ku
             do j=jl, ju
             do i=il, iu
             do b=1, blocks_number
+               block
+               ! locals of the loop body, not private clauses: flang maps a private array of a target region to and from
+               ! the host at every launch (a synchronous copy each; #157, the MI300X 2-D step)
+               real(R8P) :: qg(NV_K)
+               real(R8P) :: qi(NV_K)
+               real(R8P) :: dc(NV_K)
+               real(R8P) :: qt(NV_K)
                ii = merge(ai, i, d == 1)
                jj = merge(aj, j, d == 2)
                kk = merge(ak, k, d == 3)
@@ -90,6 +95,7 @@
                      endif
                   enddo
                endif
+               endblock
             enddo
             enddo
             enddo

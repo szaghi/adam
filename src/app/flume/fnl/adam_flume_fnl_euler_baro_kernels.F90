@@ -95,8 +95,6 @@ contains
    real(R8P),    intent(in)  :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Conservative variables.
    real(R8P),    intent(out) :: lambda_max                        !< Maximum of sum_d (|u_d| + a) / dx_d.
    real(R8P)                 :: wx, wy, wz                        !< Direction weights: 1 active, 0 null.
-   real(R8P)                 :: q_(NV_K)                          !< Private conservative variables of one cell.
-   real(R8P)                 :: qa_(NV_AUX_K)                     !< Private auxiliary variables of one cell.
    real(R8P)                 :: lambda                            !< Cell value.
    integer(I4P)              :: b, i, j, k, v                     !< Counters.
 
@@ -105,15 +103,20 @@ contains
    wz = merge(0._R8P, 1._R8P, is_null(3))
    lambda_max = 0._R8P
    !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(dxyz_gpu,q_gpu) &
-   !$acc& firstprivate(ni,nj,nk,blocks_number,gamma,R,wx,wy,wz) private(q_,qa_,lambda) &
+   !$acc& firstprivate(ni,nj,nk,blocks_number,gamma,R,wx,wy,wz) private(lambda) &
    !$acc& reduction(max:lambda_max)
    !$omp OMPLOOP collapse(4) DEVICEPTR(dxyz_gpu,q_gpu) &
-   !$omp& firstprivate(ni,nj,nk,blocks_number,gamma,R,wx,wy,wz) private(q_,qa_,lambda) &
+   !$omp& firstprivate(ni,nj,nk,blocks_number,gamma,R,wx,wy,wz) private(lambda) &
    !$omp& reduction(max:lambda_max)
    do k=1, nk
    do j=1, nj
    do i=1, ni
    do b=1, blocks_number
+      block
+      ! locals of the loop body, not private clauses: flang maps a private array of a target region to and from
+      ! the host at every launch (a synchronous copy each; #157, the MI300X 2-D step)
+      real(R8P) :: q_(NV_K)
+      real(R8P) :: qa_(NV_AUX_K)
       !$acc loop seq
       do v=1, NV_K
          q_(v) = q_gpu(b,i,j,k,v)
@@ -123,6 +126,7 @@ contains
                wy * (abs(qa_(IA_V)) + qa_(IA_A)) / dxyz_gpu(b,2) + &
                wz * (abs(qa_(IA_W)) + qa_(IA_A)) / dxyz_gpu(b,3)
       lambda_max = max(lambda_max, lambda)
+      endblock
    enddo
    enddo
    enddo
@@ -148,8 +152,6 @@ contains
    real(R8P),    intent(out) :: lambda_dif                        !< Maximum of the diffusive part.
    real(R8P),    intent(out) :: re_cell_min                       !< Minimum cell Reynolds number.
    real(R8P)                 :: wx, wy, wz                        !< Direction weights: 1 active, 0 null.
-   real(R8P)                 :: q_(NV_K)                          !< Private conservative variables of one cell.
-   real(R8P)                 :: qa_(NV_AUX_K)                     !< Private auxiliary variables of one cell.
    real(R8P)                 :: lh, ld                            !< Private hyperbolic and diffusive parts.
    integer(I4P)              :: b, i, j, k, v                     !< Counters.
 
@@ -159,14 +161,19 @@ contains
    lambda_max = 0._R8P ; lambda_hyp = 0._R8P ; lambda_dif = 0._R8P ; re_cell_min = huge(1._R8P)
    !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(dxyz_gpu,q_gpu) &
    !$acc& firstprivate(ni,nj,nk,blocks_number,gamma,R,cp,mu0,k0,eta,t_wall,tref,suth, omega_mu,omega_k,wx,wy,wz) &
-   !$acc& private(q_,qa_,lh,ld) reduction(max:lambda_max,lambda_hyp,lambda_dif) reduction(min:re_cell_min)
+   !$acc& private(lh,ld) reduction(max:lambda_max,lambda_hyp,lambda_dif) reduction(min:re_cell_min)
    !$omp OMPLOOP collapse(4) DEVICEPTR(dxyz_gpu,q_gpu) &
    !$omp& firstprivate(ni,nj,nk,blocks_number,gamma,R,cp,mu0,k0,eta,t_wall,tref,suth, omega_mu,omega_k,wx,wy,wz) &
-   !$omp& private(q_,qa_,lh,ld) reduction(max:lambda_max,lambda_hyp,lambda_dif) reduction(min:re_cell_min)
+   !$omp& private(lh,ld) reduction(max:lambda_max,lambda_hyp,lambda_dif) reduction(min:re_cell_min)
    do k=1, nk
    do j=1, nj
    do i=1, ni
    do b=1, blocks_number
+      block
+      ! locals of the loop body, not private clauses: flang maps a private array of a target region to and from
+      ! the host at every launch (a synchronous copy each; #157, the MI300X 2-D step)
+      real(R8P) :: q_(NV_K)
+      real(R8P) :: qa_(NV_AUX_K)
       !$acc loop seq
       do v=1, NV_K
          q_(v) = q_gpu(b,i,j,k,v)
@@ -183,6 +190,7 @@ contains
       lambda_hyp = max(lambda_hyp, lh)
       lambda_dif = max(lambda_dif, ld)
       if (ld > 0._R8P) re_cell_min = min(re_cell_min, 2._R8P * lh / ld)
+      endblock
    enddo
    enddo
    enddo

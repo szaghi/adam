@@ -135,7 +135,6 @@ contains
       real(R8P),    intent(in)    :: z_cell_gpu(1:,1-ngc:)             !< Cells z coordinates on GPU [nb,1-ngc:nk+ngc].
       real(R8P),    intent(inout) :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Field cell centered variables.
       real(R8P)                   :: B_r, B_theta                      !< Radial/azimuthal components of the rotating B field.
-      real(R8P)                   :: cell_coord(3)                     !< Cell coordinates.
       real(R8P)                   :: phase                             !< Phase.
       real(R8P)                   :: theta                             !< Angle in cylindrical coordinates.
       real(R8P)                   :: x,y,r,c,s                         !< Buffer.
@@ -144,15 +143,19 @@ contains
       !$acc parallel loop independent gang vector collapse(4)                                               &
       !$acc& DEVICEVAR(x_cell_gpu,y_cell_gpu,z_cell_gpu,q_gpu)                                              &
       !$acc& firstprivate(ni,nj,nk,blocks_number,time_next,ef_alpha,ef_beta,ef_gamma,omega,RMF_B_amplitude,displacement_scale) &
-      !$acc& private(B_r,B_theta,cell_coord,phase,theta,x,y,r,c,s)
+      !$acc& private(B_r,B_theta,phase,theta,x,y,r,c,s)
       !$omp OMPLOOP collapse(4) &
       !$omp& DEVICEPTR(x_cell_gpu,y_cell_gpu,z_cell_gpu,q_gpu) &
       !$omp& firstprivate(ni,nj,nk,blocks_number,time_next,ef_alpha,ef_beta,ef_gamma,omega,RMF_B_amplitude,displacement_scale) &
-      !$omp& private(B_r,B_theta,cell_coord,phase,theta,x,y,r,c,s)
+      !$omp& private(B_r,B_theta,phase,theta,x,y,r,c,s)
       do k = 1 - ngc, nk + ngc
       do j = 1 - ngc, nj + ngc
       do i = 1 - ngc, ni + ngc
       do b = 1, blocks_number
+         block
+         ! locals of the loop body, not private clauses: flang maps a private array of a target region to and from
+         ! the host at every launch (a synchronous copy each; #157, the MI300X 2-D step)
+         real(R8P) :: cell_coord(3)
          cell_coord(1) = x_cell_gpu(b,i) ; cell_coord(2) = y_cell_gpu(b,j) ; cell_coord(3) = z_cell_gpu(b,k)
          x = cell_coord(ef_alpha)
          y = cell_coord(ef_beta)
@@ -166,6 +169,7 @@ contains
          q_gpu(b,i,j,k,ef_alpha+3) = q_gpu(b,i,j,k,ef_alpha+3) + B_r*c - B_theta*s
          q_gpu(b,i,j,k,ef_beta +3) = q_gpu(b,i,j,k,ef_beta +3) + B_r*s + B_theta*c
          q_gpu(b,i,j,k,ef_gamma  ) = q_gpu(b,i,j,k,ef_gamma  ) + r*omega*RMF_B_amplitude*cos(phase)*displacement_scale
+         endblock
       enddo
       enddo
       enddo
@@ -229,7 +233,6 @@ contains
       real(R8P),    intent(in)    :: z_cell_gpu(1:,1-ngc:)             !< Cells z coordinates on GPU [nb,1-ngc:nk+ngc].
       real(R8P),    intent(inout) :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Field cell centered variables.
       real(R8P)                   :: B_r, B_theta                      !< Radial/azimuthal components of the rotating B field.
-      real(R8P)                   :: cell_coord(3)                     !< Cell coordinates.
       real(R8P)                   :: phase                             !< Phase.
       real(R8P)                   :: theta                             !< Angle in cylindrical coordinates.
       real(R8P)                   :: x,y,r,c,s                         !< Buffer.
@@ -239,15 +242,19 @@ contains
       !$acc parallel loop independent gang vector collapse(4)                                               &
       !$acc& DEVICEVAR(x_cell_gpu,y_cell_gpu,z_cell_gpu,q_gpu)                                              &
       !$acc& firstprivate(ni,nj,nk,blocks_number,time_next,ef_alpha,ef_beta,ef_gamma,omega,RMF_B_amplitude,displacement_scale) &
-      !$acc& private(B_r,B_theta,cell_coord,phase,theta,x,y,r,c,s)
+      !$acc& private(B_r,B_theta,phase,theta,x,y,r,c,s)
       !$omp OMPLOOP collapse(4) &
       !$omp& DEVICEPTR(x_cell_gpu,y_cell_gpu,z_cell_gpu,q_gpu) &
       !$omp& firstprivate(ni,nj,nk,blocks_number,time_next,ef_alpha,ef_beta,ef_gamma,omega,RMF_B_amplitude,displacement_scale) &
-      !$omp& private(B_r,B_theta,cell_coord,phase,theta,x,y,r,c,s)
+      !$omp& private(B_r,B_theta,phase,theta,x,y,r,c,s)
       do k = 1 - ngc, nk + ngc
       do j = 1 - ngc, nj + ngc
       do i = 1 - ngc, ni + ngc
       do b = 1, blocks_number
+         block
+         ! locals of the loop body, not private clauses: flang maps a private array of a target region to and from
+         ! the host at every launch (a synchronous copy each; #157, the MI300X 2-D step)
+         real(R8P) :: cell_coord(3)
          cell_coord(1) = x_cell_gpu(b,i) ; cell_coord(2) = y_cell_gpu(b,j) ; cell_coord(3) = z_cell_gpu(b,k)
          x = cell_coord(ef_alpha)
          y = cell_coord(ef_beta)
@@ -261,6 +268,7 @@ contains
          q_gpu(b,i,j,k,ef_alpha+3) = q_gpu(b,i,j,k,ef_alpha+3) - (B_r*c - B_theta*s)
          q_gpu(b,i,j,k,ef_beta +3) = q_gpu(b,i,j,k,ef_beta +3) - (B_r*s + B_theta*c)
          q_gpu(b,i,j,k,ef_gamma  ) = q_gpu(b,i,j,k,ef_gamma  ) - r*omega*RMF_B_amplitude*cos(phase)*displacement_scale
+         endblock
       enddo
       enddo
       enddo
@@ -407,8 +415,8 @@ contains
    contains
       subroutine correct_block(b, faces)
       integer(I4P), intent(in) :: b, faces(6)
-      integer(I4P)             :: i,j,k,axis,m,idx(3),sample(3)
-      real(R8P)                :: sign_D(3),sign_B(3),value(6,2),coord(3),x,y,r,theta,phase,omega,br,bt,c,s
+      integer(I4P) :: i, j, k, axis, m
+      real(R8P) :: x, y, r, theta, phase, omega, br, bt, c, s
       real(R8P)                :: d_amp,b_amp
       real(R8P)                :: rmf_amp, displacement_scale
       real(R8P), pointer       :: x_cell_gpu(:,:), y_cell_gpu(:,:), z_cell_gpu(:,:)
@@ -431,16 +439,25 @@ contains
       !$acc& DEVICEVAR(q_gpu,x_cell_gpu,y_cell_gpu,z_cell_gpu) &
       !$acc& firstprivate(b,faces,field_kind,factor,time_stage,alpha,beta,gamma,uniform_axis,omega,d_amp,b_amp,rmf_amp,naxis, &
       !$acc&              displacement_scale) &
-      !$acc& private(idx,sample,sign_D,sign_B,value,coord,x,y,r,theta,phase,br,bt,c,s,axis,m)
+      !$acc& private(x,y,r,theta,phase,br,bt,c,s,axis,m)
       !$omp OMPLOOP collapse(3) &
       !$omp& map(to:faces,naxis) &
       !$omp& DEVICEPTR(q_gpu,x_cell_gpu,y_cell_gpu,z_cell_gpu) &
       !$omp& firstprivate(b,field_kind,factor,time_stage,alpha,beta,gamma,uniform_axis,omega,d_amp,b_amp,rmf_amp, &
       !$omp&              displacement_scale) &
-      !$omp& private(idx,sample,sign_D,sign_B,value,coord,x,y,r,theta,phase,br,bt,c,s,axis,m)
+      !$omp& private(x,y,r,theta,phase,br,bt,c,s,axis,m)
       do k=1-ngc,nk+ngc
       do j=1-ngc,nj+ngc
       do i=1-ngc,ni+ngc
+         block
+         ! locals of the loop body, not private clauses: flang maps a private array of a target region to and from
+         ! the host at every launch (a synchronous copy each; #157, the MI300X 2-D step)
+         integer(I4P) :: idx(3)
+         integer(I4P) :: sample(3)
+         real(R8P) :: sign_D(3)
+         real(R8P) :: sign_B(3)
+         real(R8P) :: value(6,2)
+         real(R8P) :: coord(3)
          idx(1) = i ; idx(2) = j ; idx(3) = k
          sample = idx
          sign_D = 1._R8P
@@ -481,6 +498,7 @@ contains
             q_gpu(b,i,j,k,m)=q_gpu(b,i,j,k,m)+factor*(sign_D(m)*value(m,2)-value(m,1))
             q_gpu(b,i,j,k,m+3)=q_gpu(b,i,j,k,m+3)+factor*(sign_B(m)*value(m+3,2)-value(m+3,1))
          enddo
+         endblock
       enddo
       enddo
       enddo

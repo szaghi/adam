@@ -17,27 +17,29 @@
    real(R8P),    intent(in)    :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)       !< Conservative variables.
    real(R8P),    intent(in)    :: q_aux_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)   !< Auxiliary variables.
    real(R8P),    intent(inout) :: fl_gpu(1:,1-di:,1-dj:,1-dk:,1:)         !< Face fluxes of direction `d`.
-   real(R8P)                   :: qs(NV_K,1-S_MAX:S_MAX)                  !< Private stencil conservative variables.
-   real(R8P)                   :: qas(NV_AUX_K,1-S_MAX:S_MAX)             !< Private stencil auxiliary variables.
-   real(R8P)                   :: fsplit(2,1-S_MAX:S_MAX-1,NV_K)          !< Private split fields.
-   real(R8P)                   :: er(NV_K,NV_K)                           !< Private right eigenvectors.
-   real(R8P)                   :: mu(NV_K)                                !< Private magnitude of each split field.
-   real(R8P)                   :: vp(1-S:S), vm(1-S:S)!< Private stencil of one field, left and right bias.
-   real(R8P)                   :: vr(2,NV_K)                              !< Private reconstructed split fields.
-   real(R8P)                   :: flux(NV_K)                              !< Private face flux.
    integer(I4P)                :: b, i, j, k, m, f, w                     !< Counters.
 
    !$acc parallel loop independent gang vector collapse(4)                                                        &
    !$acc& DEVICEVAR(q_gpu,q_aux_gpu,fl_gpu)                                                                        &
-   !$acc& firstprivate(d,di,dj,dk,ni,nj,nk,blocks_number,gamma,ch,is_characteristic,weno_zeps,weno_sigma)         &
-   !$acc& private(qs,qas,fsplit,er,mu,vp,vm,vr,flux)
+   !$acc& firstprivate(d,di,dj,dk,ni,nj,nk,blocks_number,gamma,ch,is_characteristic,weno_zeps,weno_sigma)
    !$omp OMPLOOP collapse(4) DEVICEPTR(q_gpu,q_aux_gpu,fl_gpu)                                  &
-   !$omp& firstprivate(d,di,dj,dk,ni,nj,nk,blocks_number,gamma,ch,is_characteristic,weno_zeps,weno_sigma) &
-   !$omp& private(qs,qas,fsplit,er,mu,vp,vm,vr,flux)
+   !$omp& firstprivate(d,di,dj,dk,ni,nj,nk,blocks_number,gamma,ch,is_characteristic,weno_zeps,weno_sigma)
    do k=1-dk, nk
    do j=1-dj, nj
    do i=1-di, ni
    do b=1, blocks_number
+      block
+      ! locals of the loop body, not private clauses: flang maps a private array of a target region to and from
+      ! the host at every launch (a synchronous copy each; #157, the MI300X 2-D step)
+      real(R8P) :: qs(NV_K,1-S_MAX:S_MAX)
+      real(R8P) :: qas(NV_AUX_K,1-S_MAX:S_MAX)
+      real(R8P) :: fsplit(2,1-S_MAX:S_MAX-1,NV_K)
+      real(R8P) :: er(NV_K,NV_K)
+      real(R8P) :: mu(NV_K)
+      real(R8P) :: vp(1-S:S)
+      real(R8P) :: vm(1-S:S)
+      real(R8P) :: vr(2,NV_K)
+      real(R8P) :: flux(NV_K)
       !$acc loop seq
       do m=1-S, S
          !$acc loop seq
@@ -66,6 +68,7 @@
       do w=1, NV_K
          fl_gpu(b,i,j,k,w) = flux(w)
       enddo
+      endblock
    enddo
    enddo
    enddo

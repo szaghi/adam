@@ -746,13 +746,12 @@ contains
    integer(I4P),                           intent(in)    :: nv      !< Charge density slot.
    real(R8P),    pointer                                 :: wa(:,:,:,:), wb(:,:,:,:), q_pic(:,:)
    integer(I4P), pointer                                 :: off(:,:)
-   real(R8P)                                             :: w(MAX_SPAN,3), xc(MAX_SPAN)
-   real(R8P)                                             :: dxyz(3), x(3), emin(3), cutoff_limit, charge_density, sigma
+   real(R8P) :: cutoff_limit, charge_density, sigma
    real(R8P)                                             :: value, e1, e2, e3, d1, d2, d3, s1, s2, s3
    integer(I4P)                                          :: part, d, m, li, lj, lk, perr, ierr, rad, radius, shp
    integer(I4P)                                          :: ni, nj, nk, nx, ny, nz, nbl, ngc, np, b, i, j, k, gi, gj, gk
-   integer(I4P)                                          :: ii, jj, kk, ic(3), lo(3), rr(3), nn(3)
-   logical                                               :: px, py, pz, per(3)
+   integer(I4P) :: ii, jj, kk
+   logical :: px, py, pz
 
    nx = self%ni ; ny = self%nj ; nz = self%nk ; np = self%particle_number
    ni = self%bni ; nj = self%bnj ; nk = self%bnk ; nbl = self%bblocks ; ngc = self%ngc
@@ -777,11 +776,24 @@ contains
       q_pic => pic_fnl%q_pic_gpu
       !$acc parallel loop gang DEVICEVAR(q_pic,wa) &
       !$acc& firstprivate(nx,ny,nz,rad,radius,shp,sigma,cutoff_limit,e1,e2,e3,d1,d2,d3,s1,s2,s3,px,py,pz) &
-      !$acc& private(nn,per,w,xc,dxyz,x,emin,ic,lo,rr,perr,charge_density) reduction(max:ierr)
+      !$acc& private(perr,charge_density) reduction(max:ierr)
       !$omp OMPLOOP DEVICEPTR(q_pic,wa) &
       !$omp& firstprivate(nx,ny,nz,rad,radius,shp,sigma,cutoff_limit,e1,e2,e3,d1,d2,d3,s1,s2,s3,px,py,pz) &
-      !$omp& private(nn,per,w,xc,dxyz,x,emin,ic,lo,rr,perr,charge_density) reduction(max:ierr)
+      !$omp& private(perr,charge_density) reduction(max:ierr)
       do part=1, np
+         block
+         ! locals of the loop body, not private clauses: flang maps a private array of a target region to and from
+         ! the host at every launch (a synchronous copy each; #157, the MI300X 2-D step)
+         integer(I4P) :: nn(3)
+         logical :: per(3)
+         real(R8P) :: w(MAX_SPAN,3)
+         real(R8P) :: xc(MAX_SPAN)
+         real(R8P) :: dxyz(3)
+         real(R8P) :: x(3)
+         real(R8P) :: emin(3)
+         integer(I4P) :: ic(3)
+         integer(I4P) :: lo(3)
+         integer(I4P) :: rr(3)
          perr = 0_I4P
          nn(1) = nx ; nn(2) = ny ; nn(3) = nz
          per(1) = px ; per(2) = py ; per(3) = pz
@@ -835,6 +847,7 @@ contains
             enddo
             enddo
          endif
+         endblock
       enddo
    endif
    call check_particle_error(ierr)
@@ -1073,13 +1086,12 @@ contains
    integer(I4P),                           intent(in)    :: p_first        !< First particle.
    integer(I4P),                           intent(in)    :: p_last         !< Last particle.
    real(R8P), pointer                                    :: vx_gpu(:), vy_gpu(:), vz_gpu(:)
-   real(R8P)                                             :: wref(MAX_SPAN,3), wto(MAX_SPAN,3), xc(MAX_SPAN)
-   real(R8P)                                             :: dxyz(3), xr(3), xt(3), cutoff_limit, charge_density
+   real(R8P) :: cutoff_limit, charge_density
    real(R8P)                                             :: a0, a1, da, b0, b1, db, c0, c1, dc, sigma
    real(R8P)                                             :: e1, e2, e3, d1, d2, d3, s1, s2, s3
    integer(I4P)                                          :: p, d, m, i, j, k, perr, ierr
-   integer(I4P)                                          :: cr(3), ct(3), lo(3), hi(3), rr(3), rad, rmod
-   integer(I4P)                                          :: ni, nj, nk, shp, nn(3)
+   integer(I4P) :: rad, rmod
+   integer(I4P) :: ni, nj, nk, shp
    logical                                               :: modified, filter_esk
 
    call zero_h(self=self, h=h)
@@ -1099,11 +1111,26 @@ contains
 
    !$acc parallel loop gang DEVICEVAR(q_ref,q_to,h,vx_gpu,vy_gpu,vz_gpu) &
    !$acc& firstprivate(ni,nj,nk,rad,rmod,shp,modified,filter_esk,sigma,cutoff_limit,e1,e2,e3,d1,d2,d3,s1,s2,s3) &
-   !$acc& private(nn,wref,wto,xc,dxyz,xr,xt,cr,ct,lo,hi,rr,perr,charge_density) reduction(max:ierr)
+   !$acc& private(perr,charge_density) reduction(max:ierr)
    !$omp OMPLOOP DEVICEPTR(q_ref,q_to,h,vx_gpu,vy_gpu,vz_gpu) &
    !$omp& firstprivate(ni,nj,nk,rad,rmod,shp,modified,filter_esk,sigma,cutoff_limit,e1,e2,e3,d1,d2,d3,s1,s2,s3) &
-   !$omp& private(nn,wref,wto,xc,dxyz,xr,xt,cr,ct,lo,hi,rr,perr,charge_density) reduction(max:ierr)
+   !$omp& private(perr,charge_density) reduction(max:ierr)
    do p=p_first, p_last
+      block
+      ! locals of the loop body, not private clauses: flang maps a private array of a target region to and from
+      ! the host at every launch (a synchronous copy each; #157, the MI300X 2-D step)
+      integer(I4P) :: nn(3)
+      real(R8P) :: wref(MAX_SPAN,3)
+      real(R8P) :: wto(MAX_SPAN,3)
+      real(R8P) :: xc(MAX_SPAN)
+      real(R8P) :: dxyz(3)
+      real(R8P) :: xr(3)
+      real(R8P) :: xt(3)
+      integer(I4P) :: cr(3)
+      integer(I4P) :: ct(3)
+      integer(I4P) :: lo(3)
+      integer(I4P) :: hi(3)
+      integer(I4P) :: rr(3)
       perr = 0_I4P
       nn(1) = ni ; nn(2) = nj ; nn(3) = nk
       dxyz(1) = d1 ; dxyz(2) = d2 ; dxyz(3) = d3
@@ -1182,6 +1209,7 @@ contains
          enddo
          enddo
       endif
+      endblock
    enddo
    call check_particle_error(ierr)
    endsubroutine esirkepov_displacement
@@ -1212,16 +1240,12 @@ contains
    integer(I4P),                           intent(in)    :: p_first           !< First particle.
    integer(I4P),                           intent(in)    :: p_last            !< Last particle.
    real(R8P),                              intent(in)    :: dt                !< Time step.
-   real(R8P)                                             :: wref(MAX_SPAN,3), wto(MAX_SPAN,3), xc(MAX_SPAN)
-   real(R8P)                                             :: g(0:MAX_SPAN,3)
-   real(R8P)                                             :: dxyz(3), xr(3), xt(3), emin(3)
    real(R8P)                                             :: cutoff_limit, charge_density, sigma, res, value, w0, dw
    real(R8P)                                             :: e1, e2, e3, d1, d2, d3, s1, s2, s3
    integer(I4P)                                          :: part, d, a, b, m, li, lj, lk, perr, ierr
    integer(I4P)                                          :: rad, radius, qfirst, nq, shp, ni, nj, nk, nli, nlj, nlk
    integer(I4P)                                          :: ci, cj, ck, ii, jj, kk
-   integer(I4P)                                          :: cr(3), ct(3), lo(3), hi(3), rr(3), nn(3), last(3)
-   logical                                               :: px, py, pz, per(3)
+   logical :: px, py, pz
 
    call zero_h(self=self, h=h)
    ! the box of the boxed reduce of h that follows (collective: before the early return of a rank without particles)
@@ -1238,13 +1262,32 @@ contains
    ierr = 0_I4P ; res = 0._R8P
    !$acc parallel loop gang DEVICEVAR(q_ref,q_to,h) &
    !$acc& firstprivate(ni,nj,nk,rad,radius,shp,sigma,cutoff_limit,e1,e2,e3,d1,d2,d3,s1,s2,s3,px,py,pz,dt) &
-   !$acc& private(nn,per,wref,wto,xc,g,dxyz,xr,xt,emin,cr,ct,lo,hi,rr,last,perr,charge_density) &
+   !$acc& private(perr,charge_density) &
    !$acc& private(a,b,nli,nlj,nlk) reduction(max:ierr,res)
    !$omp OMPLOOP DEVICEPTR(q_ref,q_to,h) &
    !$omp& firstprivate(ni,nj,nk,rad,radius,shp,sigma,cutoff_limit,e1,e2,e3,d1,d2,d3,s1,s2,s3,px,py,pz,dt) &
-   !$omp& private(nn,per,wref,wto,xc,g,dxyz,xr,xt,emin,cr,ct,lo,hi,rr,last,perr,charge_density) &
+   !$omp& private(perr,charge_density) &
    !$omp& private(a,b,nli,nlj,nlk) reduction(max:ierr,res)
    do part=p_first, p_last
+      block
+      ! locals of the loop body, not private clauses: flang maps a private array of a target region to and from
+      ! the host at every launch (a synchronous copy each; #157, the MI300X 2-D step)
+      integer(I4P) :: nn(3)
+      logical :: per(3)
+      real(R8P) :: wref(MAX_SPAN,3)
+      real(R8P) :: wto(MAX_SPAN,3)
+      real(R8P) :: xc(MAX_SPAN)
+      real(R8P) :: g(0:MAX_SPAN,3)
+      real(R8P) :: dxyz(3)
+      real(R8P) :: xr(3)
+      real(R8P) :: xt(3)
+      real(R8P) :: emin(3)
+      integer(I4P) :: cr(3)
+      integer(I4P) :: ct(3)
+      integer(I4P) :: lo(3)
+      integer(I4P) :: hi(3)
+      integer(I4P) :: rr(3)
+      integer(I4P) :: last(3)
       perr = 0_I4P
       nn(1) = ni ; nn(2) = nj ; nn(3) = nk
       per(1) = px ; per(2) = py ; per(3) = pz
@@ -1342,6 +1385,7 @@ contains
             enddo
          enddo
       endif
+      endblock
    enddo
    call check_particle_error(ierr)
    self%residual_max = max(self%residual_max, res)

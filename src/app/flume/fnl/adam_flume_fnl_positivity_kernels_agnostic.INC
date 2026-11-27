@@ -40,24 +40,12 @@
    integer(I4P), intent(out)   :: nonfinite                              !< Cells with a non-finite high-order face flux.
    integer(I8P), parameter     :: EXPONENT_MASK=2047_I8P                 !< The 11 exponent bits of a binary64.
    logical                     :: isnf                                   !< Private non-finite face difference flag.
-   real(R8P)                   :: qsx(NV_K,-S_MAX:S_MAX)                 !< Private stencil along x.
-   real(R8P)                   :: qsy(NV_K,-S_MAX:S_MAX)                 !< Private stencil along y.
-   real(R8P)                   :: qsz(NV_K,-S_MAX:S_MAX)                 !< Private stencil along z.
-   real(R8P)                   :: qac(NV_AUX_K)                          !< Private cell auxiliary variables.
-   real(R8P)                   :: flo(NV_K)                              !< Private backbone face flux.
-   real(R8P)                   :: dlt(NV_K,6)                            !< Private antidiffusive differences.
-   real(R8P)                   :: qb(NV_K)                               !< Private backbone update.
-   real(R8P)                   :: dsrc(NV_K)                             !< Private source difference.
-   real(R8P)                   :: s_lo(NV_K), s_hi(NV_K)                 !< Private backbone and high-order sources.
-   real(R8P)                   :: dc(NV_K)                               !< Private corner direction.
-   real(R8P)                   :: qt(NV_K)                               !< Private corner state.
-   real(R8P)                   :: ds(3), w(3)                            !< Private space steps, direction weights.
    real(R8P)                   :: rb, eb, er, ee                         !< Private backbone density, energy, floors.
    real(R8P)                   :: r1, e1, t, lc                          !< Private corner density, energy, factors.
    real(R8P)                   :: cs2                                    !< Private kinetic chord's c^2 (0: none).
    real(R8P)                   :: dtdx                                   !< Private dt / dx_d.
    real(R8P)                   :: sl, cc                                 !< Private gravity backbone terms.
-   real(R8P)                   :: gfr, gfl, gfc(3)                       !< Private face and cell gravity.
+   real(R8P) :: gfr, gfl  !< Private face and cell gravity.
    integer(I4P)                :: nf                                     !< Private active faces.
    integer(I4P)                :: b, i, j, k, d, f, c, m, v              !< Counters.
 
@@ -66,18 +54,36 @@
    !$acc parallel loop independent gang vector collapse(4) reduction(+:bad,nonfinite)                                &
    !$acc& DEVICEVAR(dxyz_gpu,q_gpu,q_aux_gpu,flx_gpu,fly_gpu,flz_gpu,gc_gpu,lam_gpu,phi_gpu)                          &
    !$acc& firstprivate(ni,nj,nk,blocks_number,gamma,ch,damping,hs,dt,g,is_null,has_phi)                               &
-   !$acc& private(qsx,qsy,qsz,qac,flo,dlt,qb,dsrc,s_lo,s_hi,dc,qt,ds,w,rb,eb,er,ee,r1,e1,t,lc,dtdx,nf,isnf,sl,cc)     &
-   !$acc& private(gfr,gfl,gfc,cs2)
+   !$acc& private(rb,eb,er,ee,r1,e1,t,lc,dtdx,nf,isnf,sl,cc) &
+   !$acc& private(gfr,gfl,cs2)
    !$omp OMPLOOP collapse(4) reduction(+:bad,nonfinite) &
    !$omp& map(to:g,is_null) &
    !$omp& DEVICEPTR(dxyz_gpu,q_gpu,q_aux_gpu,flx_gpu,fly_gpu,flz_gpu,gc_gpu,lam_gpu,phi_gpu) &
    !$omp& firstprivate(ni,nj,nk,blocks_number,gamma,ch,damping,hs,dt,has_phi) &
-   !$omp& private(qsx,qsy,qsz,qac,flo,dlt,qb,dsrc,s_lo,s_hi,dc,qt,ds,w,rb,eb,er,ee,r1,e1,t,lc,dtdx,nf,isnf,sl,cc) &
-   !$omp& private(gfr,gfl,gfc,cs2)
+   !$omp& private(rb,eb,er,ee,r1,e1,t,lc,dtdx,nf,isnf,sl,cc) &
+   !$omp& private(gfr,gfl,cs2)
    do k=1, nk
    do j=1, nj
    do i=1, ni
    do b=1, blocks_number
+      block
+      ! locals of the loop body, not private clauses: flang maps a private array of a target region to and from
+      ! the host at every launch (a synchronous copy each; #157, the MI300X 2-D step)
+      real(R8P) :: qsx(NV_K,-S_MAX:S_MAX)
+      real(R8P) :: qsy(NV_K,-S_MAX:S_MAX)
+      real(R8P) :: qsz(NV_K,-S_MAX:S_MAX)
+      real(R8P) :: qac(NV_AUX_K)
+      real(R8P) :: flo(NV_K)
+      real(R8P) :: dlt(NV_K,6)
+      real(R8P) :: qb(NV_K)
+      real(R8P) :: dsrc(NV_K)
+      real(R8P) :: s_lo(NV_K)
+      real(R8P) :: s_hi(NV_K)
+      real(R8P) :: dc(NV_K)
+      real(R8P) :: qt(NV_K)
+      real(R8P) :: ds(3)
+      real(R8P) :: w(3)
+      real(R8P) :: gfc(3)
       !$acc loop seq
       do m=-hs, hs
          !$acc loop seq
@@ -238,6 +244,7 @@
          enddo
          lam_gpu(b,i,j,k,1) = max(0._R8P, lc)
       endif
+      endblock
    enddo
    enddo
    enddo
@@ -259,20 +266,24 @@
    real(R8P),    intent(in)    :: lam_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)  !< Cell factors (component 1).
    real(R8P),    intent(inout) :: fl_gpu(1:,1-di:,1-dj:,1-dk:,1:)      !< Face fluxes of direction `d`.
    integer(I4P), intent(out)   :: limited                              !< Faces with theta < 1.
-   real(R8P)                   :: qL(NV_K), qR(NV_K)                   !< Private cell states.
-   real(R8P)                   :: flo(NV_K)                            !< Private backbone face flux.
    real(R8P)                   :: theta                                !< Private face factor.
    integer(I4P)                :: b, i, j, k, v                        !< Counters.
 
    limited = 0_I4P
    !$acc parallel loop independent gang vector collapse(4) reduction(+:limited) DEVICEVAR(q_gpu,lam_gpu,fl_gpu) &
-   !$acc& firstprivate(d,di,dj,dk,ni,nj,nk,blocks_number,gamma,ch) private(qL,qR,flo,theta)
+   !$acc& firstprivate(d,di,dj,dk,ni,nj,nk,blocks_number,gamma,ch) private(theta)
    !$omp OMPLOOP collapse(4) reduction(+:limited) DEVICEPTR(q_gpu,lam_gpu,fl_gpu) &
-   !$omp& firstprivate(d,di,dj,dk,ni,nj,nk,blocks_number,gamma,ch) private(qL,qR,flo,theta)
+   !$omp& firstprivate(d,di,dj,dk,ni,nj,nk,blocks_number,gamma,ch) private(theta)
    do k=1-dk, nk
    do j=1-dj, nj
    do i=1-di, ni
    do b=1, blocks_number
+      block
+      ! locals of the loop body, not private clauses: flang maps a private array of a target region to and from
+      ! the host at every launch (a synchronous copy each; #157, the MI300X 2-D step)
+      real(R8P) :: qL(NV_K)
+      real(R8P) :: qR(NV_K)
+      real(R8P) :: flo(NV_K)
       theta = min(lam_gpu(b,i,j,k,1), lam_gpu(b,i+di,j+dj,k+dk,1), 1._R8P)
       if (theta < 1._R8P) then
          !$acc loop seq
@@ -291,6 +302,7 @@
          enddo
          limited = limited + 1_I4P
       endif
+      endblock
    enddo
    enddo
    enddo

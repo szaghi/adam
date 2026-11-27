@@ -18,17 +18,6 @@
    real(R8P),    intent(in)    :: q_aux_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)   !< Auxiliary variables.
    real(R8P),    intent(inout) :: fl_gpu(1:,1-di:,1-dj:,1-dk:,1:)         !< Face fluxes of direction `d`.
    integer(I4P), intent(out)   :: fallbacks                               !< Faces whose Riemann solver fell back.
-   real(R8P)                   :: qs(NV_K,1-S_MAX:S_MAX)                  !< Private stencil conservative variables.
-   real(R8P)                   :: qas(NV_AUX_K,1-S_MAX:S_MAX)             !< Private stencil auxiliary variables.
-   real(R8P)                   :: fint(2,1-S_MAX:S_MAX-1,NV_K)            !< Private fields to interpolate.
-   real(R8P)                   :: er(NV_K,NV_K)                           !< Private right eigenvectors.
-   real(R8P)                   :: mu(NV_K)                                !< Private magnitude of each field.
-   real(R8P)                   :: vp(1-S:S), vm(1-S:S)!< Private stencil of one field, left and right bias.
-   real(R8P)                   :: wr(2)                                   !< Private WENO weights ratio of one field.
-   real(R8P)                   :: vr(2,NV_K)                              !< Private interpolated fields.
-   real(R8P)                   :: qL(NV_K), qR(NV_K)                      !< Private face states.
-   real(R8P)                   :: fr(NV_K)                                !< Private Riemann flux.
-   real(R8P)                   :: fc(NV_K,-1:2)                           !< Private physical fluxes of cells -1 ... 2.
    real(R8P)                   :: wmin                                    !< Private minimum WENO weights ratio.
    real(R8P)                   :: sensor                                  !< Private correction switch.
    logical                     :: fallback                                !< Private Riemann solver fallback flag.
@@ -38,16 +27,32 @@
    !$acc parallel loop independent gang vector collapse(4) reduction(+:fallbacks)                                 &
    !$acc& DEVICEVAR(q_gpu,q_aux_gpu,fl_gpu)                                                                        &
    !$acc& firstprivate(d,di,dj,dk,ni,nj,nk,blocks_number,gamma,ch,is_characteristic,weno_zeps,weno_sigma,cc,tau) &
-   !$acc& private(qs,qas,fint,er,mu,vp,vm,wr,vr,qL,qR,fr,fc,wmin,sensor,fallback)
+   !$acc& private(wmin,sensor,fallback)
    !$omp OMPLOOP collapse(4) reduction(+:fallbacks) &
    !$omp& map(to:cc) &
    !$omp& DEVICEPTR(q_gpu,q_aux_gpu,fl_gpu)                                  &
    !$omp& firstprivate(d,di,dj,dk,ni,nj,nk,blocks_number,gamma,ch,is_characteristic,weno_zeps,weno_sigma,tau) &
-   !$omp& private(qs,qas,fint,er,mu,vp,vm,wr,vr,qL,qR,fr,fc,wmin,sensor,fallback)
+   !$omp& private(wmin,sensor,fallback)
    do k=1-dk, nk
    do j=1-dj, nj
    do i=1-di, ni
    do b=1, blocks_number
+      block
+      ! locals of the loop body, not private clauses: flang maps a private array of a target region to and from
+      ! the host at every launch (a synchronous copy each; #157, the MI300X 2-D step)
+      real(R8P) :: qs(NV_K,1-S_MAX:S_MAX)
+      real(R8P) :: qas(NV_AUX_K,1-S_MAX:S_MAX)
+      real(R8P) :: fint(2,1-S_MAX:S_MAX-1,NV_K)
+      real(R8P) :: er(NV_K,NV_K)
+      real(R8P) :: mu(NV_K)
+      real(R8P) :: vp(1-S:S)
+      real(R8P) :: vm(1-S:S)
+      real(R8P) :: wr(2)
+      real(R8P) :: vr(2,NV_K)
+      real(R8P) :: qL(NV_K)
+      real(R8P) :: qR(NV_K)
+      real(R8P) :: fr(NV_K)
+      real(R8P) :: fc(NV_K,-1:2)
       !$acc loop seq
       do m=min(1-S,-1), max(S,2)
          !$acc loop seq
@@ -88,6 +93,7 @@
          fl_gpu(b,i,j,k,w) = fr(w) + sensor * (cc(1) * fr(w) + cc(2) * (fc(w,0) + fc(w,1)) + &
                                                cc(3) * (fc(w,-1) + fc(w,2)) - fr(w))
       enddo
+      endblock
    enddo
    enddo
    enddo

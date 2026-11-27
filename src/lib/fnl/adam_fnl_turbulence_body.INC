@@ -10,10 +10,7 @@
    integer(I4P)                :: s1, s2, s3                            !< Steps along x, y, z: 1 active, 0 null.
    real(R8P)                   :: w1, w2, w3                            !< Weights along x, y, z: 1 active, 0 null.
    real(R8P)                   :: rexp                                  !< 1 over the active directions.
-   real(R8P)                   :: dl(3)                                 !< Private steps, 0 along null.
-   real(R8P)                   :: rdx(3)                                !< Private inverse steps, 0 along null.
    real(R8P)                   :: delta                                 !< Private filter width.
-   real(R8P)                   :: g(3,3)                                !< Private velocity gradient.
    real(R8P)                   :: nu                                    !< Private kinematic eddy viscosity.
    integer(I4P)                :: b, i, j, k, a                         !< Counters.
 
@@ -21,13 +18,19 @@
    w1 = real(s1, R8P) ; w2 = real(s2, R8P) ; w3 = real(s3, R8P)
    rexp = 1._R8P / real(max(1_I4P, s1 + s2 + s3), R8P)
    !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(dxyz_gpu,q_aux_gpu,mu_t_gpu)    &
-   !$acc& firstprivate(ir,iu,ni,nj,nk,blocks_number,c,s1,s2,s3,w1,w2,w3,rexp) private(dl,rdx,delta,g,nu)
+   !$acc& firstprivate(ir,iu,ni,nj,nk,blocks_number,c,s1,s2,s3,w1,w2,w3,rexp) private(delta,nu)
    !$omp OMPLOOP collapse(4) DEVICEPTR(dxyz_gpu,q_aux_gpu,mu_t_gpu)                                   &
-   !$omp& firstprivate(ir,iu,ni,nj,nk,blocks_number,c,s1,s2,s3,w1,w2,w3,rexp) private(dl,rdx,delta,g,nu)
+   !$omp& firstprivate(ir,iu,ni,nj,nk,blocks_number,c,s1,s2,s3,w1,w2,w3,rexp) private(delta,nu)
    do k=1-2*s3, nk+2*s3
    do j=1-2*s2, nj+2*s2
    do i=1-2*s1, ni+2*s1
    do b=1, blocks_number
+      block
+      ! locals of the loop body, not private clauses: flang maps a private array of a target region to and from
+      ! the host at every launch (a synchronous copy each; #157, the MI300X 2-D step)
+      real(R8P) :: dl(3)
+      real(R8P) :: rdx(3)
+      real(R8P) :: g(3,3)
       dl(1) = w1 * dxyz_gpu(b,1) ; dl(2) = w2 * dxyz_gpu(b,2) ; dl(3) = w3 * dxyz_gpu(b,3)
       rdx(1) = w1 / dxyz_gpu(b,1) ; rdx(2) = w2 / dxyz_gpu(b,2) ; rdx(3) = w3 / dxyz_gpu(b,3)
       delta = (dxyz_gpu(b,1)**s1 * dxyz_gpu(b,2)**s2 * dxyz_gpu(b,3)**s3)**rexp
@@ -39,6 +42,7 @@
       enddo
       call ADAM_SGS_FORMULA(c=c, dl=dl, delta=delta, g=g, nu=nu)
       mu_t_gpu(b,i,j,k,1) = q_aux_gpu(b,i,j,k,ir) * nu
+      endblock
    enddo
    enddo
    enddo

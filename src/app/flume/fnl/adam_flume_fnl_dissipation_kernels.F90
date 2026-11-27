@@ -46,28 +46,30 @@ contains
    integer(I4P)                :: iw(4)                                 !< Auxiliary indexes of W = (u, v, w, T).
    integer(I4P)                :: s1, s2, s3                            !< Steps along x, y, z: 1 active, 0 null.
    real(R8P)                   :: w1, w2, w3                            !< Weights along x, y, z: 1 active, 0 null.
-   integer(I4P)                :: ot(3)                                 !< Private step along a direction.
-   real(R8P)                   :: rdx(3)                                !< Private inverse steps, 0 along null.
-   real(R8P)                   :: wl(4), wr(4)                          !< Private left and right cell states.
-   real(R8P)                   :: g(4,3)                                !< Private face gradient.
-   real(R8P)                   :: wf(4)                                 !< Private face state.
-   real(R8P)                   :: h(4)                                  !< Private face flux.
    integer(I4P)                :: b, i, j, k, a, t                      !< Counters.
 
    iw = [IA_U, IA_V, IA_W, IA_T]
    s1 = merge(0_I4P, 1_I4P, is_null(1)) ; s2 = merge(0_I4P, 1_I4P, is_null(2)) ; s3 = merge(0_I4P, 1_I4P, is_null(3))
    w1 = real(s1, R8P) ; w2 = real(s2, R8P) ; w3 = real(s3, R8P)
    !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(dxyz_gpu,q_aux_gpu,fl_gpu)                    &
-   !$acc& firstprivate(d,di,dj,dk,ni,nj,nk,blocks_number,mu0,k0,tref,suth, omega_mu,omega_k,iw,s1,s2,s3,w1,w2,w3)       &
-   !$acc& private(ot,rdx,wl,wr,g,wf,h)
+   !$acc& firstprivate(d,di,dj,dk,ni,nj,nk,blocks_number,mu0,k0,tref,suth, omega_mu,omega_k,iw,s1,s2,s3,w1,w2,w3)
    !$omp OMPLOOP collapse(4) DEVICEPTR(dxyz_gpu,q_aux_gpu,fl_gpu)                                                   &
    !$omp& map(to:iw) &
-   !$omp& firstprivate(d,di,dj,dk,ni,nj,nk,blocks_number,mu0,k0,tref,suth, omega_mu,omega_k,s1,s2,s3,w1,w2,w3) &
-   !$omp& private(ot,rdx,wl,wr,g,wf,h)
+   !$omp& firstprivate(d,di,dj,dk,ni,nj,nk,blocks_number,mu0,k0,tref,suth, omega_mu,omega_k,s1,s2,s3,w1,w2,w3)
    do k=1-dk, nk
    do j=1-dj, nj
    do i=1-di, ni
    do b=1, blocks_number
+      block
+      ! locals of the loop body, not private clauses: flang maps a private array of a target region to and from
+      ! the host at every launch (a synchronous copy each; #157, the MI300X 2-D step)
+      integer(I4P) :: ot(3)
+      real(R8P) :: rdx(3)
+      real(R8P) :: wl(4)
+      real(R8P) :: wr(4)
+      real(R8P) :: g(4,3)
+      real(R8P) :: wf(4)
+      real(R8P) :: h(4)
       rdx(1) = w1 / dxyz_gpu(b,1) ; rdx(2) = w2 / dxyz_gpu(b,2) ; rdx(3) = w3 / dxyz_gpu(b,3)
       !$acc loop seq
       do a=1, 4
@@ -101,6 +103,7 @@ contains
       do a=1, 4
          fl_gpu(b,i,j,k,IQ_RU+a-1) = fl_gpu(b,i,j,k,IQ_RU+a-1) + h(a)
       enddo
+      endblock
    enddo
    enddo
    enddo
@@ -123,32 +126,33 @@ contains
    integer(I4P)                :: iw(4)                                 !< Auxiliary indexes of W = (u, v, w, T).
    integer(I4P)                :: s1, s2, s3                            !< Steps along x, y, z: 1 active, 0 null.
    real(R8P)                   :: w1, w2, w3                            !< Weights along x, y, z: 1 active, 0 null.
-   integer(I4P)                :: ot(3)                                 !< Private step along a direction.
-   integer(I4P)                :: c(3)                                  !< Private cell index.
-   real(R8P)                   :: rdx(3)                                !< Private inverse steps, 0 along null.
-   real(R8P)                   :: wm(4,-1:2)                            !< Private states of the cells -1 ... 2.
-   real(R8P)                   :: dm(4,-1:2)                            !< Private tangential derivatives there.
-   real(R8P)                   :: g(4,3)                                !< Private face (or cell) gradient.
-   real(R8P)                   :: gm(4,-1:2)                            !< Private cell fluxes of the correction.
-   real(R8P)                   :: wf(4)                                 !< Private face (or cell) state.
-   real(R8P)                   :: h(4)                                  !< Private face flux.
-   real(R8P)                   :: hc(4)                                 !< Private cell flux.
    integer(I4P)                :: b, i, j, k, a, m, t                   !< Counters.
 
    iw = [IA_U, IA_V, IA_W, IA_T]
    s1 = merge(0_I4P, 1_I4P, is_null(1)) ; s2 = merge(0_I4P, 1_I4P, is_null(2)) ; s3 = merge(0_I4P, 1_I4P, is_null(3))
    w1 = real(s1, R8P) ; w2 = real(s2, R8P) ; w3 = real(s3, R8P)
    !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(dxyz_gpu,q_aux_gpu,fl_gpu)                    &
-   !$acc& firstprivate(d,di,dj,dk,ni,nj,nk,blocks_number,mu0,k0,tref,suth, omega_mu,omega_k,iw,s1,s2,s3,w1,w2,w3)       &
-   !$acc& private(ot,c,rdx,wm,dm,g,gm,wf,h,hc)
+   !$acc& firstprivate(d,di,dj,dk,ni,nj,nk,blocks_number,mu0,k0,tref,suth, omega_mu,omega_k,iw,s1,s2,s3,w1,w2,w3)
    !$omp OMPLOOP collapse(4) DEVICEPTR(dxyz_gpu,q_aux_gpu,fl_gpu)                                                   &
    !$omp& map(to:iw) &
-   !$omp& firstprivate(d,di,dj,dk,ni,nj,nk,blocks_number,mu0,k0,tref,suth, omega_mu,omega_k,s1,s2,s3,w1,w2,w3) &
-   !$omp& private(ot,c,rdx,wm,dm,g,gm,wf,h,hc)
+   !$omp& firstprivate(d,di,dj,dk,ni,nj,nk,blocks_number,mu0,k0,tref,suth, omega_mu,omega_k,s1,s2,s3,w1,w2,w3)
    do k=1-dk, nk
    do j=1-dj, nj
    do i=1-di, ni
    do b=1, blocks_number
+      block
+      ! locals of the loop body, not private clauses: flang maps a private array of a target region to and from
+      ! the host at every launch (a synchronous copy each; #157, the MI300X 2-D step)
+      integer(I4P) :: ot(3)
+      integer(I4P) :: c(3)
+      real(R8P) :: rdx(3)
+      real(R8P) :: wm(4,-1:2)
+      real(R8P) :: dm(4,-1:2)
+      real(R8P) :: g(4,3)
+      real(R8P) :: gm(4,-1:2)
+      real(R8P) :: wf(4)
+      real(R8P) :: h(4)
+      real(R8P) :: hc(4)
       rdx(1) = w1 / dxyz_gpu(b,1) ; rdx(2) = w2 / dxyz_gpu(b,2) ; rdx(3) = w3 / dxyz_gpu(b,3)
       !$acc loop seq
       do m=-1, 2
@@ -226,6 +230,7 @@ contains
          h(a) = h(a) - (gm(a,2) - gm(a,1) - gm(a,0) + gm(a,-1)) / 48._R8P
          fl_gpu(b,i,j,k,IQ_RU+a-1) = fl_gpu(b,i,j,k,IQ_RU+a-1) + h(a)
       enddo
+      endblock
    enddo
    enddo
    enddo
@@ -248,13 +253,7 @@ contains
    integer(I4P)                :: iw(4)                                 !< Auxiliary indexes of W = (u, v, w, T).
    integer(I4P)                :: s1, s2, s3                            !< Steps along x, y, z: 1 active, 0 null.
    real(R8P)                   :: w1, w2, w3                            !< Weights along x, y, z: 1 active, 0 null.
-   integer(I4P)                :: ot(3)                                 !< Private step along a direction.
    real(R8P)                   :: mf                                    !< Private eddy viscosity of a face or cell.
-   real(R8P)                   :: rdx(3)                                !< Private inverse steps, 0 along null.
-   real(R8P)                   :: wl(4), wr(4)                          !< Private left and right cell states.
-   real(R8P)                   :: g(4,3)                                !< Private face gradient.
-   real(R8P)                   :: wf(4)                                 !< Private face state.
-   real(R8P)                   :: h(4)                                  !< Private face flux.
    integer(I4P)                :: b, i, j, k, a, t                      !< Counters.
 
    iw = [IA_U, IA_V, IA_W, IA_T]
@@ -262,15 +261,25 @@ contains
    w1 = real(s1, R8P) ; w2 = real(s2, R8P) ; w3 = real(s3, R8P)
    !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(dxyz_gpu,q_aux_gpu,mu_t_gpu,fl_gpu)                    &
    !$acc& firstprivate(d,di,dj,dk,ni,nj,nk,blocks_number,cp_prt,iw,s1,s2,s3,w1,w2,w3)       &
-   !$acc& private(mf,ot,rdx,wl,wr,g,wf,h)
+   !$acc& private(mf)
    !$omp OMPLOOP collapse(4) DEVICEPTR(dxyz_gpu,q_aux_gpu,mu_t_gpu,fl_gpu)                                                   &
    !$omp& map(to:iw) &
    !$omp& firstprivate(d,di,dj,dk,ni,nj,nk,blocks_number,cp_prt,s1,s2,s3,w1,w2,w3) &
-   !$omp& private(mf,ot,rdx,wl,wr,g,wf,h)
+   !$omp& private(mf)
    do k=1-dk, nk
    do j=1-dj, nj
    do i=1-di, ni
    do b=1, blocks_number
+      block
+      ! locals of the loop body, not private clauses: flang maps a private array of a target region to and from
+      ! the host at every launch (a synchronous copy each; #157, the MI300X 2-D step)
+      integer(I4P) :: ot(3)
+      real(R8P) :: rdx(3)
+      real(R8P) :: wl(4)
+      real(R8P) :: wr(4)
+      real(R8P) :: g(4,3)
+      real(R8P) :: wf(4)
+      real(R8P) :: h(4)
       ! no eddy viscosity in the stencil: a zero flux, skipped (the wall model's alone, a masked model; #119)
       if (mu_t_gpu(b,i,j,k,1) /= 0._R8P .or. mu_t_gpu(b,i+di,j+dj,k+dk,1) /= 0._R8P) then
          rdx(1) = w1 / dxyz_gpu(b,1) ; rdx(2) = w2 / dxyz_gpu(b,2) ; rdx(3) = w3 / dxyz_gpu(b,3)
@@ -309,6 +318,7 @@ contains
             fl_gpu(b,i,j,k,IQ_RU+a-1) = fl_gpu(b,i,j,k,IQ_RU+a-1) + h(a)
          enddo
       endif
+      endblock
    enddo
    enddo
    enddo
@@ -331,17 +341,7 @@ contains
    integer(I4P)                :: iw(4)                                 !< Auxiliary indexes of W = (u, v, w, T).
    integer(I4P)                :: s1, s2, s3                            !< Steps along x, y, z: 1 active, 0 null.
    real(R8P)                   :: w1, w2, w3                            !< Weights along x, y, z: 1 active, 0 null.
-   integer(I4P)                :: ot(3)                                 !< Private step along a direction.
-   integer(I4P)                :: c(3)                                  !< Private cell index.
    real(R8P)                   :: mf                                    !< Private eddy viscosity of a face or cell.
-   real(R8P)                   :: rdx(3)                                !< Private inverse steps, 0 along null.
-   real(R8P)                   :: wm(4,-1:2)                            !< Private states of the cells -1 ... 2.
-   real(R8P)                   :: dm(4,-1:2)                            !< Private tangential derivatives there.
-   real(R8P)                   :: g(4,3)                                !< Private face (or cell) gradient.
-   real(R8P)                   :: gm(4,-1:2)                            !< Private cell fluxes of the correction.
-   real(R8P)                   :: wf(4)                                 !< Private face (or cell) state.
-   real(R8P)                   :: h(4)                                  !< Private face flux.
-   real(R8P)                   :: hc(4)                                 !< Private cell flux.
    integer(I4P)                :: b, i, j, k, a, m, t                   !< Counters.
 
    iw = [IA_U, IA_V, IA_W, IA_T]
@@ -349,15 +349,28 @@ contains
    w1 = real(s1, R8P) ; w2 = real(s2, R8P) ; w3 = real(s3, R8P)
    !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(dxyz_gpu,q_aux_gpu,mu_t_gpu,fl_gpu)                    &
    !$acc& firstprivate(d,di,dj,dk,ni,nj,nk,blocks_number,cp_prt,iw,s1,s2,s3,w1,w2,w3)       &
-   !$acc& private(mf,ot,c,rdx,wm,dm,g,gm,wf,h,hc)
+   !$acc& private(mf)
    !$omp OMPLOOP collapse(4) DEVICEPTR(dxyz_gpu,q_aux_gpu,mu_t_gpu,fl_gpu)                                                   &
    !$omp& map(to:iw) &
    !$omp& firstprivate(d,di,dj,dk,ni,nj,nk,blocks_number,cp_prt,s1,s2,s3,w1,w2,w3) &
-   !$omp& private(mf,ot,c,rdx,wm,dm,g,gm,wf,h,hc)
+   !$omp& private(mf)
    do k=1-dk, nk
    do j=1-dj, nj
    do i=1-di, ni
    do b=1, blocks_number
+      block
+      ! locals of the loop body, not private clauses: flang maps a private array of a target region to and from
+      ! the host at every launch (a synchronous copy each; #157, the MI300X 2-D step)
+      integer(I4P) :: ot(3)
+      integer(I4P) :: c(3)
+      real(R8P) :: rdx(3)
+      real(R8P) :: wm(4,-1:2)
+      real(R8P) :: dm(4,-1:2)
+      real(R8P) :: g(4,3)
+      real(R8P) :: gm(4,-1:2)
+      real(R8P) :: wf(4)
+      real(R8P) :: h(4)
+      real(R8P) :: hc(4)
       ! no eddy viscosity in the stencil: a zero flux, skipped (the wall model's alone, a masked model; #119)
       if (mu_t_gpu(b,i-di,j-dj,k-dk,1) /= 0._R8P .or. mu_t_gpu(b,i,j,k,1) /= 0._R8P .or. &
           mu_t_gpu(b,i+di,j+dj,k+dk,1) /= 0._R8P .or. mu_t_gpu(b,i+2*di,j+2*dj,k+2*dk,1) /= 0._R8P) then
@@ -442,6 +455,7 @@ contains
             fl_gpu(b,i,j,k,IQ_RU+a-1) = fl_gpu(b,i,j,k,IQ_RU+a-1) + h(a)
          enddo
       endif
+      endblock
    enddo
    enddo
    enddo
@@ -459,10 +473,6 @@ contains
    real(R8P),    intent(out) :: eps                                   !< The integral.
    integer(I4P)              :: s1, s2, s3                            !< Steps along x, y, z: 1 active, 0 null.
    real(R8P)                 :: w1, w2, w3                            !< Weights along x, y, z: 1 active, 0 null.
-   real(R8P)                 :: rdx(3)                                !< Private inverse steps, 0 along null.
-   real(R8P)                 :: g(3,3)                                !< Private velocity gradient.
-   real(R8P)                 :: u(3)                                  !< Private velocity.
-   real(R8P)                 :: f(6)                                  !< Private integrands.
    real(R8P)                 :: volume                                !< Private cell volume.
    real(R8P)                 :: i5                                    !< Reduction accumulator.
    integer(I4P)              :: b, i, j, k, a                         !< Counters.
@@ -471,15 +481,22 @@ contains
    w1 = real(s1, R8P) ; w2 = real(s2, R8P) ; w3 = real(s3, R8P)
    i5 = 0._R8P
    !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(dxyz_gpu,q_aux_gpu,mu_t_gpu)                               &
-   !$acc& firstprivate(ni,nj,nk,blocks_number,s1,s2,s3,w1,w2,w3) private(rdx,g,u,f,volume)           &
+   !$acc& firstprivate(ni,nj,nk,blocks_number,s1,s2,s3,w1,w2,w3) private(volume) &
    !$acc& reduction(+:i5)
    !$omp OMPLOOP collapse(4) DEVICEPTR(dxyz_gpu,q_aux_gpu,mu_t_gpu)                                                              &
-   !$omp& firstprivate(ni,nj,nk,blocks_number,s1,s2,s3,w1,w2,w3) private(rdx,g,u,f,volume)           &
+   !$omp& firstprivate(ni,nj,nk,blocks_number,s1,s2,s3,w1,w2,w3) private(volume) &
    !$omp& reduction(+:i5)
    do k=1, nk
    do j=1, nj
    do i=1, ni
    do b=1, blocks_number
+      block
+      ! locals of the loop body, not private clauses: flang maps a private array of a target region to and from
+      ! the host at every launch (a synchronous copy each; #157, the MI300X 2-D step)
+      real(R8P) :: rdx(3)
+      real(R8P) :: g(3,3)
+      real(R8P) :: u(3)
+      real(R8P) :: f(6)
       rdx(1) = w1 / dxyz_gpu(b,1) ; rdx(2) = w2 / dxyz_gpu(b,2) ; rdx(3) = w3 / dxyz_gpu(b,3)
       volume = dxyz_gpu(b,1) * dxyz_gpu(b,2) * dxyz_gpu(b,3)
       !$acc loop seq
@@ -495,6 +512,7 @@ contains
       call compute_turbulence_integrands(mu0=mu_t_gpu(b,i,j,k,1), tref=1._R8P, suth=0._R8P, omega_mu=0._R8P, rho=q_aux_gpu(b,i,j,k,IA_R), &
                                          p=q_aux_gpu(b,i,j,k,IA_P), T=q_aux_gpu(b,i,j,k,IA_T), u=u, g=g, f=f)
       i5 = i5 + f(5) * volume
+      endblock
    enddo
    enddo
    enddo
@@ -547,10 +565,6 @@ contains
    real(R8P),    intent(out) :: integrals(6)                          !< Integrals (`compute_turbulence_integrands`).
    integer(I4P)              :: s1, s2, s3                            !< Steps along x, y, z: 1 active, 0 null.
    real(R8P)                 :: w1, w2, w3                            !< Weights along x, y, z: 1 active, 0 null.
-   real(R8P)                 :: rdx(3)                                !< Private inverse steps, 0 along null.
-   real(R8P)                 :: g(3,3)                                !< Private velocity gradient.
-   real(R8P)                 :: u(3)                                  !< Private velocity.
-   real(R8P)                 :: f(6)                                  !< Private integrands.
    real(R8P)                 :: volume                                !< Private cell volume.
    real(R8P)                 :: i1, i2, i3, i4, i5, i6                !< Reduction accumulators.
    integer(I4P)              :: b, i, j, k, a                         !< Counters.
@@ -559,15 +573,22 @@ contains
    w1 = real(s1, R8P) ; w2 = real(s2, R8P) ; w3 = real(s3, R8P)
    i1 = 0._R8P ; i2 = 0._R8P ; i3 = 0._R8P ; i4 = 0._R8P ; i5 = 0._R8P ; i6 = 0._R8P
    !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(dxyz_gpu,q_aux_gpu)                               &
-   !$acc& firstprivate(ni,nj,nk,blocks_number,mu0,tref,suth, omega_mu,s1,s2,s3,w1,w2,w3) private(rdx,g,u,f,volume)           &
+   !$acc& firstprivate(ni,nj,nk,blocks_number,mu0,tref,suth, omega_mu,s1,s2,s3,w1,w2,w3) private(volume) &
    !$acc& reduction(+:i1,i2,i3,i4,i5,i6)
    !$omp OMPLOOP collapse(4) DEVICEPTR(dxyz_gpu,q_aux_gpu)                                                              &
-   !$omp& firstprivate(ni,nj,nk,blocks_number,mu0,tref,suth, omega_mu,s1,s2,s3,w1,w2,w3) private(rdx,g,u,f,volume)           &
+   !$omp& firstprivate(ni,nj,nk,blocks_number,mu0,tref,suth, omega_mu,s1,s2,s3,w1,w2,w3) private(volume) &
    !$omp& reduction(+:i1,i2,i3,i4,i5,i6)
    do k=1, nk
    do j=1, nj
    do i=1, ni
    do b=1, blocks_number
+      block
+      ! locals of the loop body, not private clauses: flang maps a private array of a target region to and from
+      ! the host at every launch (a synchronous copy each; #157, the MI300X 2-D step)
+      real(R8P) :: rdx(3)
+      real(R8P) :: g(3,3)
+      real(R8P) :: u(3)
+      real(R8P) :: f(6)
       rdx(1) = w1 / dxyz_gpu(b,1) ; rdx(2) = w2 / dxyz_gpu(b,2) ; rdx(3) = w3 / dxyz_gpu(b,3)
       volume = dxyz_gpu(b,1) * dxyz_gpu(b,2) * dxyz_gpu(b,3)
       !$acc loop seq
@@ -584,6 +605,7 @@ contains
                                          p=q_aux_gpu(b,i,j,k,IA_P), T=q_aux_gpu(b,i,j,k,IA_T), u=u, g=g, f=f)
       i1 = i1 + f(1) * volume ; i2 = i2 + f(2) * volume ; i3 = i3 + f(3) * volume
       i4 = i4 + f(4) * volume ; i5 = i5 + f(5) * volume ; i6 = i6 + f(6) * volume
+      endblock
    enddo
    enddo
    enddo
@@ -606,26 +628,30 @@ contains
    integer(I4P)                :: ib(3)                                 !< Auxiliary indexes of the field.
    integer(I4P)                :: s1, s2, s3                            !< Steps along x, y, z: 1 active, 0 null.
    real(R8P)                   :: w1, w2, w3                            !< Weights along x, y, z: 1 active, 0 null.
-   integer(I4P)                :: ot(3)                                 !< Private step along a direction.
-   real(R8P)                   :: rdx(3)                                !< Private inverse steps, 0 along null.
-   real(R8P)                   :: bl(3), br(3)                          !< Private left and right cell fields.
-   real(R8P)                   :: g(3,3)                                !< Private face gradient.
-   real(R8P)                   :: bf(3)                                 !< Private face field.
-   real(R8P)                   :: h(4)                                  !< Private face flux.
    integer(I4P)                :: b, i, j, k, a, t                      !< Counters.
 
    ib = [IA_BX, IA_BY, IA_BZ]
    s1 = merge(0_I4P, 1_I4P, is_null(1)) ; s2 = merge(0_I4P, 1_I4P, is_null(2)) ; s3 = merge(0_I4P, 1_I4P, is_null(3))
    w1 = real(s1, R8P) ; w2 = real(s2, R8P) ; w3 = real(s3, R8P)
    !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(dxyz_gpu,q_aux_gpu,fl_gpu) &
-   !$acc& firstprivate(d,di,dj,dk,ni,nj,nk,blocks_number,eta,ib,s1,s2,s3,w1,w2,w3) private(ot,rdx,bl,br,g,bf,h)
+   !$acc& firstprivate(d,di,dj,dk,ni,nj,nk,blocks_number,eta,ib,s1,s2,s3,w1,w2,w3) 
    !$omp OMPLOOP collapse(4) DEVICEPTR(dxyz_gpu,q_aux_gpu,fl_gpu) &
    !$omp& map(to:ib) &
-   !$omp& firstprivate(d,di,dj,dk,ni,nj,nk,blocks_number,eta,s1,s2,s3,w1,w2,w3) private(ot,rdx,bl,br,g,bf,h)
+   !$omp& firstprivate(d,di,dj,dk,ni,nj,nk,blocks_number,eta,s1,s2,s3,w1,w2,w3) 
    do k=1-dk, nk
    do j=1-dj, nj
    do i=1-di, ni
    do b=1, blocks_number
+      block
+      ! locals of the loop body, not private clauses: flang maps a private array of a target region to and from
+      ! the host at every launch (a synchronous copy each; #157, the MI300X 2-D step)
+      integer(I4P) :: ot(3)
+      real(R8P) :: rdx(3)
+      real(R8P) :: bl(3)
+      real(R8P) :: br(3)
+      real(R8P) :: g(3,3)
+      real(R8P) :: bf(3)
+      real(R8P) :: h(4)
       rdx(1) = w1 / dxyz_gpu(b,1) ; rdx(2) = w2 / dxyz_gpu(b,2) ; rdx(3) = w3 / dxyz_gpu(b,3)
       !$acc loop seq
       do a=1, 3
@@ -660,6 +686,7 @@ contains
          fl_gpu(b,i,j,k,IQ_BX+a-1) = fl_gpu(b,i,j,k,IQ_BX+a-1) + h(a)
       enddo
       fl_gpu(b,i,j,k,IQ_RE) = fl_gpu(b,i,j,k,IQ_RE) + h(4)
+      endblock
    enddo
    enddo
    enddo
@@ -682,32 +709,33 @@ contains
    integer(I4P)                :: ib(3)                                 !< Auxiliary indexes of the field.
    integer(I4P)                :: s1, s2, s3                            !< Steps along x, y, z: 1 active, 0 null.
    real(R8P)                   :: w1, w2, w3                            !< Weights along x, y, z: 1 active, 0 null.
-   integer(I4P)                :: ot(3)                                 !< Private step along a direction.
-   integer(I4P)                :: c(3)                                  !< Private cell index.
-   real(R8P)                   :: rdx(3)                                !< Private inverse steps, 0 along null.
-   real(R8P)                   :: bm(3,-1:2)                            !< Private fields of the cells -1 ... 2.
-   real(R8P)                   :: dm(3,-1:2)                            !< Private tangential derivatives there.
-   real(R8P)                   :: g(3,3)                                !< Private face (or cell) gradient.
-   real(R8P)                   :: gm(4,-1:2)                            !< Private cell fluxes of the correction.
-   real(R8P)                   :: bf(3)                                 !< Private face (or cell) field.
-   real(R8P)                   :: h(4)                                  !< Private face flux.
-   real(R8P)                   :: hc(4)                                 !< Private cell flux.
    integer(I4P)                :: b, i, j, k, a, m, t                   !< Counters.
 
    ib = [IA_BX, IA_BY, IA_BZ]
    s1 = merge(0_I4P, 1_I4P, is_null(1)) ; s2 = merge(0_I4P, 1_I4P, is_null(2)) ; s3 = merge(0_I4P, 1_I4P, is_null(3))
    w1 = real(s1, R8P) ; w2 = real(s2, R8P) ; w3 = real(s3, R8P)
    !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(dxyz_gpu,q_aux_gpu,fl_gpu)              &
-   !$acc& firstprivate(d,di,dj,dk,ni,nj,nk,blocks_number,eta,ib,s1,s2,s3,w1,w2,w3)                          &
-   !$acc& private(ot,c,rdx,bm,dm,g,gm,bf,h,hc)
+   !$acc& firstprivate(d,di,dj,dk,ni,nj,nk,blocks_number,eta,ib,s1,s2,s3,w1,w2,w3)
    !$omp OMPLOOP collapse(4) DEVICEPTR(dxyz_gpu,q_aux_gpu,fl_gpu)                                             &
    !$omp& map(to:ib) &
-   !$omp& firstprivate(d,di,dj,dk,ni,nj,nk,blocks_number,eta,s1,s2,s3,w1,w2,w3) &
-   !$omp& private(ot,c,rdx,bm,dm,g,gm,bf,h,hc)
+   !$omp& firstprivate(d,di,dj,dk,ni,nj,nk,blocks_number,eta,s1,s2,s3,w1,w2,w3)
    do k=1-dk, nk
    do j=1-dj, nj
    do i=1-di, ni
    do b=1, blocks_number
+      block
+      ! locals of the loop body, not private clauses: flang maps a private array of a target region to and from
+      ! the host at every launch (a synchronous copy each; #157, the MI300X 2-D step)
+      integer(I4P) :: ot(3)
+      integer(I4P) :: c(3)
+      real(R8P) :: rdx(3)
+      real(R8P) :: bm(3,-1:2)
+      real(R8P) :: dm(3,-1:2)
+      real(R8P) :: g(3,3)
+      real(R8P) :: gm(4,-1:2)
+      real(R8P) :: bf(3)
+      real(R8P) :: h(4)
+      real(R8P) :: hc(4)
       rdx(1) = w1 / dxyz_gpu(b,1) ; rdx(2) = w2 / dxyz_gpu(b,2) ; rdx(3) = w3 / dxyz_gpu(b,3)
       !$acc loop seq
       do m=-1, 2
@@ -786,6 +814,7 @@ contains
          fl_gpu(b,i,j,k,IQ_BX+a-1) = fl_gpu(b,i,j,k,IQ_BX+a-1) + h(a)
       enddo
       fl_gpu(b,i,j,k,IQ_RE) = fl_gpu(b,i,j,k,IQ_RE) + h(4)
+      endblock
    enddo
    enddo
    enddo

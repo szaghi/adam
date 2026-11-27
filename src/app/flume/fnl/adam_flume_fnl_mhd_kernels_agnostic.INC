@@ -46,8 +46,6 @@
    real(R8P),    intent(in)  :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Conservative variables.
    real(R8P),    intent(out) :: lambda_max                        !< Maximum of sum_d (|u_d| + c_{f,d}) / dx_d.
    real(R8P)                 :: wx, wy, wz                        !< Direction weights: 1 active, 0 null.
-   real(R8P)                 :: q_(NV_K)                          !< Private conservative variables of one cell.
-   real(R8P)                 :: qa_(NV_AUX_K)                     !< Private auxiliary variables of one cell.
    real(R8P)                 :: lambda                            !< Cell value.
    integer(I4P)              :: b, i, j, k, v                     !< Counters.
 
@@ -56,15 +54,20 @@
    wz = merge(0._R8P, 1._R8P, is_null(3))
    lambda_max = 0._R8P
    !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(dxyz_gpu,q_gpu) &
-   !$acc& firstprivate(ni,nj,nk,blocks_number,gamma,R,wx,wy,wz) private(q_,qa_,lambda) &
+   !$acc& firstprivate(ni,nj,nk,blocks_number,gamma,R,wx,wy,wz) private(lambda) &
    !$acc& reduction(max:lambda_max)
    !$omp OMPLOOP collapse(4) DEVICEPTR(dxyz_gpu,q_gpu) &
-   !$omp& firstprivate(ni,nj,nk,blocks_number,gamma,R,wx,wy,wz) private(q_,qa_,lambda) &
+   !$omp& firstprivate(ni,nj,nk,blocks_number,gamma,R,wx,wy,wz) private(lambda) &
    !$omp& reduction(max:lambda_max)
    do k=1, nk
    do j=1, nj
    do i=1, ni
    do b=1, blocks_number
+      block
+      ! locals of the loop body, not private clauses: flang maps a private array of a target region to and from
+      ! the host at every launch (a synchronous copy each; #157, the MI300X 2-D step)
+      real(R8P) :: q_(NV_K)
+      real(R8P) :: qa_(NV_AUX_K)
       !$acc loop seq
       do v=1, NV_K
          q_(v) = q_gpu(b,i,j,k,v)
@@ -74,6 +77,7 @@
                wy * (abs(qa_(IA_V)) + mhd_fast_speed(d=2_I4P, qa=qa_)) / dxyz_gpu(b,2) + &
                wz * (abs(qa_(IA_W)) + mhd_fast_speed(d=3_I4P, qa=qa_)) / dxyz_gpu(b,3)
       lambda_max = max(lambda_max, lambda)
+      endblock
    enddo
    enddo
    enddo
@@ -98,8 +102,6 @@
    real(R8P),    intent(out) :: lambda_dif                        !< Maximum of the diffusive part.
    real(R8P),    intent(out) :: re_cell_min                       !< Minimum cell Reynolds number.
    real(R8P)                 :: wx, wy, wz                        !< Direction weights: 1 active, 0 null.
-   real(R8P)                 :: q_(NV_K)                          !< Private conservative variables of one cell.
-   real(R8P)                 :: qa_(NV_AUX_K)                     !< Private auxiliary variables of one cell.
    real(R8P)                 :: lh, ld                            !< Private hyperbolic and diffusive parts.
    integer(I4P)              :: b, i, j, k, v                     !< Counters.
 
@@ -109,14 +111,19 @@
    lambda_max = 0._R8P ; lambda_hyp = 0._R8P ; lambda_dif = 0._R8P ; re_cell_min = huge(1._R8P)
    !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(dxyz_gpu,q_gpu) &
    !$acc& firstprivate(ni,nj,nk,blocks_number,gamma,R,cp,mu0,k0,eta,t_wall,tref,suth, omega_mu,omega_k,wx,wy,wz) &
-   !$acc& private(q_,qa_,lh,ld) reduction(max:lambda_max,lambda_hyp,lambda_dif) reduction(min:re_cell_min)
+   !$acc& private(lh,ld) reduction(max:lambda_max,lambda_hyp,lambda_dif) reduction(min:re_cell_min)
    !$omp OMPLOOP collapse(4) DEVICEPTR(dxyz_gpu,q_gpu) &
    !$omp& firstprivate(ni,nj,nk,blocks_number,gamma,R,cp,mu0,k0,eta,t_wall,tref,suth, omega_mu,omega_k,wx,wy,wz) &
-   !$omp& private(q_,qa_,lh,ld) reduction(max:lambda_max,lambda_hyp,lambda_dif) reduction(min:re_cell_min)
+   !$omp& private(lh,ld) reduction(max:lambda_max,lambda_hyp,lambda_dif) reduction(min:re_cell_min)
    do k=1, nk
    do j=1, nj
    do i=1, ni
    do b=1, blocks_number
+      block
+      ! locals of the loop body, not private clauses: flang maps a private array of a target region to and from
+      ! the host at every launch (a synchronous copy each; #157, the MI300X 2-D step)
+      real(R8P) :: q_(NV_K)
+      real(R8P) :: qa_(NV_AUX_K)
       !$acc loop seq
       do v=1, NV_K
          q_(v) = q_gpu(b,i,j,k,v)
@@ -132,6 +139,7 @@
       lambda_hyp = max(lambda_hyp, lh)
       lambda_dif = max(lambda_dif, ld)
       if (ld > 0._R8P) re_cell_min = min(re_cell_min, 2._R8P * lh / ld)
+      endblock
    enddo
    enddo
    enddo
@@ -156,22 +164,25 @@
    integer(I4P), intent(out)   :: floored                               !< Floored cells.
    integer(I4P), intent(out)   :: nonpositive                           !< Cells with non-positive density or pressure.
    real(R8P),    intent(out)   :: rho_min, p_min                        !< Minimum density and pressure.
-   real(R8P)                   :: q_(NV_K)                              !< Private conservative variables of one cell.
-   real(R8P)                   :: qa_(NV_AUX_K)                         !< Private auxiliary variables of one cell.
    real(R8P)                   :: rho, p                                !< Density and pressure of one cell.
    integer(I4P)                :: b, i, j, k, v                         !< Counters.
 
    floored = 0_I4P ; nonpositive = 0_I4P ; rho_min = huge(1._R8P) ; p_min = huge(1._R8P)
    !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(q_gpu)                       &
-   !$acc& firstprivate(ni,nj,nk,ngc,blocks_number,gamma,R,rho_floor,p_floor) private(q_,qa_,rho,p) &
+   !$acc& firstprivate(ni,nj,nk,ngc,blocks_number,gamma,R,rho_floor,p_floor) private(rho,p) &
    !$acc& reduction(+:floored,nonpositive) reduction(min:rho_min,p_min)
    !$omp OMPLOOP collapse(4) DEVICEPTR(q_gpu) &
-   !$omp& firstprivate(ni,nj,nk,ngc,blocks_number,gamma,R,rho_floor,p_floor) private(q_,qa_,rho,p) &
+   !$omp& firstprivate(ni,nj,nk,ngc,blocks_number,gamma,R,rho_floor,p_floor) private(rho,p) &
    !$omp& reduction(+:floored,nonpositive) reduction(min:rho_min,p_min)
    do k=1, nk
    do j=1, nj
    do i=1, ni
    do b=1, blocks_number
+      block
+      ! locals of the loop body, not private clauses: flang maps a private array of a target region to and from
+      ! the host at every launch (a synchronous copy each; #157, the MI300X 2-D step)
+      real(R8P) :: q_(NV_K)
+      real(R8P) :: qa_(NV_AUX_K)
       !$acc loop seq
       do v=1, NV_K
          q_(v) = q_gpu(b,i,j,k,v)
@@ -197,6 +208,7 @@
             q_gpu(b,i,j,k,v) = q_(v)
          enddo
       endif
+      endblock
    enddo
    enddo
    enddo
@@ -214,8 +226,6 @@
    real(R8P),    intent(in)  :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Conservative variables.
    real(R8P),    intent(out) :: speed_max                         !< Maximum of |u_d| + c_{f,d}.
    real(R8P)                 :: wx, wy, wz                        !< Direction weights: 1 active, 0 null.
-   real(R8P)                 :: q_(NV_K)                          !< Private conservative variables of one cell.
-   real(R8P)                 :: qa_(NV_AUX_K)                     !< Private auxiliary variables of one cell.
    integer(I4P)              :: b, i, j, k, v                     !< Counters.
 
    wx = merge(0._R8P, 1._R8P, is_null(1))
@@ -223,13 +233,18 @@
    wz = merge(0._R8P, 1._R8P, is_null(3))
    speed_max = 0._R8P
    !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(q_gpu) &
-   !$acc& firstprivate(ni,nj,nk,blocks_number,gamma,R,wx,wy,wz) private(q_,qa_) reduction(max:speed_max)
+   !$acc& firstprivate(ni,nj,nk,blocks_number,gamma,R,wx,wy,wz)  reduction(max:speed_max)
    !$omp OMPLOOP collapse(4) DEVICEPTR(q_gpu) &
-   !$omp& firstprivate(ni,nj,nk,blocks_number,gamma,R,wx,wy,wz) private(q_,qa_) reduction(max:speed_max)
+   !$omp& firstprivate(ni,nj,nk,blocks_number,gamma,R,wx,wy,wz)  reduction(max:speed_max)
    do k=1, nk
    do j=1, nj
    do i=1, ni
    do b=1, blocks_number
+      block
+      ! locals of the loop body, not private clauses: flang maps a private array of a target region to and from
+      ! the host at every launch (a synchronous copy each; #157, the MI300X 2-D step)
+      real(R8P) :: q_(NV_K)
+      real(R8P) :: qa_(NV_AUX_K)
       !$acc loop seq
       do v=1, NV_K
          q_(v) = q_gpu(b,i,j,k,v)
@@ -238,6 +253,7 @@
       speed_max = max(speed_max, wx * (abs(qa_(IA_U)) + mhd_fast_speed(d=1_I4P, qa=qa_)), &
                                  wy * (abs(qa_(IA_V)) + mhd_fast_speed(d=2_I4P, qa=qa_)), &
                                  wz * (abs(qa_(IA_W)) + mhd_fast_speed(d=3_I4P, qa=qa_)))
+      endblock
    enddo
    enddo
    enddo
@@ -262,9 +278,6 @@
    real(R8P),    intent(out) :: divb_l1                           !< Sum of |div B| dV.
    real(R8P),    intent(out) :: divb_seam_max                     !< Maximum of |div B| over the seam-local cells.
    integer(I4P), parameter   :: HS_MAX=3_I4P                      !< Maximum half stencil (sixth order).
-   real(R8P)                 :: sx(1-HS_MAX:1+HS_MAX)             !< Private Bx stencil along x.
-   real(R8P)                 :: sy(1-HS_MAX:1+HS_MAX)             !< Private By stencil along y.
-   real(R8P)                 :: sz(1-HS_MAX:1+HS_MAX)             !< Private Bz stencil along z.
    real(R8P)                 :: wx, wy, wz                        !< Direction weights: 1 active, 0 null.
    real(R8P)                 :: dbx, dby, dbz                     !< Derivatives dBx/dx, dBy/dy, dBz/dz.
    real(R8P)                 :: divb                              !< |div B| of one cell.
@@ -276,15 +289,21 @@
    wz = merge(0._R8P, 1._R8P, is_null(3))
    divb_max = 0._R8P ; divb_l1 = 0._R8P ; divb_seam_max = 0._R8P
    !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(dxyz_gpu,seam_gpu,q_gpu) &
-   !$acc& firstprivate(ni,nj,nk,blocks_number,hs,band,wx,wy,wz) private(sx,sy,sz,dbx,dby,dbz,divb,is_seam) &
+   !$acc& firstprivate(ni,nj,nk,blocks_number,hs,band,wx,wy,wz) private(dbx,dby,dbz,divb,is_seam) &
    !$acc& reduction(max:divb_max,divb_seam_max) reduction(+:divb_l1)
    !$omp OMPLOOP collapse(4) DEVICEPTR(dxyz_gpu,seam_gpu,q_gpu) &
-   !$omp& firstprivate(ni,nj,nk,blocks_number,hs,band,wx,wy,wz) private(sx,sy,sz,dbx,dby,dbz,divb,is_seam) &
+   !$omp& firstprivate(ni,nj,nk,blocks_number,hs,band,wx,wy,wz) private(dbx,dby,dbz,divb,is_seam) &
    !$omp& reduction(max:divb_max,divb_seam_max) reduction(+:divb_l1)
    do k=1, nk
    do j=1, nj
    do i=1, ni
    do b=1, blocks_number
+      block
+      ! locals of the loop body, not private clauses: flang maps a private array of a target region to and from
+      ! the host at every launch (a synchronous copy each; #157, the MI300X 2-D step)
+      real(R8P) :: sx(1-HS_MAX:1+HS_MAX)
+      real(R8P) :: sy(1-HS_MAX:1+HS_MAX)
+      real(R8P) :: sz(1-HS_MAX:1+HS_MAX)
       !$acc loop seq
       do m=-hs, hs
          sx(1+m) = q_gpu(b,i+m,j,k,IQ_BX)
@@ -301,6 +320,7 @@
                 (seam_gpu(b,3) /= 0_I4P .and. j <= band) .or. (seam_gpu(b,4) /= 0_I4P .and. j > nj - band) .or. &
                 (seam_gpu(b,5) /= 0_I4P .and. k <= band) .or. (seam_gpu(b,6) /= 0_I4P .and. k > nk - band)
       if (is_seam) divb_seam_max = max(divb_seam_max, divb)
+      endblock
    enddo
    enddo
    enddo

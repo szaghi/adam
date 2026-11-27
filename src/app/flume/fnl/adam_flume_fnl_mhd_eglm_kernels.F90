@@ -73,9 +73,6 @@ contains
    real(R8P),    intent(in)    :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)      !< Conservative variables.
    real(R8P),    intent(in)    :: q_aux_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)  !< Auxiliary variables.
    real(R8P),    intent(inout) :: dq_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)     !< Residuals.
-   real(R8P)                   :: sx(1-S_MAX:1+S_MAX)                    !< Private stencil along x.
-   real(R8P)                   :: sy(1-S_MAX:1+S_MAX)                    !< Private stencil along y.
-   real(R8P)                   :: sz(1-S_MAX:1+S_MAX)                    !< Private stencil along z.
    real(R8P)                   :: wx, wy, wz                             !< Direction weights: 1 active, 0 null.
    real(R8P)                   :: dbx, dby, dbz                          !< Derivatives dBx/dx, dBy/dy, dBz/dz.
    real(R8P)                   :: dpx, dpy, dpz                          !< Derivatives of psi.
@@ -88,13 +85,19 @@ contains
    wy = merge(0._R8P, 1._R8P, is_null(2))
    wz = merge(0._R8P, 1._R8P, is_null(3))
    !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(dxyz_gpu,q_gpu,q_aux_gpu,dq_gpu) &
-   !$acc& firstprivate(ni,nj,nk,blocks_number,hs,wx,wy,wz) private(sx,sy,sz,dbx,dby,dbz,dpx,dpy,dpz,divb,upsi,ub)
+   !$acc& firstprivate(ni,nj,nk,blocks_number,hs,wx,wy,wz) private(dbx,dby,dbz,dpx,dpy,dpz,divb,upsi,ub)
    !$omp OMPLOOP collapse(4) DEVICEPTR(dxyz_gpu,q_gpu,q_aux_gpu,dq_gpu) &
-   !$omp& firstprivate(ni,nj,nk,blocks_number,hs,wx,wy,wz) private(sx,sy,sz,dbx,dby,dbz,dpx,dpy,dpz,divb,upsi,ub)
+   !$omp& firstprivate(ni,nj,nk,blocks_number,hs,wx,wy,wz) private(dbx,dby,dbz,dpx,dpy,dpz,divb,upsi,ub)
    do k=1, nk
    do j=1, nj
    do i=1, ni
    do b=1, blocks_number
+      block
+      ! locals of the loop body, not private clauses: flang maps a private array of a target region to and from
+      ! the host at every launch (a synchronous copy each; #157, the MI300X 2-D step)
+      real(R8P) :: sx(1-S_MAX:1+S_MAX)
+      real(R8P) :: sy(1-S_MAX:1+S_MAX)
+      real(R8P) :: sz(1-S_MAX:1+S_MAX)
       !$acc loop seq
       do m=-hs, hs
          sx(1+m) = q_gpu(b,i+m,j,k,IQ_BX)
@@ -125,6 +128,7 @@ contains
       enddo
       dq_gpu(b,i,j,k,IQ_RE)  = dq_gpu(b,i,j,k,IQ_RE)  - divb * ub - upsi * q_gpu(b,i,j,k,IQ_PSI)
       dq_gpu(b,i,j,k,IQ_PSI) = dq_gpu(b,i,j,k,IQ_PSI) - upsi
+      endblock
    enddo
    enddo
    enddo
@@ -146,9 +150,6 @@ contains
    real(R8P),    intent(in)    :: q_aux_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)  !< Auxiliary variables.
    real(R8P),    intent(in)    :: lam_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)    !< Cell factors (component 1).
    real(R8P),    intent(inout) :: dq_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)     !< Residuals.
-   real(R8P)                   :: sx(1-S_MAX:1+S_MAX)                    !< Private stencil along x.
-   real(R8P)                   :: sy(1-S_MAX:1+S_MAX)                    !< Private stencil along y.
-   real(R8P)                   :: sz(1-S_MAX:1+S_MAX)                    !< Private stencil along z.
    real(R8P)                   :: wx, wy, wz                             !< Direction weights: 1 active, 0 null.
    real(R8P)                   :: dbx, dby, dbz                          !< Derivatives dBx/dx, dBy/dy, dBz/dz.
    real(R8P)                   :: dpx, dpy, dpz                          !< Derivatives of psi.
@@ -165,14 +166,20 @@ contains
    wz = merge(0._R8P, 1._R8P, is_null(3))
    !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(dxyz_gpu,q_gpu,q_aux_gpu,lam_gpu,dq_gpu) &
    !$acc& firstprivate(ni,nj,nk,blocks_number,hs,wx,wy,wz)                                                   &
-   !$acc& private(sx,sy,sz,dbx,dby,dbz,dpx,dpy,dpz,lbx,lby,lbz,lpx,lpy,lpz,divb,upsi,divb_lo,upsi_lo,ub,lc)
+   !$acc& private(dbx,dby,dbz,dpx,dpy,dpz,lbx,lby,lbz,lpx,lpy,lpz,divb,upsi,divb_lo,upsi_lo,ub,lc)
    !$omp OMPLOOP collapse(4) DEVICEPTR(dxyz_gpu,q_gpu,q_aux_gpu,lam_gpu,dq_gpu) &
    !$omp& firstprivate(ni,nj,nk,blocks_number,hs,wx,wy,wz) &
-   !$omp& private(sx,sy,sz,dbx,dby,dbz,dpx,dpy,dpz,lbx,lby,lbz,lpx,lpy,lpz,divb,upsi,divb_lo,upsi_lo,ub,lc)
+   !$omp& private(dbx,dby,dbz,dpx,dpy,dpz,lbx,lby,lbz,lpx,lpy,lpz,divb,upsi,divb_lo,upsi_lo,ub,lc)
    do k=1, nk
    do j=1, nj
    do i=1, ni
    do b=1, blocks_number
+      block
+      ! locals of the loop body, not private clauses: flang maps a private array of a target region to and from
+      ! the host at every launch (a synchronous copy each; #157, the MI300X 2-D step)
+      real(R8P) :: sx(1-S_MAX:1+S_MAX)
+      real(R8P) :: sy(1-S_MAX:1+S_MAX)
+      real(R8P) :: sz(1-S_MAX:1+S_MAX)
       !$acc loop seq
       do m=-hs, hs
          sx(1+m) = q_gpu(b,i+m,j,k,IQ_BX)
@@ -217,6 +224,7 @@ contains
       enddo
       dq_gpu(b,i,j,k,IQ_RE)  = dq_gpu(b,i,j,k,IQ_RE)  - divb * ub - upsi * q_gpu(b,i,j,k,IQ_PSI)
       dq_gpu(b,i,j,k,IQ_PSI) = dq_gpu(b,i,j,k,IQ_PSI) - upsi
+      endblock
    enddo
    enddo
    enddo

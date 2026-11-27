@@ -74,17 +74,21 @@ contains
    real(R8P),    intent(inout) :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Conservative variables.
    integer(I4P), intent(out)   :: nclip                             !< Cells whose correction was limited.
    integer(I4P)                :: c, i, j, k, v                     !< Counters and skin cell indexes.
-   real(R8P)                   :: qc(9), dc(9)                      !< Cell state and full correction (nv <= 9).
    real(R8P)                   :: theta                             !< Admissible fraction of the correction.
 
    nclip = 0_I4P
    !$acc parallel loop independent gang vector DEVICEVAR(delta_gpu,q_gpu) &
-   !$acc& firstprivate(axis,sgn,b,ni,nj,nk,nv,nface_cells,scale,limit,mag_w,psi_w,cs2_inert) private(i,j,k,qc,dc,theta) &
+   !$acc& firstprivate(axis,sgn,b,ni,nj,nk,nv,nface_cells,scale,limit,mag_w,psi_w,cs2_inert) private(i,j,k,theta) &
    !$acc& reduction(+:nclip)
    !$omp OMPLOOP DEVICEPTR(delta_gpu,q_gpu) &
-   !$omp& firstprivate(axis,sgn,b,ni,nj,nk,nv,nface_cells,scale,limit,mag_w,psi_w,cs2_inert) private(i,j,k,qc,dc,theta) &
+   !$omp& firstprivate(axis,sgn,b,ni,nj,nk,nv,nface_cells,scale,limit,mag_w,psi_w,cs2_inert) private(i,j,k,theta) &
    !$omp& reduction(+:nclip)
    do c=1, nface_cells
+      block
+      ! locals of the loop body, not private clauses: flang maps a private array of a target region to and from
+      ! the host at every launch (a synchronous copy each; #157, the MI300X 2-D step)
+      real(R8P) :: qc(9)
+      real(R8P) :: dc(9)
       call seam_skin_cell(axis=axis, sgn=sgn, ni=ni, nj=nj, nk=nk, c=c, i=i, j=j, k=k)
       theta = 1._R8P
       if (limit) then
@@ -107,6 +111,7 @@ contains
             q_gpu(b,i,j,k,v) = q_gpu(b,i,j,k,v) + scale * delta_gpu(v,c)
          enddo
       endif
+      endblock
    enddo
    endsubroutine apply_reflux_face_dev
 
@@ -868,10 +873,7 @@ contains
    integer(I4P)                :: fec                               !< Boundary fec (1 to 26).
    integer(I4P)                :: face                              !< Boundary face (1 to 6).
    integer(I4P)                :: iref, jref, kref                  !< Donor indexes.
-   real(R8P)                   :: qd(9), qw(9)                      !< No-slip walls: donor and ghost states.
    integer(I4P)                :: i1, j1, k1                        !< Hydrostatic: first interior cell on the normal.
-   integer(I4P)                :: dd(3)                             !< Hydrostatic: offset from that cell to the ghost.
-   real(R8P)                   :: q1(9), ws(9)                      !< Hydrostatic: its state, the wall signs.
    real(R8P)                   :: gs                                !< Hydrostatic: the potential drop g . s.
 
    ! the rows of this pass only (issue #90, F-A'): `bc_rows_gpu(row_first:row_last,crown)` lists them; scanning the
@@ -881,13 +883,21 @@ contains
    !$acc& DEVICEVAR(local_map_bc_crown_gpu,bc_rows_gpu,q_inflow_gpu,wall_sign_gpu,dxyz_gpu,x_cell_gpu,q_gpu,phi_gpu) &
    !$acc& firstprivate(ni,nj,nk,nv,nv_mhd,nv_entropy,crown,pass,face_kind,gamma,R,psi_energy) &
    !$acc& firstprivate(wall_velocity,wall_temperature,nr_par,sg_par,g,has_phi) &
-   !$acc& private(b,c,i,j,k,idelta,jdelta,kdelta,bc_type,fec,face,iref,jref,kref,qd,qw,i1,j1,k1,dd,q1,ws,gs)
+   !$acc& private(b,c,i,j,k,idelta,jdelta,kdelta,bc_type,fec,face,iref,jref,kref,i1,j1,k1,gs)
    !$omp OMPLOOP DEVICEPTR(local_map_bc_crown_gpu,bc_rows_gpu,q_inflow_gpu,wall_sign_gpu,dxyz_gpu,x_cell_gpu,q_gpu,phi_gpu) &
    !$omp& map(to:face_kind,wall_velocity,wall_temperature,nr_par,sg_par,g) &
    !$omp& firstprivate(ni,nj,nk,nv,nv_mhd,nv_entropy,crown,pass,gamma,R,psi_energy) &
    !$omp& firstprivate(has_phi) &
-   !$omp& private(b,c,i,j,k,idelta,jdelta,kdelta,bc_type,fec,face,iref,jref,kref,qd,qw,i1,j1,k1,dd,q1,ws,gs)
+   !$omp& private(b,c,i,j,k,idelta,jdelta,kdelta,bc_type,fec,face,iref,jref,kref,i1,j1,k1,gs)
    do row=row_first, row_last
+      block
+      ! locals of the loop body, not private clauses: flang maps a private array of a target region to and from
+      ! the host at every launch (a synchronous copy each; #157, the MI300X 2-D step)
+      real(R8P) :: qd(9)
+      real(R8P) :: qw(9)
+      integer(I4P) :: dd(3)
+      real(R8P) :: q1(9)
+      real(R8P) :: ws(9)
       c = bc_rows_gpu(row,crown)
       b = int(local_map_bc_crown_gpu(c,1,crown), I4P)
       fec = int(local_map_bc_crown_gpu(c,9,crown), I4P)
@@ -1015,6 +1025,7 @@ contains
          endif
       endif
       endif
+      endblock
    enddo
    endsubroutine set_boundary_conditions_dev
 
