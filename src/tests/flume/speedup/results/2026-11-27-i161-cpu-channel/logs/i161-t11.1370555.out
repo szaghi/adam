@@ -1,0 +1,23 @@
+start 2026-11-27T13:37:29+01:00 on gnode20.e4-cluster.lan, job 1370555, case 3a-channel-uniform, labels A b516 82c7, pairs 3
+exe A /ifs/hpc/home/szaghi/adam-tests/speedup-133/adam/src/tests/flume/speedup/exe/cpu/adam_flume_cpu sha256 5b9bd6873c1468a6
+exe b516 /ifs/hpc/home/szaghi/adam-tests/speedup-133/i161/trees/b516/src/tests/flume/speedup/exe/cpu/adam_flume_cpu sha256 5b9bd6873c1468a6
+exe 82c7 /ifs/hpc/home/szaghi/adam-tests/speedup-133/i161/trees/82c7/src/tests/flume/speedup/exe/cpu/adam_flume_cpu sha256 b408a22080269248
+13:41:05 A r1-n10 rc 0 wall 215.5 loop 31.9806, steps 31.9439, regrid 0.2352,
+13:41:52 b516 r1-n10 rc 0 wall 47.3 loop 32.2633, steps 32.2075, regrid 0.0502,
+13:45:37 82c7 r1-n10 rc 0 wall 224.5 loop 35.0243, steps 34.7446, regrid 0.9519,
+13:54:18 A r1-n110 rc 0 wall 520.8 loop 382.0728, steps 381.6770, regrid 5.5512,
+14:00:21 b516 r1-n110 rc 0 wall 363.0 loop 342.8386, steps 342.4462, regrid 0.4201,
+14:10:46 82c7 r1-n110 rc 0 wall 625.0 loop 410.8625, steps 407.0516, regrid 14.0326,
+14:11:28 b516 r2-n10 rc 0 wall 41.9 loop 31.4472, steps 31.4063, regrid 0.0451,
+14:12:48 82c7 r2-n10 rc 0 wall 79.8 loop 37.1706, steps 36.7198, regrid 1.5504,
+14:13:40 A r2-n10 rc 0 wall 51.9 loop 31.4463, steps 31.3921, regrid 0.0637,
+14:25:56 b516 r2-n110 rc 0 wall 735.3 loop 351.6487, steps 351.2408, regrid 0.4574,
+14:39:04 82c7 r2-n110 rc 0 wall 788.6 loop 410.0306, steps 401.9064, regrid 15.8571,
+14:45:07 A r2-n110 rc 0 wall 362.4 loop 342.1383, steps 341.7243, regrid 0.3660,
+14:46:23 82c7 r3-n10 rc 0 wall 76.1 loop 35.7531, steps 35.3357, regrid 1.0868,
+14:55:36 A r3-n10 rc 0 wall 552.2 loop 32.8849, steps 32.8485, regrid 0.2338,
+15:00:35 b516 r3-n10 rc 0 wall 298.9 loop 32.2789, steps 32.2279, regrid 0.0426,
+15:08:02 82c7 r3-n110 rc 0 wall 446.9 loop 405.1086, steps 404.1342, regrid 16.6337,
+15:19:27 A r3-n110 rc 0 wall 685.3 loop 341.6268, steps 341.1680, regrid 0.4281,
+15:25:56 b516 r3-n110 rc 0 wall 388.1 loop 342.2475, steps 341.8213, regrid 0.4379,
+I161-AB-DONE 2026-11-27T15:25:56+01:00

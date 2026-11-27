@@ -1,0 +1,9 @@
+start 2026-11-27T13:19:38+01:00 on gnode20.e4-cluster.lan, job 1370554; GNU Fortran (GCC) 16.2.0; FoBiS.py 3.19.2
+13:31:11 BUILD 44cf rc 0 443 s; commit 44cfdfa82299ba92262fb9eefc8ed177a222b7c9; lflags: "-O2 -mdaz-ftz"; unresolved 0; sha256 470163253e324fa7
+13:31:12 BUILD 0f75ftz rc 0 444 s; commit 0f751be1ce8e5347faa4a8a8c4596d10b8a2a98e; lflags: "-O2 -mdaz-ftz"; unresolved 0; sha256 f1fca2ad9041452c
+13:31:12 BUILD 4a02 rc 0 444 s; commit 4a029436f0d74d7cc56543726b1086c5885cd29d; lflags: "-O2 -mdaz-ftz"; unresolved 0; sha256 2fdb1d1a6d64677b
+13:31:13 BUILD 82c7 rc 0 445 s; commit 82c70653253b7721c1675a2aa823c3f91b95b142; lflags: "-O2 -mdaz-ftz"; unresolved 0; sha256 b408a22080269248
+13:37:25 BUILD b864 rc 0 371 s; commit b8641a59ed4c794d6c2906159b2acc24c61a5b2c; lflags: "-O2 -mdaz-ftz"; unresolved 0; sha256 51c6c205131ce344
+13:37:25 BUILD b516ftz rc 0 371 s; commit b516b303047eed568f8d59a2f43da3a1a8337622; lflags: "-O2 -mdaz-ftz"; unresolved 0; sha256 44dd6ea3b5ab7745
+13:37:27 BUILD b516 rc 0 373 s; commit b516b303047eed568f8d59a2f43da3a1a8337622; lflags: "-O2"; unresolved 0; sha256 5b9bd6873c1468a6
+I161-BUILD-DONE 2026-11-27T13:37:27+01:00

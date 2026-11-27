@@ -1,0 +1,23 @@
+start 2026-11-27T13:37:32+01:00 on gnode03.e4-cluster.lan, job 1370556, case 3a-channel-uniform, labels b516ftz 0f75ftz b864, pairs 3
+exe b516ftz /ifs/hpc/home/szaghi/adam-tests/speedup-133/i161/trees/b516ftz/src/tests/flume/speedup/exe/cpu/adam_flume_cpu sha256 44dd6ea3b5ab7745
+exe 0f75ftz /ifs/hpc/home/szaghi/adam-tests/speedup-133/i161/trees/0f75ftz/src/tests/flume/speedup/exe/cpu/adam_flume_cpu sha256 f1fca2ad9041452c
+exe b864 /ifs/hpc/home/szaghi/adam-tests/speedup-133/i161/trees/b864/src/tests/flume/speedup/exe/cpu/adam_flume_cpu sha256 51c6c205131ce344
+13:40:24 b516ftz r1-n10 rc 0 wall 171.2 loop 33.8075, steps 33.7715, regrid 0.2414,
+13:42:02 0f75ftz r1-n10 rc 0 wall 98.7 loop 32.0629, steps 32.0224, regrid 0.0431,
+13:43:53 b864 r1-n10 rc 0 wall 110.5 loop 34.8042, steps 34.4785, regrid 0.6885,
+13:49:46 b516ftz r1-n110 rc 0 wall 352.5 loop 343.2309, steps 342.6907, regrid 0.4924,
+13:55:46 0f75ftz r1-n110 rc 0 wall 360.1 loop 344.9029, steps 344.3784, regrid 0.5967,
+14:04:15 b864 r1-n110 rc 0 wall 508.5 loop 400.7587, steps 397.2882, regrid 15.3341,
+14:05:06 0f75ftz r2-n10 rc 0 wall 51.5 loop 32.1264, steps 32.0876, regrid 0.2348,
+14:08:23 b864 r2-n10 rc 0 wall 196.2 loop 37.5425, steps 37.2407, regrid 1.3633,
+14:09:15 b516ftz r2-n10 rc 0 wall 52.4 loop 32.0869, steps 32.0501, regrid 0.2418,
+14:16:49 0f75ftz r2-n110 rc 0 wall 453.7 loop 357.4308, steps 356.9298, regrid 0.5255,
+14:26:37 b864 r2-n110 rc 0 wall 587.2 loop 378.7825, steps 376.3113, regrid 9.2900,
+14:32:40 b516ftz r2-n110 rc 0 wall 363.4 loop 354.0313, steps 353.3922, regrid 0.4912,
+14:34:46 b864 r3-n10 rc 0 wall 125.5 loop 34.5779, steps 34.2934, regrid 0.7311,
+14:40:19 b516ftz r3-n10 rc 0 wall 333.4 loop 32.1190, steps 32.0718, regrid 0.2462,
+14:41:19 0f75ftz r3-n10 rc 0 wall 59.5 loop 34.8451, steps 34.8093, regrid 0.5417,
+14:51:04 b864 r3-n110 rc 0 wall 584.9 loop 406.9951, steps 397.9348, regrid 17.8218,
+14:57:19 b516ftz r3-n110 rc 0 wall 375.2 loop 344.4145, steps 343.8578, regrid 0.5868,
+15:04:33 0f75ftz r3-n110 rc 0 wall 433.6 loop 368.2003, steps 367.7999, regrid 2.8543,
+I161-AB-DONE 2026-11-27T15:04:33+01:00

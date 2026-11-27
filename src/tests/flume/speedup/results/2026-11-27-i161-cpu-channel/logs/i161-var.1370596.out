@@ -1,0 +1,36 @@
+start 2026-11-27T14:06:44+01:00 on gnode05.e4-cluster.lan, job 1370596
+14:09:57 BUILD i0 rc 0 157 s; 82c7 + #161 instrumentation, no barriers; lflags: "-O2 -mdaz-ftz"; sha256 622b59c66a1b7629
+14:10:09 BUILD i1 rc 0 169 s; 82c7 + #161 instrumentation + b8641a59's barriers restored; lflags: "-O2 -mdaz-ftz"; sha256 ac775855e00b1c48
+start 2026-11-27T14:10:09+01:00 on gnode05.e4-cluster.lan, job 1370596, case 3a-channel-uniform, labels b516ftz i0 i1, pairs 3
+exe b516ftz /ifs/hpc/home/szaghi/adam-tests/speedup-133/i161/trees/b516ftz/src/tests/flume/speedup/exe/cpu/adam_flume_cpu sha256 44dd6ea3b5ab7745
+exe i0 /ifs/hpc/home/szaghi/adam-tests/speedup-133/i161/trees/i0/src/tests/flume/speedup/exe/cpu/adam_flume_cpu sha256 622b59c66a1b7629
+exe i1 /ifs/hpc/home/szaghi/adam-tests/speedup-133/i161/trees/i1/src/tests/flume/speedup/exe/cpu/adam_flume_cpu sha256 ac775855e00b1c48
+14:11:01 b516ftz r1-n10 rc 0 wall 51.8 loop 31.4705, steps 31.4263, regrid 0.0737,
+14:11:59 i0 r1-n10 rc 0 wall 57.5 loop 37.5558, steps 36.8411, regrid 1.5513,
+14:12:58 i1 r1-n10 rc 0 wall 58.7 loop 31.5614, steps 31.5004, regrid 0.0822,
+14:19:14 b516ftz r1-n110 rc 0 wall 376.5 loop 361.2496, steps 360.8247, regrid 0.6215,
+14:26:12 i0 r1-n110 rc 0 wall 417.7 loop 387.7624, steps 382.1827, regrid 12.9690,
+14:32:21 i1 r1-n110 rc 0 wall 368.8 loop 349.2291, steps 348.7921, regrid 0.5919,
+14:33:16 i0 r2-n10 rc 0 wall 55.2 loop 35.4410, steps 35.3626, regrid 0.7023,
+14:34:18 i1 r2-n10 rc 0 wall 61.5 loop 31.6409, steps 31.6045, regrid 0.0606,
+14:40:04 b516ftz r2-n10 rc 0 wall 345.3 loop 33.4322, steps 33.3944, regrid 0.0569,
+14:47:13 i0 r2-n110 rc 0 wall 429.6 loop 384.4514, steps 380.3949, regrid 13.2871,
+14:53:48 i1 r2-n110 rc 0 wall 394.6 loop 374.8337, steps 374.4379, regrid 2.8794,
+14:59:57 b516ftz r2-n110 rc 0 wall 368.3 loop 348.2641, steps 347.8552, regrid 0.6071,
+15:03:22 i1 r3-n10 rc 0 wall 205.8 loop 32.5709, steps 32.5344, regrid 0.2642,
+15:04:14 b516ftz r3-n10 rc 0 wall 51.3 loop 31.7037, steps 31.6633, regrid 0.0532,
+15:05:01 i0 r3-n10 rc 0 wall 47.0 loop 37.4457, steps 37.0939, regrid 1.3445,
+15:11:19 i1 r3-n110 rc 0 wall 377.8 loop 358.1818, steps 357.6604, regrid 2.8405,
+15:17:55 b516ftz r3-n110 rc 0 wall 395.7 loop 370.5099, steps 370.1153, regrid 2.8706,
+15:28:41 i0 r3-n110 rc 0 wall 645.6 loop 354.7521, steps 353.7395, regrid 3.0666,
+I161-AB-DONE 2026-11-27T15:28:41+01:00
+/ifs/hpc/home/szaghi/adam-tests/speedup-133/i161/ab/var/b516ftz/r1-n110: 
+/ifs/hpc/home/szaghi/adam-tests/speedup-133/i161/ab/var/b516ftz/r2-n110: 
+/ifs/hpc/home/szaghi/adam-tests/speedup-133/i161/ab/var/b516ftz/r3-n110: 
+/ifs/hpc/home/szaghi/adam-tests/speedup-133/i161/ab/var/i0/r1-n110: [mpi-00000]ghost mpi timing (#161, min/mean/max over ranks, s; 1101 calls on rank 0): steps    374.381    378.675    382.183; pack      2.619      3.424      4.108; post      0.047      0.071      0.101; waitall     30.340     43.923     52.638; barriers      0.000      0.000      0.000; unpack      1.973      2.441      2.914; busy    329.049    334.752    350.852
+/ifs/hpc/home/szaghi/adam-tests/speedup-133/i161/ab/var/i0/r2-n110: [mpi-00000]ghost mpi timing (#161, min/mean/max over ranks, s; 1101 calls on rank 0): steps    370.770    375.521    380.395; pack      2.485      3.593      4.173; post      0.049      0.073      0.100; waitall     39.192     52.278     59.413; barriers      0.000      0.000      0.000; unpack      1.892      2.612      3.195; busy    316.011    323.243    334.433
+/ifs/hpc/home/szaghi/adam-tests/speedup-133/i161/ab/var/i0/r3-n110: [mpi-00000]ghost mpi timing (#161, min/mean/max over ranks, s; 1101 calls on rank 0): steps    351.250    352.566    353.739; pack      3.114      3.930      4.769; post      0.054      0.079      0.118; waitall      9.014     15.381     20.521; barriers      0.000      0.000      0.000; unpack      1.839      2.649      3.322; busy    330.730    337.186    343.659
+/ifs/hpc/home/szaghi/adam-tests/speedup-133/i161/ab/var/i1/r1-n110: [mpi-00000]ghost mpi timing (#161, min/mean/max over ranks, s; 1101 calls on rank 0): steps    348.223    348.495    348.792; pack      3.238      4.272      5.147; post      0.046      0.077      0.122; waitall      1.163      6.328     12.338; barriers      0.737      2.129      4.094; unpack      3.449      4.005      4.334; busy    334.933    340.038    346.251
+/ifs/hpc/home/szaghi/adam-tests/speedup-133/i161/ab/var/i1/r2-n110: [mpi-00000]ghost mpi timing (#161, min/mean/max over ranks, s; 1101 calls on rank 0): steps    371.560    371.907    374.438; pack      2.978      4.100      4.787; post      0.048      0.075      0.112; waitall      2.198     18.909     35.574; barriers      0.781     12.375     27.318; unpack      3.645      4.040      4.378; busy    335.226    340.623    361.337
+/ifs/hpc/home/szaghi/adam-tests/speedup-133/i161/ab/var/i1/r3-n110: [mpi-00000]ghost mpi timing (#161, min/mean/max over ranks, s; 1101 calls on rank 0): steps    354.899    355.109    357.660; pack      3.335      4.250      5.050; post      0.049      0.077      0.115; waitall      1.548      7.968     18.169; barriers      0.822      7.000     10.880; unpack      3.568      4.018      4.357; busy    335.583    340.141    354.832
+I161-VAR-DONE 2026-11-27T15:28:41+01:00

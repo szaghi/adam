@@ -1,0 +1,22 @@
+start 2026-11-27T17:47:11+01:00 on gnode14.e4-cluster.lan, job 1370620, case 1a-step-uniform, labels 0f75ftz b864 fixA 82c7, pairs 2
+exe 0f75ftz /ifs/hpc/home/szaghi/adam-tests/speedup-133/i161/trees/0f75ftz/src/tests/flume/speedup/exe/cpu/adam_flume_cpu sha256 f1fca2ad9041452c
+exe b864 /ifs/hpc/home/szaghi/adam-tests/speedup-133/i161/trees/b864/src/tests/flume/speedup/exe/cpu/adam_flume_cpu sha256 51c6c205131ce344
+exe fixA /ifs/hpc/home/szaghi/adam-tests/speedup-133/i161/trees/fixA/src/tests/flume/speedup/exe/cpu/adam_flume_cpu sha256 ece2fda427c1d6dc
+exe 82c7 /ifs/hpc/home/szaghi/adam-tests/speedup-133/i161/trees/82c7/src/tests/flume/speedup/exe/cpu/adam_flume_cpu sha256 b408a22080269248
+17:49:32 0f75ftz r1-n10 rc 0 wall 140.0 loop 14.2782, steps 14.2270, regrid 0.0628,
+17:51:54 b864 r1-n10 rc 0 wall 141.3 loop 13.0944, steps 13.0585, regrid 0.0655,
+17:52:43 fixA r1-n10 rc 0 wall 49.2 loop 13.1735, steps 13.1315, regrid 0.0417,
+17:53:29 82c7 r1-n10 rc 0 wall 45.1 loop 12.9671, steps 12.9179, regrid 0.0486,
+17:56:35 0f75ftz r1-n110 rc 0 wall 185.4 loop 138.7421, steps 138.2613, regrid 0.4398,
+17:59:32 b864 r1-n110 rc 0 wall 176.4 loop 139.9923, steps 139.5587, regrid 0.4269,
+18:03:50 fixA r1-n110 rc 0 wall 257.5 loop 138.8260, steps 138.4013, regrid 0.4446,
+18:12:17 82c7 r1-n110 rc 0 wall 507.3 loop 137.8150, steps 137.3071, regrid 0.4733,
+18:14:54 b864 r2-n10 rc 0 wall 156.6 loop 12.7767, steps 12.7390, regrid 0.0407,
+18:15:44 fixA r2-n10 rc 0 wall 48.8 loop 13.1903, steps 13.1460, regrid 0.0475,
+18:18:57 82c7 r2-n10 rc 0 wall 192.9 loop 12.6241, steps 12.5822, regrid 0.0441,
+18:20:58 0f75ftz r2-n10 rc 0 wall 120.6 loop 12.9624, steps 12.9238, regrid 0.0410,
+18:25:17 b864 r2-n110 rc 0 wall 258.1 loop 140.0152, steps 139.5457, regrid 0.4295,
+18:29:01 fixA r2-n110 rc 0 wall 224.1 loop 141.5953, steps 141.1092, regrid 0.4323,
+18:32:52 82c7 r2-n110 rc 0 wall 230.2 loop 143.3372, steps 142.8682, regrid 0.4238,
+18:35:58 0f75ftz r2-n110 rc 0 wall 185.9 loop 139.7693, steps 139.2771, regrid 0.4582,
+I161-AB-DONE 2026-11-27T18:35:58+01:00

@@ -1,0 +1,30 @@
+start 2026-11-27T13:37:29+01:00 on gnode04.e4-cluster.lan, job 1370557, case 3a-channel-uniform, labels b516ftz 4a02 44cf 82c7, pairs 3
+exe b516ftz /ifs/hpc/home/szaghi/adam-tests/speedup-133/i161/trees/b516ftz/src/tests/flume/speedup/exe/cpu/adam_flume_cpu sha256 44dd6ea3b5ab7745
+exe 4a02 /ifs/hpc/home/szaghi/adam-tests/speedup-133/i161/trees/4a02/src/tests/flume/speedup/exe/cpu/adam_flume_cpu sha256 2fdb1d1a6d64677b
+exe 44cf /ifs/hpc/home/szaghi/adam-tests/speedup-133/i161/trees/44cf/src/tests/flume/speedup/exe/cpu/adam_flume_cpu sha256 470163253e324fa7
+exe 82c7 /ifs/hpc/home/szaghi/adam-tests/speedup-133/i161/trees/82c7/src/tests/flume/speedup/exe/cpu/adam_flume_cpu sha256 b408a22080269248
+13:38:18 b516ftz r1-n10 rc 0 wall 48.7 loop 33.7543, steps 33.7184, regrid 0.2410,
+13:39:13 4a02 r1-n10 rc 0 wall 54.1 loop 34.5225, steps 34.4713, regrid 0.7405,
+13:40:34 44cf r1-n10 rc 0 wall 81.1 loop 35.9006, steps 35.8409, regrid 0.6671,
+13:51:37 82c7 r1-n10 rc 0 wall 662.9 loop 34.0599, steps 34.0230, regrid 0.5739,
+14:01:26 b516ftz r1-n110 rc 0 wall 588.6 loop 343.6520, steps 343.2098, regrid 0.3810,
+14:12:08 4a02 r1-n110 rc 0 wall 642.4 loop 376.9429, steps 374.4808, regrid 8.1963,
+14:21:49 44cf r1-n110 rc 0 wall 580.9 loop 402.3465, steps 397.9401, regrid 12.9122,
+14:29:08 82c7 r1-n110 rc 0 wall 438.7 loop 388.0046, steps 384.5711, regrid 8.0831,
+14:30:10 4a02 r2-n10 rc 0 wall 62.2 loop 36.3024, steps 35.6656, regrid 0.9812,
+14:31:02 44cf r2-n10 rc 0 wall 51.4 loop 35.6476, steps 35.5800, regrid 1.3853,
+14:36:37 82c7 r2-n10 rc 0 wall 334.4 loop 38.5181, steps 37.7887, regrid 1.8393,
+14:38:58 b516ftz r2-n10 rc 0 wall 141.2 loop 32.7429, steps 32.7068, regrid 0.0468,
+14:45:58 4a02 r2-n110 rc 0 wall 420.3 loop 400.6557, steps 398.4766, regrid 13.9820,
+14:52:48 44cf r2-n110 rc 0 wall 409.6 loop 379.8221, steps 374.6177, regrid 8.1436,
+14:59:40 82c7 r2-n110 rc 0 wall 411.9 loop 386.7932, steps 382.6150, regrid 10.3102,
+15:06:40 b516ftz r2-n110 rc 0 wall 419.4 loop 357.3521, steps 356.9273, regrid 0.6957,
+15:18:09 44cf r3-n10 rc 0 wall 689.2 loop 34.0150, steps 33.8920, regrid 0.4784,
+15:19:11 82c7 r3-n10 rc 0 wall 61.3 loop 36.5629, steps 36.3810, regrid 1.1354,
+15:22:27 b516ftz r3-n10 rc 0 wall 195.9 loop 32.8902, steps 32.8445, regrid 0.0411,
+15:27:34 4a02 r3-n10 rc 0 wall 306.8 loop 36.3539, steps 35.8206, regrid 1.6667,
+15:35:00 44cf r3-n110 rc 0 wall 445.7 loop 394.0913, steps 389.7641, regrid 11.9534,
+15:43:50 82c7 r3-n110 rc 0 wall 530.1 loop 366.8866, steps 364.8088, regrid 5.0051,
+15:51:11 b516ftz r3-n110 rc 0 wall 440.2 loop 353.7306, steps 353.3240, regrid 2.5584,
+15:59:02 4a02 r3-n110 rc 0 wall 470.6 loop 430.3963, steps 424.0527, regrid 20.3199,
+I161-AB-DONE 2026-11-27T15:59:02+01:00
