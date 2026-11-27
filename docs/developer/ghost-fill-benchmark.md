@@ -269,7 +269,9 @@ so the gains reported against V0 there were conservative.
 
 **After C4 the 2:1 fill is the prolongation and its guard**: on the A30 the copies are 0.65 of 3.88 ms; the guard alone
 (3.88 against 1.65 guard-off) is 2.2 ms. That is where the cooperative prolongation (#157 D) and the rest of the guard
-have to act.
+have to act. Reading the guard's density footprint only when the MP bound needs it (bitwise) gains 2 % on the A30 and
+nothing on the H100 (measured, not applied): the guard's cost is not its reads but, most likely, the divergence of its
+MP path, which a few per cent of the ghosts enter while every warp holding one of them waits.
 
 ## What it does not cover
 
