@@ -56,7 +56,7 @@ Structured protocols for common tasks and emergency debugging.
 2. Propose design: module structure, type extensions, interfaces
    - New CPU state belongs to a realm: add it as a component of the app type (or of `realm_object`/`adam_object` if it is library-wide) and pass it as an argument where other objects need it
    - New FNL GPU state: a component of the app's FNL type, initialised after the common init from the realm's objects
-   - Do not add `*_global` singleton modules or module-level mutable state (only `mpih`/`mpih_fnl` are singletons; forest runs host several realms per process)
+   - Do not add `*_global` singleton modules or module-level mutable state (only `mpih` is a singleton; forest runs host several realms per process)
 3. Identify test cases for verification
 4. Consider multi-compiler compatibility
 5. Document with references (papers, standards)

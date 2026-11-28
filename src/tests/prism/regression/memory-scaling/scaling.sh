@@ -161,8 +161,8 @@ fi
 # penf_allocatable_memory.F90:3799) while procs_number counts the WHOLE world, so
 # dividing by the world size under-estimates each rank's share BY THE NODE COUNT
 # -- 2 nodes x 4 ranks gave mem/8 where the true share is mem/4, and adding nodes
-# bought no capacity at all. adam_mpih_object.F90 now divides by the
-# MPI_COMM_TYPE_SHARED communicator size instead.
+# bought no capacity at all. The handler now divides by the MPI_COMM_TYPE_SHARED
+# communicator size instead (HERALD's mpih%memory since #158, host_memory_avail in adam_mpih_global.F90).
 #
 # This leg cannot run on a single-node workstation, so it skips itself rather
 # than passing vacuously. On a cluster, launch across >1 node to arm it.
@@ -181,7 +181,7 @@ else
       if [[ "${NODEP[1]:-}" == "${NODEP[2]:-}" ]] && ! within "${NB[2]}" "${NB[1]}" 0.10; then
          echo "FAIL [memory-scaling/cpu] same ranks-per-node but nb changed: ${NB[1]} -> ${NB[2]}."
          echo "                          The host budget is still being divided by the WORLD size"
-         echo "                          (adam_mpih_object.F90): each rank under-estimates its share"
+         echo "                          (host_memory_avail, adam_mpih_global.F90): each rank under-estimates its share"
          echo "                          by the node count, so extra nodes buy no capacity."
          fail=1
       fi

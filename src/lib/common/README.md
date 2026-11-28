@@ -26,7 +26,6 @@ The common library is the **portable, physics-agnostic core** of the ADAM SDK. T
 | `adam_poisson_fft_object` | Physics | `adam_poisson_fft_object.F90` |
 | `adam_poisson_mg_object` | Physics | `adam_poisson_mg_object.F90` |
 | `adam_lattice_green_library` | Physics | `adam_lattice_green_library.F90` |
-| `adam_mpih_object` | Infrastructure | `adam_mpih_object.F90` |
 | `adam_io_object` | Infrastructure | `adam_io_object.F90` |
 | `adam_slices_object` | Infrastructure | `adam_slices_object.F90` |
 | `adam_adam_object` | Infrastructure | `adam_adam_object.F90` |

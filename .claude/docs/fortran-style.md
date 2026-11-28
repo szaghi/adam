@@ -520,11 +520,11 @@ dd = aa + bb
 
 ## Object Ownership: Realm Composition, Not Singletons
 
-ADAM keeps **exactly two** program-scope singletons, the per-process MPI handlers:
+ADAM keeps **exactly one** program-scope singleton, the per-process MPI handler (HERALD's `mpih_object`, #158):
 
 ```fortran
 module adam_mpih_global
-use :: adam_mpih_object, only: mpih_object
+use :: herald, only : mpih_object
 implicit none
 private
 public :: mpih
@@ -532,7 +532,7 @@ type(mpih_object), target :: mpih  !< Program-scope singleton.
 endmodule adam_mpih_global
 ```
 
-and its FNL twin `mpih_fnl` (`adam_fnl_mpih_global`, initialised once per process behind the `mpih_fnl_is_initialized` guard because it owns the device context). Everything else is a **per-realm component**:
+On the device builds the same `mpih` binds the rank to its device, once per process (`bind_device` in `adam_fnl_device`: HERALD's `mpih%device`, then FUNDAL's `dev_init`); the former FNL twin `mpih_fnl` was merged into it (#158). Everything else is a **per-realm component**:
 
 | Reached as | Object |
 |------------|--------|
@@ -556,11 +556,9 @@ Library procedures that need another object take it **as a dummy argument** (`gr
 The common `initialize` reads the physics first (it decides `nv`), then `realm_object%initialize` builds grid, tree, maps, field, AMR, IB, slices, RK, WENO and FDV. FNL helpers are initialised afterwards, from the realm's objects:
 
 ```fortran
-! prism_fnl_object%initialize_prism (adam_prism_fnl_object.F90)
-if (.not.mpih_fnl_is_initialized) then                                           ! once per process
-   call mpih_fnl%initialize(do_mpi_init=..., do_device_init=.true.)
-   mpih_fnl_is_initialized = .true.
-endif
+! prism_fnl_object%initialize_process_context, once per process (the forest calls it before any realm)
+call bind_device(verbose=verbose)
+! prism_fnl_object%initialize_prism (adam_prism_fnl_object.F90), per realm
 call self%prism_common_object%initialize(filename=filename, memory_avail=memory_avail_, verbose=.true.)
 call self%field_fnl%initialize(grid=self%adam%grid, field=self%adam%field, maps=self%adam%maps, verbose=.true.)
 call self%ib_fnl%initialize(grid=self%adam%grid, field=self%adam%field, ib=self%ib)
@@ -588,5 +586,5 @@ call self%weno_fnl%initialize(weno=self%weno)
 | `intent(out)` | Assign all derived type components |
 | Modules | Use `private` by default, expose with `public` |
 | OpenMP | Use `default(none)`, `reduction` for accumulation |
-| Singletons | Only `mpih` and `mpih_fnl`; every other object is a realm component (`self%adam%grid`, `self%rk`, `self%field_fnl`, …) passed as an argument where needed |
+| Singletons | Only `mpih` (HERALD's handler; it also binds the device on FNL); every other object is a realm component (`self%adam%grid`, `self%rk`, `self%field_fnl`, …) passed as an argument where needed |
 | FNL init order | Common init first, then `self%field_fnl/ib_fnl/rk_fnl/weno_fnl%initialize(...)` from the realm's objects |
