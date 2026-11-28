@@ -47,6 +47,12 @@ exclude_dirs = references/
                FUNDAL/src/tests/
                FUNDAL/src/third_party/
                FUNDAL/compilers_proofs/
+               GIDEON/build/
+               GIDEON/docs/
+               GIDEON/notes/
+               GIDEON/src/bench/
+               GIDEON/src/tests/
+               GIDEON/src/third_party/
                HERALD/docs/
                HERALD/notes/
                HERALD/src/tests/
