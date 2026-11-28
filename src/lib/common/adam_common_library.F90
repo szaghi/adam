@@ -17,7 +17,6 @@ use :: adam_grid_object
 use :: adam_ib_object
 use :: adam_io_object
 use :: adam_maps_object
-use :: adam_mpih_object
 use :: adam_parameters
 use :: adam_refinement_plan_object
 use :: adam_stepper_object
@@ -34,6 +33,8 @@ use :: adam_tree_object
 use :: adam_weno_object
 ! ADAM singleton objects
 use :: adam_mpih_global
+! external libraries
+use :: herald, only : mpih_object ! the type of mpih (#158), re-exported for the applications that name it
 
 implicit none
 public

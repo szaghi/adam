@@ -357,10 +357,17 @@ conductivity `kd`; conversions between primitive and conservative variables), `[
 
 ## Infrastructure
 
-### `adam_mpih_object`
+### The MPI handler, HERALD's `mpih_object`
 
-A thin layer over MPI: rank and size, tic-toc timing, rank-prefixed output, barrier, `abort` and `error_stop`. The
-ghost exchange itself is in `adam_field_object` (`update_ghost_mpi`).
+`mpih` (`adam_mpih_global`) is an instance of [HERALD](https://github.com/szaghi/HERALD)'s `mpih_object`
+([#158](https://github.com/szaghi/adam/issues/158); ADAM's own `adam_mpih_object` was HERALD's seed and is deleted):
+rank and size, the node-local communicator (`node_comm`, `node_myrank`, `node_procs_number`), rank-prefixed output
+(`print_message`, `warning`), barrier, `abort` and `error_stop` (every rank stops, exit status 1), the host memory
+budget (`memory`) and named timers. `initialize` is once-only and initializes MPI if nobody has; `finalize` finalizes MPI
+only if `mpih` initialized it. HERALD's `memory_avail` is in GiB: the applications take the CPU block budget from
+`host_memory_avail()` (`adam_mpih_global`), which returns the former handler's value bit for bit (kB/1e6 of
+min(`MemTotal`, cgroup limit), divided by the node's ranks), so the block capacity `nb` did not change. The ghost
+exchange itself is in `adam_field_object` (`update_ghost_mpi`).
 
 ### `adam_io_object`
 
@@ -616,7 +623,6 @@ The keys live on `adam_io_object`. The monitor covers intra-realm 2:1 faces and 
 | `adam_poisson_fft_object` | Elliptic | `adam_poisson_fft_object.F90` |
 | `adam_poisson_mg_object` | Elliptic | `adam_poisson_mg_object.F90` |
 | `adam_lattice_green_library` | Elliptic | `adam_lattice_green_library.F90` |
-| `adam_mpih_object` | Infrastructure | `adam_mpih_object.F90` |
 | `adam_io_object` | Infrastructure | `adam_io_object.F90` |
 | `adam_slices_object` | Infrastructure | `adam_slices_object.F90` |
 | `adam_adam_object` | Infrastructure | `adam_adam_object.F90` |

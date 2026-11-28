@@ -269,7 +269,7 @@ contains
 
    realms_number_ = 1_I4P ; if (present(realms_number)) realms_number_ = max(realms_number, 1_I4P)
    call mpih%print_message('prism_cpu_object%initialize start')
-   memory_avail_ = mpih%memory_avail / real(realms_number_, R8P)
+   memory_avail_ = host_memory_avail() / real(realms_number_, R8P)
    ! the time integrator is SELAH's (stepper_object, #132 phase 4); Yoshida is SELAH's splitting of the two partitions,
    ! B (VAR_BX:VAR_BZ, advanced first) and D (VAR_DX:VAR_DZ)
    self%selah_partitions = reshape([VAR_BX, VAR_BZ, VAR_DX, VAR_DZ], [2, 2])

@@ -47,7 +47,7 @@ The SDK provides physics-agnostic building blocks reused identically by every ap
 | `adam_stepper_object` | Time integration on [SELAH](https://github.com/szaghi/SELAH) ([#132](https://github.com/szaghi/adam/issues/132)): `runge-kutta-1/2/3`, SSP `runge-kutta-ssp-11`, `-22`, `-33`, `-54`, and the symplectic `runge-kutta-yoshida`; the time step comes from the CFL condition |
 | `adam_ib_object` | Immersed boundary method: solids on the Cartesian grid as eikonal signed-distance fields, boundary conditions reconstructed at the cut cells; in FLUME an `AMR_GEO_SOLID` marker refines around a solid (PRISM does not implement it); moving bodies are library only |
 | `adam_io_object` | `[IO]` configuration, history files (residuals, energy, divergence, charge), the XH5F field writer `save_field`: one HDF5 file per rank plus an XDMF index; restart and slice files in [cookbook IO](/cookbook/io) |
-| `adam_mpih_object` | MPI wrapper: initialize/finalize, `error_stop`, barrier, timers |
+| `mpih` (`adam_mpih_global`) | The MPI handler, an instance of [HERALD](https://github.com/szaghi/HERALD)'s `mpih_object` ([#158](https://github.com/szaghi/adam/issues/158)): ranks and node topology, `error_stop` (every rank stops), barrier, the host memory budget (`host_memory_avail()` for the block capacity), timers |
 | `adam_flail_object` | FLAIL, the elliptic solver library: a facade over the FFT (`adam_poisson_fft_object`) and AMR multigrid (`adam_poisson_mg_object`) Poisson solvers |
 | `adam_fdv_operators_library` | Gradient, divergence, curl, Laplacian finite difference operators |
 | `adam_riemann_euler_library` | Riemann solvers for the Euler equations (library only: used by no maintained application) |

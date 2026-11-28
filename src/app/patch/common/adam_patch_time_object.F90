@@ -2,7 +2,7 @@
 module adam_patch_time_object
 !< ADAM, PATCH time handler class definition, common CPU backend.
 
-use adam_mpih_object
+use :: herald, only : mpih_object
 use finer
 use penf
 

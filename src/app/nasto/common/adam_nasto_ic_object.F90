@@ -3,7 +3,7 @@ module adam_nasto_ic_object
 !< ADAM, NASTO Initial Conditions class definition, CPU backend.
 
 use adam_field_object, only : field_object
-use adam_mpih_object, only : mpih_object
+use :: herald, only : mpih_object
 use adam_nasto_physics_object, only : nasto_physics_object
 use finer
 use penf

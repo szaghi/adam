@@ -2,7 +2,7 @@
 module adam_chase_time_object
 !< ADAM, CHASE time handler class definition, common CPU backend.
 
-use adam_mpih_object
+use :: herald, only : mpih_object
 use finer
 use penf
 

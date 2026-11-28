@@ -3,7 +3,7 @@ module adam_patch_bc_object
 !< ADAM, PATCH Boundary Conditions class definition, CPU backend.
 
 ! ADAM modules
-use adam_mpih_object
+use :: herald, only : mpih_object
 ! third party modules
 use finer
 use penf

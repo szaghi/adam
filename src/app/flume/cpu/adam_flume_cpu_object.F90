@@ -19,7 +19,7 @@ use :: adam_turbulence_kernels, only : compute_mu_t_sigma, compute_mu_t_vreman, 
 use :: adam_turbulence_object,    only : SGS_SIGMA_MODEL, SGS_VREMAN_MODEL, SGS_WALE_MODEL
 use :: adam_seam_exchange,        only : seam_fill_all, seam_ghosts_to_state, pack_seam_rows, unpack_seam_rows
 ! ADAM singleton objects
-use :: adam_mpih_global,          only : mpih
+use :: adam_mpih_global,          only : host_memory_avail, mpih
 ! FLUME modules
 use :: adam_flume_parameters,          only : IQ_BX, IQ_BY, IQ_BZ, IQ_PSI, IQ_R, IQ_RE, IQ_RU, IQ_RV, IQ_RW, IQ_S
 use :: adam_flume_common_library,      only : flume_common_object, regrid_phases_t, flume_seam_sync_object,        &
@@ -1294,7 +1294,7 @@ contains
    integer(I4P)                                  :: realms_number_ !< Realm count, local variable.
 
    realms_number_ = 1_I4P ; if (present(realms_number)) realms_number_ = max(1_I4P, realms_number)
-   call self%flume_common_object%initialize(filename=filename, memory_avail=mpih%memory_avail/realms_number_, &
+   call self%flume_common_object%initialize(filename=filename, memory_avail=host_memory_avail()/realms_number_, &
                                             verbose=.true.)
    if (self%numerics%is_hybrid) then
       allocate(self%psi(1:self%physics%nv,1-self%ngc:self%ni+self%ngc,1-self%ngc:self%nj+self%ngc,1-self%ngc:self%nk+self%ngc,1:self%nb))

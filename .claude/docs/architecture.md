@@ -8,7 +8,7 @@ Comprehensive reference for class hierarchy, object ownership, key types, librar
 
 ```
 src/lib/common/  (CPU base layer)
-├── mpih_object
+├── mpih_object        (HERALD's type, #158)
 ├── grid_object
 ├── field_object
 ├── maps_object
@@ -328,15 +328,20 @@ Queries the apps use: `stages()`, `stage_state()`, `stage_time(k)`, `stage_weigh
 `stage_euler_fraction(k)` (positivity limiter), `ssp_coefficient()`, `imag_axis_bound()`. PRISM's PML auxiliary
 fields and its particles are SELAH companions of the same stepper (`prism_pml_stepper_object`, `pic_st`; #134 D5).
 
-### `mpih_object` (`src/lib/common/adam_mpih_object.F90`)
+### `mpih_object` (HERALD, `src/third_party/HERALD/src/lib/herald_mpih_object.F90`, #158)
+
+ADAM's own `adam_mpih_object` is deleted: `mpih` is an instance of HERALD's type (`use herald, only : mpih_object`).
 
 ```fortran
-integer(I4P)              :: myrank, procs_number
+integer(I4P)              :: comm, node_comm         ! the handler's communicator, its node-local split
+integer(I4P)              :: myrank, procs_number, node_myrank, node_procs_number
 character(:), allocatable :: myrankstr
-real(R8P)    :: memory_avail           ! Available host memory (GB)
-integer(I4P) :: error
-real(R8P)    :: timing(1:2)            ! tic-toc wall time
-integer(I4P) :: tictoc
+integer(I4P)              :: error
+integer(I4P), allocatable :: req_send_recv(:)        ! (0:2*procs_number-1)
+logical                   :: is_initialized, owns_mpi ! once-only initialize; finalize ends MPI only if owns_mpi
+type(device_object)       :: device                  ! mydev, sharers, memory_total (device builds, #158 A3)
+type(memory_object)       :: memory                  ! host budget: limit = min(MemTotal, cgroup), per_rank()
+real(R8P)                 :: memory_avail            ! GiB: NOT the CPU block budget, use host_memory_avail()
 ```
 
 ### `field_fnl_object` (`src/lib/fnl/adam_fnl_field_object.F90`)
@@ -452,7 +457,7 @@ Key procedures: `initialize_prism(self, filename)`, `simulate`, `compute_dt`, `c
 ```
 adam_common_library
  ├── adam_adam_object, adam_field_object, adam_grid_object, adam_tree_object
- ├── adam_maps_object, adam_weno_object, adam_stepper_object, adam_time_object, adam_ib_object, adam_mpih_object
+ ├── adam_maps_object, adam_weno_object, adam_stepper_object, adam_time_object, adam_ib_object, herald (mpih_object)
  ├── adam_realm_object, adam_forest_object, adam_forest_manifest, adam_seam_exchange, adam_flux_register_object
  ├── adam_io_object, adam_amr_object, adam_refinement_plan_object, adam_parameters
  ├── adam_eos_ic_object, adam_flail_object, adam_slices_object

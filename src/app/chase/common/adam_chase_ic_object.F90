@@ -4,7 +4,7 @@ module adam_chase_ic_object
 
 ! ADAM modules
 use adam_field_object, only : field_object
-use adam_mpih_object, only : mpih_object
+use :: herald, only : mpih_object
 ! CHASE modules
 use adam_chase_physics_object, only : chase_physics_object
 ! third party modules

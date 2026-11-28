@@ -4,7 +4,7 @@ module adam_mpih_gmp_object
 !<
 !< Extend common mpih class adding GMP features.
 
-use adam_mpih_object
+use :: herald, only : mpih_object
 use penf
 use mpi
 use omp_lib, only : omp_set_default_device, omp_get_initial_device

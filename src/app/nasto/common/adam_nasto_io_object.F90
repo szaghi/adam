@@ -2,7 +2,7 @@
 module adam_nasto_io_object
 !< ADAM, Navier-Stokes IO handler class definition, CPU backend.
 
-use adam_mpih_object
+use :: herald, only : mpih_object
 use finer
 use penf
 

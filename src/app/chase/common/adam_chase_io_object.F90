@@ -3,7 +3,7 @@ module adam_chase_io_object
 !< ADAM, Maxwell IO handler class definition, common CPU backend.
 
 ! ADAM modules
-use adam_mpih_object
+use :: herald, only : mpih_object
 ! third party modules
 use finer
 use penf

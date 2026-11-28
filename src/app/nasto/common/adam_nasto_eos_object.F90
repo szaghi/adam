@@ -2,7 +2,7 @@
 module adam_nasto_eos_object
 !< ADAM, NASTO Equations Of State (EOS) class definition, CPU backend.
 
-use adam_mpih_object, only : mpih_object
+use :: herald, only : mpih_object
 use finer, only : file_ini
 use penf, only : I4P, R8P, str
 

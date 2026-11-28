@@ -13,7 +13,7 @@ use :: adam_flux_register_object, only : flux_register_object
 use :: adam_realm_object,         only : realm_pointer
 use :: adam_weno_object,          only : weno_reconstruct, S_MAX
 ! ADAM singleton objects
-use :: adam_mpih_global,          only : mpih
+use :: adam_mpih_global,          only : host_memory_avail, mpih
 ! RIPPLE modules
 use :: adam_ripple_common_object, only : ripple_common_object
 ! third party modules
@@ -154,7 +154,7 @@ contains
    character(*),             intent(in)           :: filename      !< Input file name.
    integer(I4P),             intent(in), optional :: realms_number !< Unused: RIPPLE is single-realm.
 
-   call self%initialize_ripple(filename=filename, memory_avail=mpih%memory_avail)
+   call self%initialize_ripple(filename=filename, memory_avail=host_memory_avail())
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, nb=>self%nb)
       allocate(self%flx(1,0:ni,1:nj,1:nk,nb), self%fly(1,1:ni,0:nj,1:nk,nb), self%flz(1,1:ni,1:nj,0:nk,nb), source=0._R8P)
    endassociate

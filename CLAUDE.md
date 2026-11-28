@@ -64,10 +64,9 @@ src/
 | `adam_stepper_object` | Time integration on SELAH (the realm's `ts`, #132) |
 | `adam_ib_object` | Immersed boundary method |
 | `adam_io_object` | HDF5 and restart file I/O |
-| `adam_mpih_object` | MPI wrapper and communication |
 | `adam_realm_object` | Abstract app base: **owns every library object as a component** (`io, amr, slices, weno, ib, rk, flail, adam{grid,tree,field,maps}`; `flail` is the elliptic solver library, issue #84) + the `_forest` TBP contract |
 | `adam_forest_object` | Time-loop orchestrator (`simulate`, `simulate_from_manifest`): single-realm fast path, AMR-staged path, multi-realm seams |
-| `adam_mpih_global` | The **only** CPU program-scope singleton (`mpih`); `adam_globals` re-exports just this |
+| `adam_mpih_global` | The **only** CPU program-scope singleton (`mpih`, an instance of [HERALD](https://github.com/szaghi/HERALD)'s `mpih_object`, #158: ADAM's own `adam_mpih_object` is deleted) and `host_memory_avail()` (the CPU block budget, kB/1e6: HERALD's `memory_avail` is GiB, never use it for `nb`); `adam_globals` re-exports just this |
 | `adam_fdv_operators_library` | Gradient, divergence, curl, Laplacian operators |
 | `adam_riemann_euler_library` | Euler equation Riemann solvers |
 

@@ -36,7 +36,7 @@ module adam_chase_physics_object
 !< Note that the first nv=5 auxiliary variables are also the primitive ones.
 
 ! ADAM modules
-use :: adam_mpih_object, only : mpih_object
+use :: herald, only : mpih_object
 use :: adam_eos_ic_object, only : eos_ic_object
 ! CHASE modules
 use :: adam_chase_parameters

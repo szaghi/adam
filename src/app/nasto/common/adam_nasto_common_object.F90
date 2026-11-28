@@ -7,7 +7,7 @@ use adam_amr_object
 use adam_field_object
 use adam_grid_object
 use adam_ib_object
-use adam_mpih_object
+use :: herald, only : mpih_object
 use adam_rk_object
 use adam_slices_object
 use adam_weno_object

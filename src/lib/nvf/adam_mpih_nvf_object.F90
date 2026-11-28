@@ -4,7 +4,7 @@ module adam_mpih_nvf_object
 !<
 !< Extend common mpih class adding NVF features.
 
-use adam_mpih_object
+use :: herald, only : mpih_object
 use finer
 use penf
 use cudafor
