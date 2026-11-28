@@ -2,7 +2,7 @@
 
 # Build modes
 
-The fobos files define 138 modes. Build one with `fobis build --mode <mode>`; the executables go to `exe/`.
+The fobos files define 121 modes. Build one with `fobis build --mode <mode>`; the executables go to `exe/`.
 
 - **Varsets.** A varset selects the machine and toolchain: the HDF5 build (`$HDF5_PREFIX`) and, for nvfortran, the GPU compute capability (`$NVF_CC`). The default varset is `local_gnu`. Every nvfortran mode needs `--varset` with an NVF varset, or `-gpu=$NVF_CC` stays unexpanded and the first nvfortran call fails. The varset table is on the [install page](/start/install#varsets-one-per-machine-and-toolchain). In the tables, **default** is `local_gnu` (or the machine's GNU varset: `ci_gnu`, `iac_gnu`); **NVF** is a varset that sets `$NVF_CC` (`local_nvf`, `iac_nvf`, `leonardo`, `spacehpc`); **AMD** is a varset that sets the amdflang HDF5 (`local_amd`, `thera_amd`), combined with a `gfx*` varset to change `$GPU_ARCH` from its default, gfx942.
 - **Names.** `<target>-<backend>-<compiler>[-<variant>]`: `cpu` is the CPU backend (MPI, optionally OpenMP), `fnl` the GPU backend (OpenACC with `nvf`, OpenMP offload with `omp-amd`). Build clean after switching compiler: `.mod` files work only with the compiler that wrote them.
@@ -131,32 +131,6 @@ Status: does not build.
 | `test-flume-user-criterion-cpu-gnu` | CPU (gfortran) | — | default |
 | `test-flume-kolmogorov-marker-gnu` | CPU (gfortran) | — | default |
 | `test-ripple-crest-criterion-cpu-gnu` | CPU (gfortran) | — | default |
-| `test-fdv-curl-trigonometric-gnu` | CPU (gfortran) | — | default |
-| `test-fdv-curl-trigonometric-gnu-debug` | CPU (gfortran) | debug flags | default |
-| `test-fdv-fnl-curl-trigonometric-nvf` | FNL, OpenACC (nvfortran) | — | NVF |
-| `test-fdv-fnl-operators-trigonometric-nvf` | FNL, OpenACC (nvfortran) | — | NVF |
-| `test-fdv-fnl-operators-vector-trigonometric-nvf` | FNL, OpenACC (nvfortran) | — | NVF |
-| `test-fdv-fnl-curl-trigonometric-omp-amd` | FNL, OpenMP offload (amdflang) | — | AMD |
-| `test-fdv-fnl-operators-trigonometric-omp-amd` | FNL, OpenMP offload (amdflang) | — | AMD |
-| `test-fdv-fnl-operators-vector-trigonometric-omp-amd` | FNL, OpenMP offload (amdflang) | — | AMD |
-| `test-fdv-divergence-trigonometric-gnu` | CPU (gfortran) | — | default |
-| `test-fdv-divergence-trigonometric-gnu-debug` | CPU (gfortran) | debug flags | default |
-| `test-fdv-gradient-trigonometric-gnu` | CPU (gfortran) | — | default |
-| `test-fdv-gradient-trigonometric-gnu-debug` | CPU (gfortran) | debug flags | default |
-| `test-fdv-laplacian-trigonometric-gnu` | CPU (gfortran) | — | default |
-| `test-fdv-laplacian-trigonometric-gnu-debug` | CPU (gfortran) | debug flags | default |
-| `test-fdv-operators-step-gnu` | CPU (gfortran) | — | default |
-| `test-fdv-operators-step-gnu-debug` | CPU (gfortran) | debug flags | default |
-| `test-fdv-operators-trigonometric-gnu` | CPU (gfortran) | — | default |
-| `test-fdv-operators-trigonometric-gnu-debug` | CPU (gfortran) | debug flags | default |
-| `test-prism-reflux-apply-gnu` | CPU (gfortran) | — | default |
-| `test-prism-reflux-apply-gnu-debug` | CPU (gfortran) | debug flags | default |
-| `test-fdv-curl-trigonometric-gnu-cov` | CPU (gfortran) | coverage instrumentation | default |
-| `test-fdv-divergence-trigonometric-gnu-cov` | CPU (gfortran) | coverage instrumentation | default |
-| `test-fdv-gradient-trigonometric-gnu-cov` | CPU (gfortran) | coverage instrumentation | default |
-| `test-fdv-laplacian-trigonometric-gnu-cov` | CPU (gfortran) | coverage instrumentation | default |
-| `test-fdv-operators-step-gnu-cov` | CPU (gfortran) | coverage instrumentation | default |
-| `test-fdv-operators-trigonometric-gnu-cov` | CPU (gfortran) | coverage instrumentation | default |
 | `test-amr-geo-box-gnu` | CPU (gfortran) | — | default |
 | `test-amr-geo-box-gnu-debug` | CPU (gfortran) | debug flags | default |
 | `test-amr-reflux-restrict-gnu` | CPU (gfortran) | — | default |
@@ -178,6 +152,15 @@ Status: does not build.
 | `test-seam-interpolation-fnl-omp-amd` | FNL, OpenMP offload (amdflang) | — | AMD |
 | `test-amr-ghost-bench-fnl-nvf` | FNL, OpenACC (nvfortran) | — | NVF |
 | `test-amr-ghost-bench-fnl-omp-amd` | FNL, OpenMP offload (amdflang) | — | AMD |
+| `test-prism-reflux-apply-gnu` | CPU (gfortran) | — | default |
+| `test-prism-reflux-apply-gnu-debug` | CPU (gfortran) | debug flags | default |
+| `test-amr-geo-box-gnu-cov` | CPU (gfortran) | coverage instrumentation | default |
+| `test-amr-reflux-restrict-gnu-cov` | CPU (gfortran) | coverage instrumentation | default |
+| `test-seam-interpolation-gnu-cov` | CPU (gfortran) | coverage instrumentation | default |
+| `test-tree-closest-block-gnu-cov` | CPU (gfortran) | coverage instrumentation | default |
+| `test-tree-balance-gnu-cov` | CPU (gfortran) | coverage instrumentation | default |
+| `test-amr-regrid-roundtrip-gnu-cov` | CPU (gfortran) | coverage instrumentation | default |
+| `test-quadtree-seam-ghost-gnu-cov` | CPU (gfortran) | coverage instrumentation | default |
 | `test-poisson-fft-gnu` | CPU (gfortran) | links the FFT library of the self-gravity solvers (FFTW, cuFFT on nvfortran) | default |
 | `test-poisson-fft-gnu-debug` | CPU (gfortran) | debug flags, links the FFT library of the self-gravity solvers (FFTW, cuFFT on nvfortran) | default |
 | `test-poisson-fft-fnl-nvf` | FNL, OpenACC (nvfortran) | links the FFT library of the self-gravity solvers (FFTW, cuFFT on nvfortran) | NVF |

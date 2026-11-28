@@ -25,7 +25,7 @@ Every other page builds on these identities: the AMR and inter-realm pages measu
 | Item | Choice | Code |
 |---|---|---|
 | Equations | Maxwell in $\mathbf D$, $\mathbf B$, SI units (`physical_model = EM`), no sources | [models](../models#models) |
-| Space | centred finite differences of order 6 (`fd_centered`, `fdv_order = 6`) | `compute_curl_fd_centered`, `compute_divergence_fd_centered`, [`adam_fdv_operators_library.F90`](https://github.com/szaghi/adam/blob/develop/src/lib/common/adam_fdv_operators_library.F90); [numerics](../numerics#the-discrete-curl-and-divergence) |
+| Space | centred finite differences of order 6 (`fd_centered`, `fdv_order = 6`) | `gideon_fd_curl_c`, `gideon_fd_divergence_c` ([GIDEON](https://github.com/szaghi/GIDEON)); [numerics](../numerics#the-discrete-curl-and-divergence) |
 | Time | SSP Runge–Kutta, 5 stages, 4th order (`runge-kutta-ssp-54`), CFL 0.5: $\Delta t = \Delta x/(4c)$ | [`adam_stepper_object.F90`](https://github.com/szaghi/adam/blob/develop/src/lib/common/adam_stepper_object.F90) (SELAH); [numerics](../numerics#time-integration) |
 | Periodic faces | the library periodicity (`BC_PERIODIC`): periodic tree neighbours and the ghost exchange across blocks and ranks | [boundary conditions](../boundary-conditions#face-kinds) |
 | FNL backend | the same kernels on the device | [`adam_prism_fnl_object.F90`](https://github.com/szaghi/adam/blob/develop/src/app/prism/fnl/adam_prism_fnl_object.F90) |

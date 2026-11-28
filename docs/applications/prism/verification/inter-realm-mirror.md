@@ -38,7 +38,7 @@ What the cases catch:
 | Item | Choice | Code |
 |---|---|---|
 | Equations | Maxwell, SI; 4 AC coils (`rmf-2realm*`) or no source (`rmf-2realm-fd-pulse`) | [models](../models#models) |
-| Space | centred finite differences of order 6 | [`adam_fdv_operators_library.F90`](https://github.com/szaghi/adam/blob/develop/src/lib/common/adam_fdv_operators_library.F90) |
+| Space | centred finite differences of order 6 | [GIDEON](https://github.com/szaghi/GIDEON) (`gideon_fd_*_c`) |
 | Time | SSP Runge–Kutta (5,4), CFL 0.5 (realm 1 of `asymK`: SSP (3,3)); one global $\Delta t$ (minimum over the realms) | [`adam_stepper_object.F90`](https://github.com/szaghi/adam/blob/develop/src/lib/common/adam_stepper_object.F90) (SELAH) |
 | Seam fill | peer-interior copy, per step (α) or per stage (β) | `fill_seam_from_peer_forest`, [`adam_prism_cpu_object.F90`](https://github.com/szaghi/adam/blob/develop/src/app/prism/cpu/adam_prism_cpu_object.F90), [`adam_prism_fnl_object.F90`](https://github.com/szaghi/adam/blob/develop/src/app/prism/fnl/adam_prism_fnl_object.F90); `evolve_one_step`, `check_beta_admissibility`, [`adam_forest_object.F90`](https://github.com/szaghi/adam/blob/develop/src/lib/common/adam_forest_object.F90) |
 | Seam face BC | the manifest overrides each realm's BC on the seam face | [numerics](../numerics#multi-realm-runs) |

@@ -213,11 +213,27 @@ smoothness-indicator constant, a nonlinear weight, the KEEP two-point mass flux 
 `weno_reconstruct_upwind*`, `compute_kep_flux`) from being written in `src/app` or `src/lib`, with no waiver since S7
 moved the seam WENO-6 transfer to SETH.
 
-### `adam_fdv_operators_library`
+### The FD/FV operators: GIDEON
 
-Gradient, divergence, curl, Laplacian and scalar derivatives of orders 1–6, each in three flavours: centred finite
-difference, centred finite volume, upwind (WENO) finite volume. The abstract `compute_*_fdv_interface` procedure
-pointers dispatch between flavours without branching.
+Since [#159](https://github.com/szaghi/adam/issues/159) ADAM has no finite difference/volume operator library of its own:
+the operators are [GIDEON](https://github.com/szaghi/GIDEON)'s (`use gideon`), the library rebuilt from ADAM's former
+`adam_fdv_operators_library` with coefficients derived in exact rational arithmetic and verified there (its suite and CI
+are the operator tests). One `pure`, device-callable (`!$acc routine seq`, `!$omp declare target`) kernel per operator
+and order; the run-time dispatchers take the order (`2s`, the half stencil `s` of `[fdv]`):
+
+| Use in ADAM | GIDEON | Window (the caller's) |
+|---|---|---|
+| first derivative at a node or cell | `gideon_fd_d1_c(order, q, ds, d)`, `gideon_fv_d1_c` | `q(i-s:i+s)` |
+| value at the face `i+1/2` | `gideon_fd_face_c(order, q, f)`, `gideon_fv_face_c` | `q(i+1-s:i+s)` |
+| curl, divergence, gradient at a point | `gideon_{fd,fv}_{curl,divergence,gradient}_c(order, ..., dxyz, r)` | the lines through the point, `(i-s:i+s)` each |
+| one coefficient of a row chosen at run time | `FD_D1(m,s)`, `FV_FACE(m,s)`, `m, s <= GIDEON_S_MAX` | — |
+
+GIDEON's dummies are explicit-shape: a section of the wrong length is not detected (the kernel reads a shifted window),
+and a strided section is copied into a temporary at every call. The CPU callers on the hot paths gather each line into
+a contiguous local stencil first (FLUME's EGLM sources, PRISM's residual cube operators `cube_{curl,divergence,gradient}_fd`
+in `adam_prism_cpu_object`); the FNL kernels already pass private contiguous stencils. The realm keeps three wrappers
+over GIDEON, bound by `[fdv] fdv_scheme` (`compute_curl`, `compute_divergence`, `compute_gradient`), for the PRISM
+diagnostics and the coil sources.
 
 ### `adam_riemann_euler_library`
 
@@ -610,7 +626,6 @@ The keys live on `adam_io_object`. The monitor covers intra-realm 2:1 faces and 
 | `adam_field_object` | Grid/field | `adam_field_object.F90` |
 | `adam_maps_object` | Communication | `adam_maps_object.F90` |
 | `adam_weno_object` | Numerics, spatial | `adam_weno_object.F90` |
-| `adam_fdv_operators_library` | Numerics, spatial | `adam_fdv_operators_library.F90` |
 | `adam_riemann_euler_library` | Numerics, spatial (unused) | `adam_riemann_euler_library.F90` |
 | `adam_stepper_object` | Numerics, temporal (SELAH adapter) | `adam_stepper_object.F90` |
 | `adam_eos_ic_object` | Physics (unused) | `adam_eos_ic_object.F90` |

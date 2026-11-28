@@ -36,7 +36,7 @@ The oracle measures the residual after removing it.
 | Item | Choice | Code |
 |---|---|---|
 | Equations | Maxwell, SI (`rmf-*`, 4 rectangular coils carrying their current at t0, `time_delay = 0`); PIC (`pic-*`, a plasma box) | [models](../models#models); [the fields at t0](../pic#the-fields-at-t0) |
-| Space | centred finite differences of order 6, `ngc = 6` | [`adam_fdv_operators_library.F90`](https://github.com/szaghi/adam/blob/develop/src/lib/common/adam_fdv_operators_library.F90) |
+| Space | centred finite differences of order 6, `ngc = 6` | [GIDEON](https://github.com/szaghi/GIDEON) (`gideon_fd_*_c`) |
 | t0 solve | FLAIL; PEC → `FLAIL_BC_DIRICHLET` ($\phi$, tangential $A$) or `FLAIL_BC_NEUMANN` (normal $A$); exact/open → `FLAIL_BC_FREE_GHOSTS` | `impose_pic_fields_time_zero`, `solve_time_zero`, [`adam_prism_common_object.F90`](https://github.com/szaghi/adam/blob/develop/src/app/prism/common/adam_prism_common_object.F90); [`adam_flail_object.F90`](https://github.com/szaghi/adam/blob/develop/src/lib/common/adam_flail_object.F90); [hazards](../hazards#elliptic-boundary-map) |
 | PIC deposit | TSC, non-conserving current (the conserving CPU deposit is single-block, single-rank) | [particle-in-cell](../pic#deposition-and-gather) |
 | Time | SSP Runge–Kutta (5,4), CFL 0.5; the oracles read the step-0 checkpoint | — |

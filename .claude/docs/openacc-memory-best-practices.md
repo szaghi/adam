@@ -24,12 +24,13 @@ end module
 
 ### Array Parameters (Need copyin declaration)
 ```fortran
-module coefficients
-   use penf
+module gideon_tables   ! GIDEON's run-time-indexed rows (ADAM's FD1_CC before #159)
+   use penf, only : I4P, R_P
    implicit none
 
-   real(R8P), parameter :: FD1_CC(5,5) = reshape([...], [5,5])
-   !$acc declare copyin(FD1_CC)  ! Make available on device
+   integer(I4P), parameter :: GIDEON_S_MAX = 5
+   real(R_P), parameter :: FD_D1(1:GIDEON_S_MAX, 1:GIDEON_S_MAX) = reshape([...], [GIDEON_S_MAX, GIDEON_S_MAX])
+   !$acc declare copyin(FD_D1)  ! Make available on device: read at a run-time index in kernels
 end module
 ```
 

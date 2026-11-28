@@ -24,7 +24,7 @@ $z$-invariant solution or as a difference from the octree above round-off.
 | Item | Choice | Code |
 |---|---|---|
 | Equations | Maxwell, SI, no source | [models](../models#models) |
-| Space | centred finite differences of order 6 | [`adam_fdv_operators_library.F90`](https://github.com/szaghi/adam/blob/develop/src/lib/common/adam_fdv_operators_library.F90) |
+| Space | centred finite differences of order 6 | [GIDEON](https://github.com/szaghi/GIDEON) (`gideon_fd_*_c`) |
 | Time | SSP Runge–Kutta (5,4), CFL 0.5; $\Delta t = \mathrm{CFL}\,\min(\Delta x, \Delta y, \Delta z)/(2c)$, set on both trees by the finest $x$ and $y$ cells, so the two runs take the same steps | [numerics](../numerics#time-integration) |
 | Seam ghosts | fine→coarse restriction (mean of 8 fine cells on an octree, 4 on a quadtree), coarse→fine tricubic fill | `seam_interpolate_tricubic`, [`adam_seam_interpolation_library.F90`](https://github.com/szaghi/adam/blob/develop/src/lib/common/adam_seam_interpolation_library.F90); [`adam_field_object.F90`](https://github.com/szaghi/adam/blob/develop/src/lib/common/adam_field_object.F90) |
 | Reflux | fine face flux restricted per axis | `restrict_fine_face_to_quadrant`, [`adam_flux_register_object.F90`](https://github.com/szaghi/adam/blob/develop/src/lib/common/adam_flux_register_object.F90) |

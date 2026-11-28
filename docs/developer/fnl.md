@@ -250,17 +250,13 @@ packed range (blocks up to ~500 cells per side).
 
 ## Finite difference/volume operators
 
-### `adam_fnl_fdv_operators_library`
-
-The operators of `adam_fdv_operators_library`, callable inside parallel regions (`!$acc routine seq`, one thread per
-cell). Each takes the half-width `s` and the spacing `dxyz`, so the order is chosen at call time.
-
-| Operator | FD centred | FV centred |
-|----------|-----------|-----------|
-| Gradient | `compute_gradient_fd_centered_dev` | `compute_gradient_fv_centered_dev` |
-| Divergence | `compute_divergence_fd_centered_dev` | `compute_divergence_fv_centered_dev` |
-| Curl | `compute_curl_fd_centered_dev` | `compute_curl_fv_centered_dev` |
-| Laplacian | `compute_laplacian_fd_centered_dev` | `compute_laplacian_fv_centered_dev` |
+The device operators are [GIDEON](https://github.com/szaghi/GIDEON)'s (#159): every kernel is `pure` with
+`!$acc routine seq`, called from inside the parallel regions on private contiguous stencils gathered by the kernel
+(`gideon_fd_curl_c(order, vy_x, vz_x, vx_y, vz_y, vx_z, vy_z, dxyz, c)`, `gideon_fd_gradient_c`,
+`gideon_fd_divergence_c`, `gideon_fd_d1_c`, `gideon_fd_face_c`, `gideon_fv_face_c`). The window is the caller's: pass the
+section `(1-s:1+s)` of a stencil buffer declared `(1-GIDEON_S_MAX:1+GIDEON_S_MAX)`, never the whole buffer. PRISM's
+boundary closures read single coefficients at a run-time half stencil from `FD_D1(m,s)` and `FV_FACE(m,s)`
+(`!$acc declare copyin` in GIDEON). See the [library page](./library.md#the-fd-fv-operators-gideon).
 
 ## Turbulence
 
@@ -346,7 +342,6 @@ The binding described in [Program-scope singletons](#program-scope-singletons): 
 | `adam_fnl_ib_kernels` | Eikonal evolution, sphere distance, momentum inversion | — |
 | `adam_fnl_maps_object` | Communication tables and MPI buffers | — |
 | `adam_fnl_turbulence_kernels` | Subgrid-scale eddy viscosity | — |
-| `adam_fnl_fdv_operators_library` | Device-callable FD/FV operators | — |
 | `adam_fnl_poisson_fft_object` | FFT Poisson solver on cuFFT (not re-exported) | `poisson_fft_object` |
 | `adam_fnl_poisson_mg_object` | Multigrid Poisson solver on the device (not re-exported) | `poisson_mg_object` |
 | `adam_fnl_device` | `bind_device`: the device binding of the process (HERALD, then FUNDAL) | — |

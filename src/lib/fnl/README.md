@@ -17,7 +17,6 @@ The FNL backend is ADAM's **GPU acceleration layer**, built on top of the [FUNDA
 | `adam_fnl_device` | `bind_device`: the device binding of the process (HERALD's `mpih%device`, then FUNDAL's `dev_init`, #158) | — |
 | `adam_fnl_poisson_fft_object` | FFT Poisson solver, cuFFT on each rank's GPU (the slab transform; not re-exported by `adam_fnl_library`) | `poisson_fft_object` |
 | `adam_fnl_poisson_mg_object` | Multigrid Poisson solver on AMR, the FCG iteration and the V-cycle on each rank's GPU (not re-exported by `adam_fnl_library`) | `poisson_mg_object` |
-| `adam_fnl_fdv_operators_library` | Device-callable FD/FV spatial operators | — |
 
 The WENO kernels are [SETH](https://github.com/szaghi/SETH)'s (issue #139): compile-time coefficients, nothing mirrored on the device, so the former `adam_fnl_weno_object` and `adam_fnl_weno_kernels` are gone.
 

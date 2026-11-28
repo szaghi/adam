@@ -14,7 +14,7 @@ $s = $ `[fdv] fdv_order`$/2$ (orders 2, 4, 6, 8, 10):
 $$\left.\frac{\partial q}{\partial x}\right|_i \approx \frac{1}{\Delta x}\sum_{m=1}^{s} a_m^{(s)}\,(q_{i+m} - q_{i-m}),$$
 
 with $a^{(1)} = \tfrac12$, $a^{(2)} = (8, -1)/12$, $a^{(3)} = (45, -9, 1)/60$, $a^{(4)} = (672, -168, 32, -3)/840$
-(`FD1_CC`, `adam_fdv_operators_library`). The residual is evaluated directly from the curls:
+(GIDEON's `FD_D1_S<s>` rows, `gideon_fd_d1_c`; ADAM's `FD1_CC` before #159). The residual is evaluated directly from the curls:
 
 $$R_{\mathbf D} = \nabla_h\times\frac{\mathbf B}{\mu_0} - \mathbf J, \qquad R_{\mathbf B} = -\nabla_h\times\frac{\mathbf D}{\varepsilon_0},$$
 

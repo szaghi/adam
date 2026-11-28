@@ -290,8 +290,8 @@ $\varepsilon = 10^{-6}$ absolute, `SETH_WENO_JS_EPS`).
 
 ## [fdv]
 
-`realm_object` reads it: the finite-difference/finite-volume operators (gradient, divergence, curl, Laplacian) of
-`adam_fdv_operators_library`. Read on demand ([#80](https://github.com/szaghi/adam/issues/80) P5): PRISM always, FLUME
+`realm_object` reads it: the finite-difference/finite-volume operators (gradient, divergence, curl) of
+[GIDEON](https://github.com/szaghi/GIDEON) (`fdv_order` is their order, [#159](https://github.com/szaghi/adam/issues/159)). Read on demand ([#80](https://github.com/szaghi/adam/issues/80) P5): PRISM always, FLUME
 only for an MHD model (its div(B) diagnostic and derived fields), RIPPLE never; where it is not read, its keys are unread
 keys.
 

@@ -108,9 +108,8 @@ are for correctness only, never for timings.
 
 ## Spatial-operator dispatch
 
-Both backends bind their operators once, at initialization, by `scheme_space`: the curl, divergence, gradient,
-Laplacian and first, second and fourth derivatives to the FD or FV variants of `adam_fdv_operators_library` (their device
-twins on FNL), and `compute_residuals` to the FD, FV or WENO residual; the Maxwell flux function by the divergence
+Both backends bind their operators once, at initialization, by `scheme_space`: the curl, divergence and gradient to the FD
+or FV operators of [GIDEON](https://github.com/szaghi/GIDEON) (the same device-callable kernels on FNL, #159), and `compute_residuals` to the FD, FV or WENO residual; the Maxwell flux function by the divergence
 correction (`compute_convective_fluxes_maxwell`, `_div_d`, `_div_b`, `_div_d_b`, and their `_adim` twins,
 `adam_prism_riemann_library`); the
 integrator by the model and `[runge_kutta] scheme`.

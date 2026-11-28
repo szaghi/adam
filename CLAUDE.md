@@ -67,7 +67,7 @@ src/
 | `adam_realm_object` | Abstract app base: **owns every library object as a component** (`io, amr, slices, weno, ib, rk, flail, adam{grid,tree,field,maps}`; `flail` is the elliptic solver library, issue #84) + the `_forest` TBP contract |
 | `adam_forest_object` | Time-loop orchestrator (`simulate`, `simulate_from_manifest`): single-realm fast path, AMR-staged path, multi-realm seams |
 | `adam_mpih_global` | The **only** CPU program-scope singleton (`mpih`, an instance of [HERALD](https://github.com/szaghi/HERALD)'s `mpih_object`, #158: ADAM's own `adam_mpih_object` is deleted) and `host_memory_avail()` (the CPU block budget, kB/1e6: HERALD's `memory_avail` is GiB, never use it for `nb`); `adam_globals` re-exports just this |
-| `adam_fdv_operators_library` | Gradient, divergence, curl, Laplacian operators |
+| GIDEON (fetched, `use gideon`) | The FD/FV operators since #159 ([GIDEON](https://github.com/szaghi/GIDEON)): one `pure`, device-callable kernel per operator and order, `gideon_<data>_<op>_c(order, ...)` with explicit-shape windows (the caller's window: a wrong length is not detected); `FD_D1(m,s)`/`FV_FACE(m,s)` for a row chosen at run time. ADAM has no FDV library of its own |
 | `adam_riemann_euler_library` | Euler equation Riemann solvers |
 
 ### Object ownership: realm composition, not singletons
@@ -249,16 +249,13 @@ fobis build --mode prism-fnl-nvf-debug --varset local_nvf
 
 ## Running Tests
 
-Build and run FDV (finite difference/volume) operator tests:
+The FD/FV operators are GIDEON's and are tested in GIDEON (its verification suite and CI, #159). ADAM's own unit tests
+are the AMR, tree, seam, FLAIL, SELAH and SETH drivers (`fobos.d/tests_*.fobos`), e.g.:
 
 ```bash
-# Build a specific test
-fobis build --mode test-fdv-gradient-trigonometric-gnu
-fobis build --mode test-fdv-divergence-trigonometric-gnu
-fobis build --mode test-fdv-curl-trigonometric-gnu
-fobis build --mode test-fdv-laplacian-trigonometric-gnu
-fobis build --mode test-fdv-operators-trigonometric-gnu
-fobis build --mode test-fdv-operators-step-gnu
+fobis build --mode test-seam-interpolation-gnu
+fobis build --mode test-tree-balance-gnu
+fobis build --mode test-flail-bc-gnu
 
 # Run with MPI (executables are in exe/)
 mpirun -np <N> exe/<test_executable>
@@ -271,10 +268,10 @@ Integration test cases are in `src/tests/nasto/` (Riemann problems, shock-sphere
 ### Multi-Level Testing Pyramid
 
 1. **Unit Tests** (`src/tests/`):
-   - Finite difference operators: gradient, divergence, curl, Laplacian (trigonometric analytical solutions)
+   - Finite difference/volume operators: GIDEON's own suite (exact rational coefficients, orders, device equality)
    - WENO reconstruction accuracy (known smooth and discontinuous test functions)
    - Riemann solvers (exact Riemann problem solutions: Sod, Lax, Shu-Osher)
-   - Build and run: `fobis build --mode test-fdv-<operator>-<test>-<compiler>`
+   - Build and run: `fobis build --mode test-<name>-<compiler>` (`fobis build --lmodes`)
 
 2. **Integration Tests** (`src/tests/nasto/`):
    - Riemann problems (1D/2D/3D): Sod shock tube, shock-sphere interaction
@@ -493,7 +490,7 @@ The seam-fill peer-buffer selection reads `self%stage_active` **and** `peer%stag
 
 ### 2:1 AMR seam injects an O(h^p) div(B) source — no local collocated-FD fix exists (accept-truncation)
 
-PRISM keeps `div(B) = 0` to machine precision on **uniform** grids: `compute_curl_fd_centered` and `compute_divergence_fd_centered` are both built from the same antisymmetric `FD1_CC` primitive, so `div_h(curl_h) ≡ 0` by operator commutation (a genuine mimetic / discrete-de-Rham identity, Ranocha 2019 Remark 2.8). **At a 2:1 AMR seam this breaks.** The coarse (Δx) and fine (Δx/2) sides difference with different-resolution stencils, the composite is no longer a tensor product, commutation fails, and the seam injects a `div(B)` source that lives in the grid-oscillation subspace `ker D*`. Measured on `rmf-amr-fd-pulse` (source-free, `-np1`, `ni=16`): seam `max|div(B)|` runs away **6.9 → 1002 over 100 steps at fixed h** (control = 0.0), while `‖B‖` stays flat (−3%) — it is a **divergence-constraint violation, not an energy instability**. The source is **O(h^p) truncation-order**: it *converges under refinement* (committed `--convergence` leg, `p_obs ≈ +1.15 → +2`) but is **unbounded in t at fixed h**, dt-independent, and scheme-universal (FD ≡ FV to 4-5 digits).
+PRISM keeps `div(B) = 0` to machine precision on **uniform** grids: the curl and the divergence (GIDEON's `gideon_fd_curl_c` and `gideon_fd_divergence_c`, ADAM's `compute_curl_fd_centered` and `compute_divergence_fd_centered` before #159) are both built from the same antisymmetric first-derivative row (`FD_D1`, formerly `FD1_CC`), so `div_h(curl_h) ≡ 0` by operator commutation (a genuine mimetic / discrete-de-Rham identity, Ranocha 2019 Remark 2.8). **At a 2:1 AMR seam this breaks.** The coarse (Δx) and fine (Δx/2) sides difference with different-resolution stencils, the composite is no longer a tensor product, commutation fails, and the seam injects a `div(B)` source that lives in the grid-oscillation subspace `ker D*`. Measured on `rmf-amr-fd-pulse` (source-free, `-np1`, `ni=16`): seam `max|div(B)|` runs away **6.9 → 1002 over 100 steps at fixed h** (control = 0.0), while `‖B‖` stays flat (−3%) — it is a **divergence-constraint violation, not an energy instability**. The source is **O(h^p) truncation-order**: it *converges under refinement* (committed `--convergence` leg, `p_obs ≈ +1.15 → +2`) but is **unbounded in t at fixed h**, dt-independent, and scheme-universal (FD ≡ FV to 4-5 digits).
 
 **No local collocated-FD fix exists — five fix classes ruled out with evidence (issue #29):**
 

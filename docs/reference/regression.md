@@ -326,8 +326,7 @@ sized for physics validation. They are not regression anchors, and `run.sh` neve
 ## Unit tests
 
 The library and application unit tests are separate build modes (`test-*` in [build modes](/reference/build-modes)),
-run as `mpirun -np <N> exe/<test_executable>`. The families are the FDV operators on trigonometric and step fields
-(`test-fdv-*`, CPU and FNL), AMR (`test-amr-*`, `test-tree-closest-block`, `test-periodic-ghost`), seams
+run as `mpirun -np <N> exe/<test_executable>`. The families are AMR (`test-amr-*`, `test-tree-closest-block`, `test-periodic-ghost`), seams
 (`test-seam-interpolation`, `test-quadtree-seam-ghost`), the Poisson solvers and FLAIL (`test-poisson-fft`,
 `test-poisson-mg`, `test-flail-bc`), the SELAH time integrators (`test-selah-stepper-smoke`, CPU and FNL: the
 dependency builds and steps on each backend; `test-stepper-object`, `test-stepper-object-xfail`: the adapter,

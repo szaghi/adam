@@ -27,7 +27,7 @@ graph TD
     A --> C{Hardware backend}
     C -->|CPU| CPU[CPU backend<br/>MPI + OpenMP]
     C -->|_FNL| E[FNL backend<br/>OpenACC or OpenMP offloading]
-    B --> G[Third-party libraries<br/>PENF · StringiFor · FiNeR · FUNDAL · HERALD · SELAH · SETH · HDF5]
+    B --> G[Third-party libraries<br/>PENF · StringiFor · FiNeR · FUNDAL · GIDEON · HERALD · SELAH · SETH · HDF5]
     CPU --> G
     E --> G
 ```
@@ -49,7 +49,7 @@ The SDK provides physics-agnostic building blocks reused identically by every ap
 | `adam_io_object` | `[IO]` configuration, history files (residuals, energy, divergence, charge), the XH5F field writer `save_field`: one HDF5 file per rank plus an XDMF index; restart and slice files in [cookbook IO](/cookbook/io) |
 | `mpih` (`adam_mpih_global`) | The MPI handler, an instance of [HERALD](https://github.com/szaghi/HERALD)'s `mpih_object` ([#158](https://github.com/szaghi/adam/issues/158)): ranks and node topology, `error_stop` (every rank stops), barrier, the host memory budget (`host_memory_avail()` for the block capacity), timers |
 | `adam_flail_object` | FLAIL, the elliptic solver library: a facade over the FFT (`adam_poisson_fft_object`) and AMR multigrid (`adam_poisson_mg_object`) Poisson solvers |
-| `adam_fdv_operators_library` | Gradient, divergence, curl, Laplacian finite difference operators |
+| GIDEON (`use gideon`) | The finite difference/volume operators (derivatives, face values, curl, divergence, gradient), [GIDEON](https://github.com/szaghi/GIDEON)'s since [#159](https://github.com/szaghi/adam/issues/159) |
 | `adam_riemann_euler_library` | Riemann solvers for the Euler equations (library only: used by no maintained application) |
 
 ### Object ownership: the realm

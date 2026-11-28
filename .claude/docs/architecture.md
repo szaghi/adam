@@ -460,15 +460,14 @@ adam_common_library
  ├── adam_eos_ic_object, adam_flail_object, adam_slices_object
  ├── adam_turbulence_object, adam_turbulence_library, adam_turbulence_kernels
  ├── adam_tree_node_object, adam_tree_bucket_object
- ├── adam_fdv_operators_library, adam_riemann_euler_library
+ ├── adam_riemann_euler_library  (the FD/FV operators are GIDEON's, `use gideon`, #159)
  └── adam_mpih_global  (the only singleton, HERALD's mpih_object; also via `adam_globals`)
 
 adam_fnl_library
  ├── adam_common_library  (full CPU layer)
  ├── adam_fnl_field_object, adam_fnl_ib_object
  ├── adam_fnl_maps_object, adam_fnl_device (bind_device)
- ├── adam_fnl_field_kernels, adam_fnl_ib_kernels, adam_fnl_turbulence_kernels
- └── adam_fnl_fdv_operators_library
+ └── adam_fnl_field_kernels, adam_fnl_ib_kernels, adam_fnl_turbulence_kernels
 
 adam_nasto_common_library
  ├── adam_nasto_bc_object, adam_nasto_common_object, adam_nasto_eos_object
