@@ -55,7 +55,6 @@ paths =  fobos.d/templates.fobos
         ?fobos.d/ripple.fobos
         ?fobos.d/patch.fobos
         ?fobos.d/nasto.fobos
-        ?fobos.d/tests_fdv.fobos
         ?fobos.d/tests_amr.fobos
         ?fobos.d/tests_poisson.fobos
         ?fobos.d/tests_rk.fobos

@@ -9,7 +9,6 @@ use :: adam_eos_ic_object
 use :: adam_realm_object
 use :: adam_forest_object
 use :: adam_forest_manifest
-use :: adam_fdv_operators_library
 use :: adam_field_object
 use :: adam_flail_object
 use :: adam_flux_register_object

@@ -2978,7 +2978,7 @@ contains
    ! here — measured eigenvalue-unstable (both-operator horizon diverged to 1e18),
    ! the non-SBP construction Mattsson-Carpenter 2010 / Ranocha 2019 predict. The
    ! prototype is archived (untracked/c3-fine-side-prototype-*.bak) and its reusable
-   ! seam derivative primitives live in adam_fdv_operators_library. The standing seam
+   ! seam derivative primitives were in adam_fdv_operators_library (GIDEON's since #159). The standing seam
    ! div(B) fix is fix-class A (SBP-norm-compatible seam + weak SAT), still to build.
    endassociate
    if (self%pml%enabled) call apply_pml_fd_centered_ade(self=self, q=q, dq=dq, s=s)

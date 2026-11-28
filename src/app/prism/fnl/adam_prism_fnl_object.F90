@@ -1333,7 +1333,7 @@ contains
    !< largest array in the run to produce one scalar per block. Only `tv(1:blocks_number)` crosses back, and the
    !< refinement decision stays on the host because the tree/AMR state is host-side anyway.
    !<
-   !< Contiguity discipline (adam_fnl_fdv_operators_library): the device operators take PRE-GATHERED contiguous
+   !< Contiguity discipline (GIDEON's explicit-shape windows, #159): the device operators take PRE-GATHERED contiguous
    !< 1D stencils, they never slice inside an `acc routine seq`. Hence the nine `qs*` buffers below, mirroring
    !< compute_curl_fd_dev_kernel. `dxyz_b` is a private copy for the same reason as issue #26 G1.b: the strided
    !< section dxyz_gpu(b,1:3) materializes a compiler temporary that is NOT privatized and threads race on it.

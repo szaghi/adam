@@ -60,7 +60,7 @@
 # zero-ghost faces (E2b, PRISM's Dirichlet: every ghost layer 0) with the wide operator, by preconditioned CG: a
 # manufactured solution recovered to 1e-9, the ghosts returned against the rules, at most 40 iterations, bounded in
 # the grid (16 and 32 cells per axis within one); the compact operator with zero ghosts equal to ghost-Dirichlet;
-# PRISM's operators (E3a): div(grad phi) = f with adam_fdv_operators_library's centred FD and FV of order 2-8 (PRISM's
+# PRISM's operators (E3a): div(grad phi) = f with GIDEON's centred FD and FV of order 2-8 (PRISM's
 # own D and G), phi FLAIL's solution with its returned ghosts, periodic, PEC (odd and even), mixed and zero-ghost faces;
 # free-space ghosts (E3c, PRISM's exact/open face): the ghost slabs equal to the direct sum -factor sum f dV / (4 pi r)
 # over the whole source (1e-12, on every rank count), D(G) of the solution with them equal to factor f (1e-10);

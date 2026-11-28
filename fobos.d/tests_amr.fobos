@@ -12,6 +12,14 @@ modes = test-amr-geo-box-gnu                          test-amr-geo-box-gnu-debug
         test-seam-interpolation-fnl-omp-amd
         test-amr-ghost-bench-fnl-nvf
         test-amr-ghost-bench-fnl-omp-amd
+        test-prism-reflux-apply-gnu                   test-prism-reflux-apply-gnu-debug
+        test-amr-geo-box-gnu-cov
+        test-amr-reflux-restrict-gnu-cov
+        test-seam-interpolation-gnu-cov
+        test-tree-closest-block-gnu-cov
+        test-tree-balance-gnu-cov
+        test-amr-regrid-roundtrip-gnu-cov
+        test-quadtree-seam-ghost-gnu-cov
 
 [test-amr-geo-box-gnu]
 template = template-gnu
@@ -123,3 +131,50 @@ template = template-omp-amd
 preproc  = -D_FNL -D_MPI_ -DDEV_OMP -DHERALD_OMP -DDEV_HIP -DHERALD_HIP -w
 target   = test_amr_ghost_bench.F90
 output   = test_amr_ghost_bench_fnl
+
+[test-prism-reflux-apply-gnu]
+template = template-gnu
+preproc  = -D_MPI_ -w
+target   = test_prism_reflux_apply.F90
+
+[test-prism-reflux-apply-gnu-debug]
+template = template-gnu-debug
+preproc  = -D_MPI_ -w
+target   = test_prism_reflux_apply.F90
+
+# coverage builds (rule build-tests-cov): every object, the library included, instrumented, in exe/obj/gnu-cov; the
+# FDV operator tests were the coverage set until #159 moved the operators to GIDEON (their tests are GIDEON's)
+[test-amr-geo-box-gnu-cov]
+template = template-gnu-cov
+preproc  = -D_MPI_ -w
+target   = test_amr_geo_box.F90
+
+[test-amr-reflux-restrict-gnu-cov]
+template = template-gnu-cov
+preproc  = -D_MPI_ -w
+target   = test_amr_reflux_restrict.F90
+
+[test-seam-interpolation-gnu-cov]
+template = template-gnu-cov
+preproc  = -D_MPI_ -w
+target   = test_seam_interpolation.F90
+
+[test-tree-closest-block-gnu-cov]
+template = template-gnu-cov
+preproc  = -D_MPI_ -w
+target   = test_tree_closest_block.F90
+
+[test-tree-balance-gnu-cov]
+template = template-gnu-cov
+preproc  = -D_MPI_ -w
+target   = test_tree_balance.F90
+
+[test-amr-regrid-roundtrip-gnu-cov]
+template = template-gnu-cov
+preproc  = -D_MPI_ -w
+target   = test_amr_regrid_roundtrip.F90
+
+[test-quadtree-seam-ghost-gnu-cov]
+template = template-gnu-cov
+preproc  = -D_MPI_ -w
+target   = test_quadtree_seam_ghost.F90
