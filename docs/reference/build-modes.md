@@ -2,7 +2,7 @@
 
 # Build modes
 
-The fobos files define 133 modes. Build one with `fobis build --mode <mode>`; the executables go to `exe/`.
+The fobos files define 138 modes. Build one with `fobis build --mode <mode>`; the executables go to `exe/`.
 
 - **Varsets.** A varset selects the machine and toolchain: the HDF5 build (`$HDF5_PREFIX`) and, for nvfortran, the GPU compute capability (`$NVF_CC`). The default varset is `local_gnu`. Every nvfortran mode needs `--varset` with an NVF varset, or `-gpu=$NVF_CC` stays unexpanded and the first nvfortran call fails. The varset table is on the [install page](/start/install#varsets-one-per-machine-and-toolchain). In the tables, **default** is `local_gnu` (or the machine's GNU varset: `ci_gnu`, `iac_gnu`); **NVF** is a varset that sets `$NVF_CC` (`local_nvf`, `iac_nvf`, `leonardo`, `spacehpc`); **AMD** is a varset that sets the amdflang HDF5 (`local_amd`, `thera_amd`), combined with a `gfx*` varset to change `$GPU_ARCH` from its default, gfx942.
 - **Names.** `<target>-<backend>-<compiler>[-<variant>]`: `cpu` is the CPU backend (MPI, optionally OpenMP), `fnl` the GPU backend (OpenACC with `nvf`, OpenMP offload with `omp-amd`). Build clean after switching compiler: `.mod` files work only with the compiler that wrote them.
@@ -176,6 +176,8 @@ Status: does not build.
 | `test-quadtree-seam-ghost-fnl-nvf` | FNL, OpenACC (nvfortran) | — | NVF |
 | `test-seam-interpolation-fnl-nvf` | FNL, OpenACC (nvfortran) | — | NVF |
 | `test-seam-interpolation-fnl-omp-amd` | FNL, OpenMP offload (amdflang) | — | AMD |
+| `test-amr-ghost-bench-fnl-nvf` | FNL, OpenACC (nvfortran) | — | NVF |
+| `test-amr-ghost-bench-fnl-omp-amd` | FNL, OpenMP offload (amdflang) | — | AMD |
 | `test-poisson-fft-gnu` | CPU (gfortran) | links the FFT library of the self-gravity solvers (FFTW, cuFFT on nvfortran) | default |
 | `test-poisson-fft-gnu-debug` | CPU (gfortran) | debug flags, links the FFT library of the self-gravity solvers (FFTW, cuFFT on nvfortran) | default |
 | `test-poisson-fft-fnl-nvf` | FNL, OpenACC (nvfortran) | links the FFT library of the self-gravity solvers (FFTW, cuFFT on nvfortran) | NVF |
@@ -198,6 +200,8 @@ Status: does not build.
 | `test-rr-gnu` | CPU (gfortran) | — | default |
 | `test-ini-extends-gnu` | CPU (gfortran) | — | default |
 | `test-ini-extends-gnu-debug` | CPU (gfortran) | debug flags | default |
+| `test-ib-rectangle-phi-gnu` | CPU (gfortran) | — | default |
+| `test-ib-rectangle-phi-gnu-debug` | CPU (gfortran) | debug flags | default |
 
 ## Benchmarks
 
