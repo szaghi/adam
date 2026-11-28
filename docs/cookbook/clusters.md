@@ -72,11 +72,12 @@ script (the speedup jobs read a plan file named in `-v`).
 - **Same toolchain at run time as at build time.** Load the compiler and MPI of the varset the executable was built
   with; HDF5 and the MPI Fortran modules are compiler-specific.
 - **Give `--mem`.** On the CPU backend a rank's block budget is the node's memory, capped by the job's cgroup limit
-  (what `--mem` sets), divided by the ranks on the node (`mpih_object`, `src/lib/common/adam_mpih_object.F90`); on FNL
-  it is the device memory.
-- **GPU binding.** FUNDAL picks device `mod(local_rank, visible devices)` on each node. With one rank per GPU and
-  `srun --gpu-bind` (or one visible device per task) every rank gets its own GPU; ranks that see the same device share
-  it, and the block budget is divided among them (`count_device_sharers`), so they never oversubscribe it.
+  (what `--mem` sets), divided by the ranks on the node (`host_memory_avail()` in `adam_mpih_global`, from HERALD's
+  `mpih%memory`); on FNL it is the device memory.
+- **GPU binding.** HERALD binds device `mod(node rank, visible devices)` on each node, and FUNDAL's `dev_init` binds
+  the same one (`bind_device`, the run stops if they disagree). With one rank per GPU and `srun --gpu-bind` (or one
+  visible device per task) every rank gets its own GPU; ranks that see the same device share it, and the block budget
+  is divided among them (`mpih%device%sharers`), so they never oversubscribe it.
 - **Open MPI 5 with hcoll on some clusters** segfaults in `MPI_Finalize` (exit 139) after a correct run. Disable it
   with `export OMPI_MCA_coll_hcoll_enable=0`; the regression harnesses fail a case whose run exits non-zero, so a crash
   at finalize does not pass unseen.

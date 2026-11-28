@@ -460,8 +460,8 @@ verification legs run on CPU and FNL, and the regression suites hold FNL goldens
   device buffers of both realms (`q_gpu`, or the active Runge-Kutta stage), and the cross-rank rows are packed on the
   device and exchanged through a host buffer.
 - `apply_reflux_to_stage_forest`: the register's mismatch is copied to the device and applied to `q_gpu`.
-- `finalize_mpi_forest`: finalizes `mpih_fnl` instead of `mpih`; the forest calls it once, after every realm is
-  finalized.
+- `initialize_process_context`, `finalize_mpi_forest`: bind the rank to its device (`bind_device`) and finalize `mpih`;
+  the forest calls each once, before the first realm and after the last.
 - The device budget is divided among the realms of the forest and the ranks sharing the device.
 
 **Verified by** the FNL regression goldens of the forest cases and the multi-realm legs on FNL

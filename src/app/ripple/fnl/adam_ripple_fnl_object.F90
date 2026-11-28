@@ -20,14 +20,14 @@ use :: adam_stepper_object,       only : LAYOUT_V_LAST
 use :: adam_fnl_field_kernels,    only : pack_blocks_transposed_dev, unpack_blocks_transposed_dev
 use :: adam_fnl_field_object,     only : field_fnl_object
 ! ADAM singleton objects
-use :: adam_fnl_mpih_global,      only : initialize_mpih_fnl, mpih_fnl, mpih_fnl_device_sharers
+use :: adam_fnl_device,          only : bind_device
 use :: adam_mpih_global,          only : mpih
 ! RIPPLE modules
 use :: adam_ripple_common_object, only : ripple_common_object
 use :: adam_ripple_fnl_kernels,   only : apply_reflux_face_dev, compute_face_fluxes_dev, compute_flux_difference_dev, &
                                          pack_face_skin_dev
 ! third party modules
-use :: fundal,                    only : dev_alloc, dev_free, dev_memcpy_from_device, dev_memcpy_to_device, mydev
+use :: fundal,                    only : dev_alloc, dev_free, dev_memcpy_from_device, dev_memcpy_to_device, dev_memory_total, mydev
 use :: mpi
 use :: penf,                      only : I4P, R8P
 
@@ -98,7 +98,7 @@ contains
       !< Stop on a failed device allocation.
       character(*), intent(in) :: name !< Array name.
 
-      if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate '//name//' in ripple_fnl_object')
+      if (ierr /= 0_I4P) call mpih%error_stop(msg=': failed to allocate '//name//' in ripple_fnl_object')
       endsubroutine check
    endsubroutine allocate_gpu
 
@@ -113,7 +113,7 @@ contains
    if (self%blocks_number < 1_I4P) return
    associate(nb=>self%blocks_number, ngc=>self%ngc, ni=>self%ni, nj=>self%nj, nk=>self%nk)
    call dev_alloc(fptr_dev=buf_gpu, lbounds=[1,1-ngc,1-ngc,1-ngc,1], ubounds=[1,ni+ngc,nj+ngc,nk+ngc,nb], ierr=ierr)
-   if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate buf_gpu in ripple_fnl_object%copy_state')
+   if (ierr /= 0_I4P) call mpih%error_stop(msg=': failed to allocate buf_gpu in ripple_fnl_object%copy_state')
    if (to_device) then
       call dev_memcpy_to_device(dst=buf_gpu, src=self%q(:,:,:,:,1:nb))
       call unpack_blocks_transposed_dev(blocks_number=nb, ni=ni, nj=nj, nk=nk, ngc=ngc, nv=1, buf_gpu=buf_gpu, &
@@ -230,8 +230,8 @@ contains
    ! the blocks budget is the device memory, shared by the ranks bound to the same device; the time integrator (SELAH,
    ! #132) integrates the (b, i, j, k, v) device fields
    self%selah_layout = LAYOUT_V_LAST
-   call self%initialize_ripple(filename=filename, memory_avail=real(mpih_fnl%dev_memory_total, R8P) / 1e9_R8P / &
-                                                               real(mpih_fnl_device_sharers, R8P))
+   call self%initialize_ripple(filename=filename, memory_avail=real(dev_memory_total, R8P) / 1e9_R8P / &
+                                                               real(mpih%device%sharers, R8P))
    call self%field_fnl%initialize(grid=self%adam%grid, field=self%adam%field, maps=self%adam%maps, verbose=.true.)
    call self%allocate_gpu
    endsubroutine initialize_app_forest
@@ -302,20 +302,19 @@ contains
    endsubroutine finalize_forest
 
    subroutine initialize_process_context(self, verbose)
-   !< Initialize the process context once (the forest calls it before any realm, #80 P3): the FNL handler (device binding,
-   !< ranks sharing the device) first, since it may also be the MPI init, then the CPU handler.
+   !< Initialize the process context once (the forest calls it before any realm, #80 P3): `mpih`, the single handler, and
+   !< the binding of the rank to its device (HERALD's, then FUNDAL's `dev_init`; `bind_device`, #158).
    class(ripple_fnl_object), intent(inout)        :: self    !< The equation (carries no MPI state).
    logical,           intent(in), optional :: verbose !< Trigger verbose output.
 
-   call initialize_mpih_fnl()
-   call mpih%initialize(verbose=verbose)
+   call bind_device(verbose=verbose)
    endsubroutine initialize_process_context
 
    subroutine finalize_mpi_forest(self)
-   !< Finalize the FNL MPI handler (the forest calls it once, after every realm is finalized).
+   !< Finalize `mpih`, and MPI with it (the forest calls it once, after every realm is finalized).
    class(ripple_fnl_object), intent(inout) :: self !< The realm (carries no MPI state).
 
-   call mpih_fnl%finalize
+   call mpih%finalize
    endsubroutine finalize_mpi_forest
 
    ! forest methods: staged layer
@@ -379,7 +378,7 @@ contains
    if (stage /= self%ts%stages() .or. flux_register%nfaces == 0_I4P .or. .not.allocated(flux_register%face)) return
    do f=1, flux_register%nfaces
       associate(face=>flux_register%face(f))
-      if (face%coarse_realm /= self%realm_index .or. face%coarse_rank /= mpih_fnl%myrank) cycle
+      if (face%coarse_realm /= self%realm_index .or. face%coarse_rank /= mpih%myrank) cycle
       call face_axis_sign(face_code=face%coarse_face, axis=axis, sgn=sgn)
       self%face = 0._R8P
       self%face(1,1:face%nface_cells) = face%F_coarse(1,:,1) - face%F_fine_sum(1,:,1)

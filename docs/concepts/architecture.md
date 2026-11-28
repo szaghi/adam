@@ -66,7 +66,7 @@ Every library object belongs to a **realm** — the per-domain solver instance �
 
 Library routines that need another object receive it **as an argument**, e.g. `call self%adam%field%update_ghost_local(grid=self%adam%grid, maps=self%adam%maps, q=q)`. Because each realm owns its objects, several realms (a multi-realm *forest*) coexist in one process without sharing state.
 
-The only program-scope singletons are the MPI handlers, which are genuinely one per process: `mpih` (`adam_mpih_global`, CPU) and `mpih_fnl` (`adam_fnl_mpih_global`, FNL — it also owns the device context, so it must be initialised exactly once).
+The only program-scope singleton is the MPI handler, genuinely one per process: `mpih` (`adam_mpih_global`, [HERALD](https://github.com/szaghi/HERALD)'s `mpih_object`). On the FNL backend it also binds the rank to its device, once per process (`bind_device`, [#158](https://github.com/szaghi/adam/issues/158)).
 
 ### FNL initialization order
 
@@ -75,9 +75,8 @@ MPI and the device are process-global: the forest initializes them once, before 
 ```fortran
 ! the forest, once per process, before any realm (adam_forest_object.F90)
 call realm(1)%ptr%initialize_process_context(verbose=.true.)
-! FNL backends override it (e.g. adam_prism_fnl_object.F90): the device handler first, then the CPU one
-call initialize_mpih_fnl()            ! adam_fnl_mpih_global: device binding, ranks sharing the device, guarded
-call mpih%initialize(verbose=verbose) ! once-only
+! FNL backends override it (e.g. adam_prism_fnl_object.F90): mpih and the device binding
+call bind_device(verbose=verbose)     ! adam_fnl_device: HERALD binds the device (mpih%device), then FUNDAL's dev_init
 ! then, per realm, prism_fnl_object%initialize_prism (adam_prism_fnl_object.F90)
 call self%prism_common_object%initialize(filename=filename, memory_avail=memory_avail_, verbose=.true.)
 call self%field_fnl%initialize(grid=self%adam%grid, field=self%adam%field, maps=self%adam%maps, verbose=.true.)

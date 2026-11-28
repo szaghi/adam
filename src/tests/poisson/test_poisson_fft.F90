@@ -52,7 +52,7 @@ use :: adam_common_library,         only : realm_object
 use :: adam_parameters,             only : BC_PERIODIC
 use :: adam_mpih_global,            only : mpih
 #ifdef _FNL
-use :: adam_fnl_mpih_global,        only : mpih_fnl
+use :: adam_fnl_device,             only : bind_device
 use :: adam_fnl_poisson_fft_object, only : poisson_fft_fnl_object
 #else
 use :: adam_poisson_fft_object,     only : poisson_fft_object
@@ -100,7 +100,7 @@ do a=1, command_argument_count()
 enddo
 call mpih%initialize(do_mpi_init=.true., do_device_init=.false.)
 #ifdef _FNL
-call mpih_fnl%initialize(do_mpi_init=.false., do_device_init=.true.)
+call bind_device()
 #endif
 test_passed = .true.
 if (no_periodic) then

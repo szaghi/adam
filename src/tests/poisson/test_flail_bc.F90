@@ -70,7 +70,7 @@ use :: adam_flail_parameters,       only : FLAIL_BC_PERIODIC, FLAIL_BC_DIRICHLET
                                            FLAIL_BC_DIRICHLET_GHOST, FLAIL_BC_ZERO_GHOSTS, FLAIL_BC_FREE_GHOSTS
 use :: adam_mpih_global,            only : mpih
 #ifdef _FNL
-use :: adam_fnl_mpih_global,        only : mpih_fnl
+use :: adam_fnl_device,             only : bind_device
 use :: adam_fnl_poisson_fft_object, only : poisson_fft_fnl_object
 #else
 use :: adam_poisson_fft_object,     only : poisson_fft_object
@@ -118,7 +118,7 @@ real(R8P)      :: order       !< Observed order.
 call get_command_argument(1, arg)
 call mpih%initialize(do_mpi_init=.true., do_device_init=.false.)
 #ifdef _FNL
-call mpih_fnl%initialize(do_mpi_init=.false., do_device_init=.true.)
+call bind_device()
 #endif
 test_passed = .true.
 cfg_order = 0 ! the refusals below run before the order loop sets it

@@ -24,8 +24,8 @@ whole API (the exceptions are listed in the [module summary](#module-summary)).
 
 ## Program-scope singletons
 
-The only program-scope singletons are the MPI handlers, one per process: `mpih` (`adam_mpih_global`, `mpih_object`)
-and, on the FNL backend, `mpih_fnl` (`adam_fnl_mpih_global`), which also owns the device context. Every other object
+The only program-scope singleton is the MPI handler, one per process: `mpih` (`adam_mpih_global`, HERALD's
+`mpih_object`); on the FNL backend it also binds the device (`bind_device`, [FNL](./fnl)). Every other object
 is a component of a realm (`self%adam%grid`, `self%adam%field`, `self%adam%maps`, `self%rk`, `self%weno`, `self%ib`,
 `self%flail`, …) and reaches library routines as an argument:
 
@@ -593,7 +593,7 @@ The keys live on `adam_io_object`. The monitor covers intra-realm 2:1 faces and 
 | `begin_stage_forest(k)` sets `stage_active = k`; `close_step_forest` clears it | The seam fill picks `q` or `rk%q_rk(:,…,stage_active)` from it; a write to `q` outside this discipline corrupts peer reads |
 | `apply_reflux_to_stage_forest` and `accumulate_seam_fluxes_fv` act at `stage == rk%nrk` only | The register's stage axis is collapsed to 1; per-stage reflux is not implemented. α and β share this gate |
 | Fast path only for one realm with no register faces | A refining app goes through the staged TBPs |
-| No library singletons besides `mpih` and `mpih_fnl` | Every object is a realm component passed as an argument |
+| No library singletons besides `mpih` | Every object is a realm component passed as an argument |
 
 ## Module summary
 

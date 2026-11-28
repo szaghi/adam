@@ -63,7 +63,7 @@ contains
 
    call self%destroy
    call dev_alloc(fptr_dev=self%wp2_gpu, ubounds=[nb,ni,nj,nk,2], lbounds=[1,1,1,1,1], ierr=ierr)
-   if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate wp2_gpu in prism_fnl_plasma_frequencies_object')
+   if (ierr /= 0_I4P) call mpih%error_stop(msg=': failed to allocate wp2_gpu in prism_fnl_plasma_frequencies_object')
    endsubroutine initialize
 
    subroutine destroy(self)

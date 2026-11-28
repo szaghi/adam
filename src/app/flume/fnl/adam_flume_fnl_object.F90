@@ -8,7 +8,7 @@ module adam_flume_fnl_object
 !< Implements the forest contract on the device. The state lives on the device for the whole run in the transposed
 !< layout `(b, i, j, k, v)`; full-field device-to-host copies happen only on save steps. The FNL helpers (field, IB,
 !< RK, WENO) are per-realm components initialized after the common initialization from the realm's own objects;
-!< `mpih_fnl` is the only FNL singleton and is initialized once per process.
+!< the process context (`mpih`, the single handler, and the device binding) is initialized once per process.
 !< Space operator: characteristic (or conservative) WENO flux splitting, face fluxes then flux difference (issue #35,
 !< section 3.4); the per-face physics is the shared `adam_flume_euler_library`, so only the kernels are FNL-specific.
 
@@ -35,7 +35,7 @@ use :: adam_fnl_poisson_fft_object, only : poisson_fft_fnl_object
 use :: adam_fnl_poisson_mg_object, only : poisson_mg_fnl_object
 use :: adam_fnl_ib_object,        only : ib_fnl_object
 ! ADAM singleton objects
-use :: adam_fnl_mpih_global,      only : initialize_mpih_fnl, mpih_fnl, mpih_fnl_device_sharers
+use :: adam_fnl_device,          only : bind_device
 use :: adam_mpih_global,          only : mpih
 ! FLUME modules
 use :: adam_flume_common_library,      only : flume_common_object, regrid_phases_t, flume_seam_sync_object,        &
@@ -360,7 +360,7 @@ use :: adam_flume_fnl_kernels,         only : apply_cooling_dev, apply_cooling_e
                                               poison_ghosts_dev, set_boundary_conditions_dev, set_inflow_df_dev
 ! third party modules
 use :: fundal,                    only : dev_alloc, dev_assign_to_device, dev_free, dev_memcpy_from_device,     &
-                                         dev_memcpy_to_device, mydev
+                                         dev_memcpy_to_device, dev_memory_total, mydev
 use :: mpi
 use :: penf,                      only : I4P, I8P, R8P, str
 use :: selah,                     only : OPERATOR_FLOW
@@ -630,7 +630,7 @@ contains
       self%skin_faces = faces
       call dev_assign_to_device(src=self%skin_faces, dst=self%skin_faces_gpu)
       call dev_alloc(fptr_dev=self%skins_gpu, lbounds=[1,1], ubounds=[self%nv,cols], ierr=ierr)
-      if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate skins_gpu in accumulate_seam_fluxes')
+      if (ierr /= 0_I4P) call mpih%error_stop(msg=': failed to allocate skins_gpu in accumulate_seam_fluxes')
       endsubroutine update_skin_buffers
    endsubroutine accumulate_seam_fluxes
 
@@ -656,7 +656,7 @@ contains
    m = 0_I4P
    do f=1, flux_register%nfaces
       associate(face=>flux_register%face(f))
-      if (face%coarse_realm /= self%realm_index .or. face%coarse_rank /= mpih_fnl%myrank) cycle
+      if (face%coarse_realm /= self%realm_index .or. face%coarse_rank /= mpih%myrank) cycle
       if (allocated(face%troubled)) m = m + 6_I4P * face%nface_cells
       endassociate
    enddo
@@ -665,7 +665,7 @@ contains
    m = 0_I4P
    do f=1, flux_register%nfaces
       associate(face=>flux_register%face(f))
-      if (face%coarse_realm /= self%realm_index .or. face%coarse_rank /= mpih_fnl%myrank) cycle
+      if (face%coarse_realm /= self%realm_index .or. face%coarse_rank /= mpih%myrank) cycle
       if (.not.allocated(face%troubled)) cycle
       call face_axis_sign(face_code=face%coarse_face, axis=axis, sgn=sgn)
       e = 0_I4P ; e(axis) = sgn
@@ -682,7 +682,7 @@ contains
    m = 0_I4P
    do f=1, flux_register%nfaces
       associate(face=>flux_register%face(f))
-      if (face%coarse_realm /= self%realm_index .or. face%coarse_rank /= mpih_fnl%myrank) cycle
+      if (face%coarse_realm /= self%realm_index .or. face%coarse_rank /= mpih%myrank) cycle
       if (.not.allocated(face%troubled)) cycle
       call face_axis_sign(face_code=face%coarse_face, axis=axis, sgn=sgn)
       var = [IA_R, IA_U + axis - 1_I4P, IA_P]
@@ -731,7 +731,7 @@ contains
       add_fluxes => add_dissipative_fluxes_o4_dev
       add_ohmic  => add_resistive_fluxes_o4_dev
    case default
-      call mpih_fnl%error_stop(msg=': no dissipative kernels of order '//trim(str(self%numerics%dissipative_order)))
+      call mpih%error_stop(msg=': no dissipative kernels of order '//trim(str(self%numerics%dissipative_order)))
    endselect
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nb=>self%blocks_number, dxyz_gpu=>self%field_fnl%dxyz_gpu, &
              mu0=>self%physics%dissipation%mu, k0=>self%physics%dissipation%k, eta=>self%physics%dissipation%eta,   &
@@ -847,16 +847,16 @@ contains
                                     p_floor=self%physics%mhd%p_floor, q_gpu=q_gpu,            &
                                     floored=counts(1), nonpositive=counts(2), rho_min=mins(1), p_min=mins(2))
    case default
-      call mpih_fnl%error_stop(msg=': no floors for physical model "'//self%physics%physical_model//'"')
+      call mpih%error_stop(msg=': no floors for physical model "'//self%physics%physical_model//'"')
    endselect
-   call MPI_ALLREDUCE(MPI_IN_PLACE, counts, 2, MPI_INTEGER, MPI_SUM, MPI_COMM_WORLD, mpih_fnl%error)
-   call MPI_ALLREDUCE(MPI_IN_PLACE, mins, 2, MPI_REAL8, MPI_MIN, MPI_COMM_WORLD, mpih_fnl%error)
+   call MPI_ALLREDUCE(MPI_IN_PLACE, counts, 2, MPI_INTEGER, MPI_SUM, MPI_COMM_WORLD, mpih%error)
+   call MPI_ALLREDUCE(MPI_IN_PLACE, mins, 2, MPI_REAL8, MPI_MIN, MPI_COMM_WORLD, mpih%error)
    if (counts(2) > 0_I4P .and. .not.(self%physics%mhd%rho_floor > 0._R8P .or. self%physics%mhd%p_floor > 0._R8P)) &
-      call mpih_fnl%error_stop(msg=': '//trim(str(counts(2)))//' cells with a non-positive density or pressure at step '// &
+      call mpih%error_stop(msg=': '//trim(str(counts(2)))//' cells with a non-positive density or pressure at step '// &
                                trim(str(self%time%it))//' (min rho '//trim(str(mins(1)))//', min p '//               &
                                trim(str(mins(2)))//'); the [mhd] floors rho_floor, p_floor are disabled')
-   if (counts(1) > 0_I4P .and. mpih_fnl%myrank == 0) &
-      print '(A)', mpih_fnl%myrankstr//'MHD floors: '//trim(str(counts(1)))//' cells floored at step '// &
+   if (counts(1) > 0_I4P .and. mpih%myrank == 0) &
+      print '(A)', mpih%myrankstr//'MHD floors: '//trim(str(counts(1)))//' cells floored at step '// &
                    trim(str(self%time%it))//' (min rho '//trim(str(mins(1)))//', min p '//trim(str(mins(2)))//')'
    endsubroutine apply_floors
 
@@ -869,48 +869,48 @@ contains
 
    ! refuse a second call without `destroy` (issue #63): FUNDAL's `dev_alloc` declares its pointer intent(out), so it
    ! cannot see an existing allocation, and a re-entry would leak every device buffer below without a diagnostic
-   if (associated(self%q_gpu)) call mpih_fnl%error_stop(msg=': flume_fnl_object%allocate_gpu called twice: the '// &
+   if (associated(self%q_gpu)) call mpih%error_stop(msg=': flume_fnl_object%allocate_gpu called twice: the '// &
                                                           'device buffers exist (call destroy first; issue #63)')
    associate(nv=>self%physics%nv, nv_aux=>self%physics%nv_aux, nb=>self%nb, ngc=>self%ngc, ni=>self%ni, nj=>self%nj, &
              nk=>self%nk)
    call dev_alloc(fptr_dev=self%q_gpu, ubounds=[nb,ni+ngc,nj+ngc,nk+ngc,nv], lbounds=[1,1-ngc,1-ngc,1-ngc,1], &
                   init_value=0._R8P, ierr=ierr)
-   if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate q_gpu in flume_fnl_object%allocate_gpu')
+   if (ierr /= 0_I4P) call mpih%error_stop(msg=': failed to allocate q_gpu in flume_fnl_object%allocate_gpu')
    call dev_alloc(fptr_dev=self%dq_gpu, ubounds=[nb,ni+ngc,nj+ngc,nk+ngc,nv], lbounds=[1,1-ngc,1-ngc,1-ngc,1], &
                   init_value=0._R8P, ierr=ierr)
-   if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate dq_gpu in flume_fnl_object%allocate_gpu')
+   if (ierr /= 0_I4P) call mpih%error_stop(msg=': failed to allocate dq_gpu in flume_fnl_object%allocate_gpu')
    call dev_alloc(fptr_dev=self%q_aux_gpu, ubounds=[nb,ni+ngc,nj+ngc,nk+ngc,nv_aux], lbounds=[1,1-ngc,1-ngc,1-ngc,1], &
                   init_value=0._R8P, ierr=ierr)
-   if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate q_aux_gpu in flume_fnl_object%allocate_gpu')
+   if (ierr /= 0_I4P) call mpih%error_stop(msg=': failed to allocate q_aux_gpu in flume_fnl_object%allocate_gpu')
    if (self%numerics%is_hybrid) then
       call dev_alloc(fptr_dev=self%psi_gpu, ubounds=[nb,ni+ngc,nj+ngc,nk+ngc,nv], lbounds=[1,1-ngc,1-ngc,1-ngc,1], &
                      init_value=0._R8P, ierr=ierr)
-      if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate psi_gpu in flume_fnl_object%allocate_gpu')
+      if (ierr /= 0_I4P) call mpih%error_stop(msg=': failed to allocate psi_gpu in flume_fnl_object%allocate_gpu')
    endif
    if (self%turbulence%is_active .or. self%has_wm_viscosity) then
       call dev_alloc(fptr_dev=self%mu_t_gpu, ubounds=[nb,ni+ngc,nj+ngc,nk+ngc,1], lbounds=[1,1-ngc,1-ngc,1-ngc,1], &
                      init_value=0._R8P, ierr=ierr)
-      if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate mu_t_gpu in flume_fnl_object%allocate_gpu')
+      if (ierr /= 0_I4P) call mpih%error_stop(msg=': failed to allocate mu_t_gpu in flume_fnl_object%allocate_gpu')
    endif
    call dev_alloc(fptr_dev=self%flx_f_gpu, ubounds=[nb,ni,nj,nk,nv], lbounds=[1,0,1,1,1], init_value=0._R8P, ierr=ierr)
-   if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate flx_f_gpu in flume_fnl_object%allocate_gpu')
+   if (ierr /= 0_I4P) call mpih%error_stop(msg=': failed to allocate flx_f_gpu in flume_fnl_object%allocate_gpu')
    call dev_alloc(fptr_dev=self%fly_f_gpu, ubounds=[nb,ni,nj,nk,nv], lbounds=[1,1,0,1,1], init_value=0._R8P, ierr=ierr)
-   if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate fly_f_gpu in flume_fnl_object%allocate_gpu')
+   if (ierr /= 0_I4P) call mpih%error_stop(msg=': failed to allocate fly_f_gpu in flume_fnl_object%allocate_gpu')
    call dev_alloc(fptr_dev=self%flz_f_gpu, ubounds=[nb,ni,nj,nk,nv], lbounds=[1,1,1,0,1], init_value=0._R8P, ierr=ierr)
-   if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate flz_f_gpu in flume_fnl_object%allocate_gpu')
+   if (ierr /= 0_I4P) call mpih%error_stop(msg=': failed to allocate flz_f_gpu in flume_fnl_object%allocate_gpu')
    call dev_alloc(fptr_dev=self%gcor_gpu, ubounds=[nb,ni+ngc,nj+ngc,nk+ngc,1], lbounds=[1,1-ngc,1-ngc,1-ngc,1], &
                   init_value=0._R8P, ierr=ierr)
-   if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate gcor_gpu in flume_fnl_object%allocate_gpu')
+   if (ierr /= 0_I4P) call mpih%error_stop(msg=': failed to allocate gcor_gpu in flume_fnl_object%allocate_gpu')
    if (self%physics%gravity%is_balanced) then
       call dev_alloc(fptr_dev=self%dq_e_gpu, ubounds=[nb,ni+ngc,nj+ngc,nk+ngc,nv], lbounds=[1,1-ngc,1-ngc,1-ngc,1], &
                      init_value=0._R8P, ierr=ierr)
-      if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate dq_e_gpu in flume_fnl_object%allocate_gpu')
+      if (ierr /= 0_I4P) call mpih%error_stop(msg=': failed to allocate dq_e_gpu in flume_fnl_object%allocate_gpu')
       self%equilibrium_stale = .true.
    endif
    if (self%numerics%positivity_limiter == POSITIVITY_LIMITER_CELL) then
       call dev_alloc(fptr_dev=self%lam_gpu, ubounds=[nb,ni+ngc,nj+ngc,nk+ngc,nv], lbounds=[1,1-ngc,1-ngc,1-ngc,1], &
                      init_value=1._R8P, ierr=ierr)
-      if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate lam_gpu in flume_fnl_object%allocate_gpu')
+      if (ierr /= 0_I4P) call mpih%error_stop(msg=': failed to allocate lam_gpu in flume_fnl_object%allocate_gpu')
    endif
    call dev_assign_to_device(src=self%bc%q_inflow,  dst=self%q_inflow_gpu)
    call dev_assign_to_device(src=self%bc%wall_sign, dst=self%wall_sign_gpu)
@@ -924,9 +924,9 @@ contains
       if (ierr == 0_I4P) call dev_alloc(fptr_dev=self%wm_avg_y_gpu, ubounds=[1,1,1,1,self%wm_avg_nv], init_value=0._R8P, ierr=ierr)
       if (ierr == 0_I4P) call dev_alloc(fptr_dev=self%wm_avg_z_gpu, ubounds=[1,1,1,1,self%wm_avg_nv], init_value=0._R8P, ierr=ierr)
    endif
-   if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate wm_avg_*_gpu in flume_fnl_object%allocate_gpu')
+   if (ierr /= 0_I4P) call mpih%error_stop(msg=': failed to allocate wm_avg_*_gpu in flume_fnl_object%allocate_gpu')
    allocate(self%buf_5D_R8P(1:nb,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nv), stat=alloc_stat, errmsg=alloc_msg)
-   if (alloc_stat /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate buf_5D_R8P: '//trim(alloc_msg))
+   if (alloc_stat /= 0_I4P) call mpih%error_stop(msg=': failed to allocate buf_5D_R8P: '//trim(alloc_msg))
    self%db5(1,:) = [1 , 1-ngc , 1-ngc , 1-ngc , 1 ]
    self%db5(2,:) = [nb, ni+ngc, nj+ngc, nk+ngc, nv]
    self%hb5(1,:) = [1 , 1-ngc , 1-ngc , 1-ngc , 1 ]
@@ -982,7 +982,7 @@ contains
       call count_nonfinite_mhd_eglm_dev(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc,                  &
                                        blocks_number=self%blocks_number, q_gpu=self%q_gpu, n=n)
    case default
-      call mpih_fnl%error_stop(msg=': no FNL kernels for physical model "'//self%physics%physical_model//'"')
+      call mpih%error_stop(msg=': no FNL kernels for physical model "'//self%physics%physical_model//'"')
    endselect
    n = self%nonfinite_total(n_local=n)
    if (n > 0_I8P) then
@@ -1018,7 +1018,7 @@ contains
                                          blocks_number=self%blocks_number, gamma=self%physics%gamma, R=self%physics%R, &
                                          is_null=self%adam%grid%null_xyz, q_gpu=self%q_gpu, speed_max=speed_max)
    case default
-      call mpih_fnl%error_stop(msg=': no FNL kernels for physical model "'//self%physics%physical_model//'"')
+      call mpih%error_stop(msg=': no FNL kernels for physical model "'//self%physics%physical_model//'"')
    endselect
    call self%report_glm_speed(speed_max=speed_max)
    endsubroutine check_glm_ch
@@ -1088,9 +1088,9 @@ contains
                                             blocks_number=self%blocks_number, dxyz_gpu=self%field_fnl%dxyz_gpu, &
                                             q_gpu=self%q_gpu, integrals=integrals)
    case default
-      call mpih_fnl%error_stop(msg=': no FNL kernels for physical model "'//self%physics%physical_model//'"')
+      call mpih%error_stop(msg=': no FNL kernels for physical model "'//self%physics%physical_model//'"')
    endselect
-   call MPI_ALLREDUCE(MPI_IN_PLACE, integrals, size(integrals), MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih_fnl%error)
+   call MPI_ALLREDUCE(MPI_IN_PLACE, integrals, size(integrals), MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih%error)
    factors = self%output_factors(self%q_name) * self%units%length_output()**3
    row = integrals * factors
    if (self%physics%gravity%self_gravity) then
@@ -1122,7 +1122,7 @@ contains
 
    if (.not.self%forcing%is_active) return
    call sum_momentum_dev(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, blocks_number=self%blocks_number, axis=self%forcing%axis, dxyz_gpu=self%field_fnl%dxyz_gpu, q_gpu=self%q_gpu, sums=sums)
-   call MPI_ALLREDUCE(MPI_IN_PLACE, sums, 2, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih_fnl%error)
+   call MPI_ALLREDUCE(MPI_IN_PLACE, sums, 2, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih%error)
    dm = self%forcing%bulk_momentum - sums(1) / sums(2)
    call add_uniform_momentum_dev(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, blocks_number=self%blocks_number, axis=self%forcing%axis, dm=dm, q_gpu=self%q_gpu)
    if (self%time%dt > 0._R8P) self%forcing%f = dm / self%time%dt
@@ -1313,7 +1313,7 @@ contains
                            is_null=self%adam%grid%null_xyz, q_aux_gpu=self%q_aux_gpu, mu_t_gpu=self%mu_t_gpu, &
                                  lambda_sgs=self%sgs_lambda)
    ! the largest of all ranks: the cell maxima of the two limits lie in different cells, and their sum must not depend on the partition
-   call MPI_ALLREDUCE(MPI_IN_PLACE, self%sgs_lambda, 1, MPI_REAL8, MPI_MAX, MPI_COMM_WORLD, mpih_fnl%error)
+   call MPI_ALLREDUCE(MPI_IN_PLACE, self%sgs_lambda, 1, MPI_REAL8, MPI_MAX, MPI_COMM_WORLD, mpih%error)
    endsubroutine update_sgs_lambda
 
    subroutine compute_turbulence_history(self, realm)
@@ -1330,7 +1330,7 @@ contains
    real(R8P)                                                :: factors(7)   !< Output factors of the columns.
 
    if (.not.self%time%is_to_save(cadence=self%diagnostics%turbulence_history_save)) return
-   if (self%ngc < 2_I4P) call mpih_fnl%error_stop(msg=': the turbulence history stencil needs 2 ghost cells')
+   if (self%ngc < 2_I4P) call mpih%error_stop(msg=': the turbulence history stencil needs 2 ghost cells')
    call self%update_ghost(q_gpu=self%q_gpu)
    if (present(realm)) call seam_fill_all(self=self, realm=realm)
    call self%compute_q_aux(q_gpu=self%q_gpu)
@@ -1348,7 +1348,7 @@ contains
                                    is_null=self%adam%grid%null_xyz, q_aux_gpu=self%q_aux_gpu, mu_t_gpu=self%mu_t_gpu, &
                                          eps=integrals(7))
    endif
-   call MPI_ALLREDUCE(MPI_IN_PLACE, integrals, n, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih_fnl%error)
+   call MPI_ALLREDUCE(MPI_IN_PLACE, integrals, n, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih%error)
    factors = self%units%turbulence_output()
    call self%diagnostics%save_turbulence_row(it=self%time%it, time=self%time%time*self%units%time_output(), &
                                              integrals=integrals(1:n)*factors(1:n))
@@ -1376,7 +1376,7 @@ contains
    call dev_assign_to_device(src=self%divb_seam, dst=self%divb_seam_gpu)
    associate(hs=>self%fdv_half_stencils(1))
    if (hs > min(self%ngc, 3_I4P)) &
-      call mpih_fnl%error_stop(msg=': the div(B) stencil ([fdv].(fdv_order)) exceeds the ghost cells or sixth order')
+      call mpih%error_stop(msg=': the div(B) stencil ([fdv].(fdv_order)) exceeds the ghost cells or sixth order')
    select case(self%physics%model)
    case(MODEL_MHD)
       call compute_divb_norms_mhd_dev(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc,                              &
@@ -1421,7 +1421,7 @@ contains
                                           seam_gpu=self%divb_seam_gpu, q_gpu=self%q_gpu, divb_max=norms(1),           &
                                           divb_l1=norms(2), divb_seam_max=norms(3))
    case default
-      call mpih_fnl%error_stop(msg=': no FNL kernels for physical model "'//self%physics%physical_model//'"')
+      call mpih%error_stop(msg=': no FNL kernels for physical model "'//self%physics%physical_model//'"')
    endselect
    endassociate
    if (self%diagnostics%divb_flux) then
@@ -1470,7 +1470,7 @@ contains
       do f=1, reg%nfaces
          associate(face=>reg%face(f))
          if (face%seam_kind /= SEAM_KIND_INTRA_REALM_AMR) cycle
-         if (face%coarse_realm /= self%realm_index .or. face%coarse_rank /= mpih_fnl%myrank) cycle
+         if (face%coarse_realm /= self%realm_index .or. face%coarse_rank /= mpih%myrank) cycle
          if (.not.(allocated(face%F_coarse) .and. allocated(face%F_fine_sum))) cycle
          call face_axis_sign(face_code=face%coarse_face, axis=axis, sgn=sgn)
          do c=1, face%nface_cells
@@ -1486,7 +1486,7 @@ contains
       enddo
    endif
    call dev_alloc(fptr_dev=corr_gpu, lbounds=[1,1,1,1], ubounds=[nb,ni,nj,nk], ierr=ierr)
-   if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate corr_gpu in compute_dflux_norms')
+   if (ierr /= 0_I4P) call mpih%error_stop(msg=': failed to allocate corr_gpu in compute_dflux_norms')
    call dev_memcpy_to_device(dst=corr_gpu, src=corr)
    scale = merge(self%physics%mhd%glm_ch**2, self%physics%mhd%glm_ch, has_mixed_glm(self%physics%model))
    call compute_dflux_norms_dev(ni=ni, nj=nj, nk=nk, ngc=self%ngc, blocks_number=nb, band=self%ngc, ipsi=IQ_PSI,     &
@@ -1553,7 +1553,7 @@ contains
                                      blocks_number=self%blocks_number, gamma=self%physics%gamma, R=self%physics%R, &
                                      q_gpu=q_gpu, q_aux_gpu=self%q_aux_gpu)
    case default
-      call mpih_fnl%error_stop(msg=': no FNL kernels for physical model "'//self%physics%physical_model//'"')
+      call mpih%error_stop(msg=': no FNL kernels for physical model "'//self%physics%physical_model//'"')
    endselect
    endsubroutine compute_q_aux
 
@@ -1576,7 +1576,7 @@ contains
       ! a buffered transposed copy needs a staging buffer of the destination's extent (issue #63; #31: otherwise the
       ! copy goes through a host temporary and fails on the device)
       if (any(shape(self%buf_5D_R8P) /= shape(self%q_gpu))) &
-         call mpih_fnl%error_stop(msg=': flume_fnl_object%copy_cpu_gpu: buf_5D_R8P does not match q_gpu (issue #63)')
+         call mpih%error_stop(msg=': flume_fnl_object%copy_cpu_gpu: buf_5D_R8P does not match q_gpu (issue #63)')
       call dev_memcpy_to_device(bb=self%db5, ij=[1,5], tb=self%hb5, dst=self%q_gpu, src=self%q, buf=self%buf_5D_R8P)
    endif
    call self%field_fnl%copy_cpu_gpu(field=self%adam%field, maps=self%adam%maps, verbose=verbose)
@@ -1738,7 +1738,7 @@ contains
    n = max(n_rho, n_phi, 1_I4P)
    nullify(buf_gpu)
    call dev_alloc(fptr_dev=buf_gpu, lbounds=[1], ubounds=[n], ierr=ierr)
-   if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate buf_gpu in solve_potential_gpu')
+   if (ierr /= 0_I4P) call mpih%error_stop(msg=': failed to allocate buf_gpu in solve_potential_gpu')
    if (nb > 0_I4P) call pack_density_dev(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, &
                                          blocks_number=nb, q_gpu=q_gpu, buf_gpu=buf_gpu)
    allocate(buf(n))
@@ -1844,7 +1844,7 @@ contains
 
    realms_number_ = 1_I4P ; if (present(realms_number)) realms_number_ = max(1_I4P, realms_number)
    ! Split among the realms and among the ranks bound to the same device (#96).
-   memory_avail_ = real(mpih_fnl%dev_memory_total, R8P) / 1e9_R8P / real(realms_number_ * mpih_fnl_device_sharers, R8P)
+   memory_avail_ = real(dev_memory_total, R8P) / 1e9_R8P / real(realms_number_ * mpih%device%sharers, R8P)
    ! the time integrator is SELAH's (stepper_object, #132), on the (b, i, j, k, v) device fields
    self%selah_layout = LAYOUT_V_LAST
    call self%flume_common_object%initialize(filename=filename, memory_avail=memory_avail_, verbose=.true.)
@@ -1853,19 +1853,19 @@ contains
    !$acc update device(eos_tables_segments, eos_tables_breaks, eos_tables_exponents, eos_tables_k)
    !$omp target update to(eos_tables_segments, eos_tables_breaks, eos_tables_exponents, eos_tables_k)
    if (realms_number_ > 1_I4P .and. self%units%is_active) &
-      call mpih_fnl%error_stop(msg=': [reference] is not supported on multi-realm runs (each realm converts its own '// &
+      call mpih%error_stop(msg=': [reference] is not supported on multi-realm runs (each realm converts its own '// &
                                    'input and nothing yet checks that the realms share the references)')
    if (realms_number_ > 1_I4P .and. self%numerics%positivity_limiter == POSITIVITY_LIMITER_CELL) &
-      call mpih_fnl%error_stop(msg=': [numerics].(positivity_limiter)=cell is not supported on multi-realm runs (the '// &
+      call mpih%error_stop(msg=': [numerics].(positivity_limiter)=cell is not supported on multi-realm runs (the '// &
                                    'inter-realm seam faces carry no limiting factor)')
    if (realms_number_ > 1_I4P .and. self%physics%gravity%is_balanced) &
-      call mpih_fnl%error_stop(msg=': [gravity].(equilibrium) = atmosphere is not supported on multi-realm runs '// &
+      call mpih%error_stop(msg=': [gravity].(equilibrium) = atmosphere is not supported on multi-realm runs '// &
                                    '(the equilibrium residual would need the equilibrium of the peer realms at the seams)')
    if (realms_number_ > 1_I4P .and. self%physics%gravity%self_gravity) &
-      call mpih_fnl%error_stop(msg=': [gravity].(self_gravity) is not supported on multi-realm runs (each realm would '// &
+      call mpih%error_stop(msg=': [gravity].(self_gravity) is not supported on multi-realm runs (each realm would '// &
                                    'solve its own Poisson equation; issue #81)')
    if (realms_number_ > 1_I4P .and. self%numerics%reflux_cadence == REFLUX_CADENCE_STAGE) &
-      call mpih_fnl%error_stop(msg=': [numerics].(reflux_cadence) = stage is not supported on multi-realm runs (the '// &
+      call mpih%error_stop(msg=': [numerics].(reflux_cadence) = stage is not supported on multi-realm runs (the '// &
                                'per-stage reflux corrects intra-realm 2:1 faces only; issue #81)')
    ! the cuFFT solver (issue #81) as FLAIL's FFT backend and the device multigrid (issue #84, E6a) as its multigrid
    ! backend: set_potential sets up the one the grid needs
@@ -1882,7 +1882,7 @@ contains
    case(SCHEME_SPACE_WENO_RIEMANN)
       self%compute_residuals_dev => compute_residuals_riemann_dev
    case default
-      call mpih_fnl%error_stop(msg=': no FNL space operator for scheme_space "'//self%numerics%scheme_space//'"')
+      call mpih%error_stop(msg=': no FNL space operator for scheme_space "'//self%numerics%scheme_space//'"')
    endselect
    ! the stepper's form picks the integrator (#134 D4): two registers, or a register per stage (Butcher)
    if (self%ts%is_two_register()) then
@@ -1890,7 +1890,7 @@ contains
    elseif (self%ts%is_butcher()) then
       self%integrate_dev => integrate_rk_ssp_dev
    else
-      call mpih_fnl%error_stop(msg=': no FNL time integrator for [runge_kutta].(scheme) "'//trim(self%ts%scheme)//'"')
+      call mpih%error_stop(msg=': no FNL time integrator for [runge_kutta].(scheme) "'//trim(self%ts%scheme)//'"')
    endif
    endsubroutine initialize_flume
 
@@ -2016,7 +2016,7 @@ contains
                                                    gc_gpu=self%gcor_gpu, lam_gpu=self%lam_gpu, bad=counts(1),          &
                                                    nonfinite=counts(5))
    case default
-      call mpih_fnl%error_stop(msg=': no FNL positivity limiter for physical model "'//self%physics%physical_model//'"')
+      call mpih%error_stop(msg=': no FNL positivity limiter for physical model "'//self%physics%physical_model//'"')
    endselect
    if (seam) call self%seam_sync_factors_dev(q_gpu=q_gpu, dbad=counts(1), dnonfinite=counts(5))
    ! lam is not the state: no seam fill guard (issue #101; its lam(1) = 0 is a legitimate limiter factor)
@@ -2182,12 +2182,12 @@ contains
    enddo
    endassociate
    if (seam) call self%seam_sync_blend_dev
-   call MPI_ALLREDUCE(MPI_IN_PLACE, counts, 5, MPI_INTEGER, MPI_SUM, MPI_COMM_WORLD, mpih_fnl%error)
-   if (sum(counts) > 0_I4P .and. mpih_fnl%myrank == 0) &
-      print '(A)', mpih_fnl%myrankstr//'positivity limiter: '//trim(str(sum(counts(2:4))))//' faces limited, '// &
+   call MPI_ALLREDUCE(MPI_IN_PLACE, counts, 5, MPI_INTEGER, MPI_SUM, MPI_COMM_WORLD, mpih%error)
+   if (sum(counts) > 0_I4P .and. mpih%myrank == 0) &
+      print '(A)', mpih%myrankstr//'positivity limiter: '//trim(str(sum(counts(2:4))))//' faces limited, '// &
                    trim(str(counts(1)))//' inadmissible backbones at step '//trim(str(self%time%it))
-   if (counts(5) > 0_I4P .and. mpih_fnl%myrank == 0) &
-      print '(A)', mpih_fnl%myrankstr//'positivity limiter (non-finite): '//trim(str(counts(5)))// &
+   if (counts(5) > 0_I4P .and. mpih%myrank == 0) &
+      print '(A)', mpih%myrankstr//'positivity limiter (non-finite): '//trim(str(counts(5)))// &
                    ' cells with a non-finite high-order flux took the backbone at step '//trim(str(self%time%it))
    endsubroutine limit_positivity_dev
 
@@ -2580,10 +2580,10 @@ contains
    call compute_normL2_residuals_dev(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, nv=self%nv, &
                                      blocks_number=self%blocks_number, dq_gpu=self%dq_gpu, norm=self%adam%field%residuals)
    do v=1, self%nv
-      call MPI_ALLREDUCE(MPI_IN_PLACE, self%adam%field%residuals(v), 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih_fnl%error)
+      call MPI_ALLREDUCE(MPI_IN_PLACE, self%adam%field%residuals(v), 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih%error)
       self%adam%field%residuals(v) = sqrt(self%adam%field%residuals(v)) / sqrt(real(self%ni*self%nj*self%nk, R8P))
    enddo
-   if (mpih_fnl%myrank == 0) call self%io%save_residuals(it=self%time%it, time=self%time%time*self%units%time_output(), &
+   if (mpih%myrank == 0) call self%io%save_residuals(it=self%time%it, time=self%time%time*self%units%time_output(), &
                                                          blocks_number=self%blocks_number,                             &
                                                          residuals=self%adam%field%residuals*                          &
                                                                    self%output_factors(self%dq_name))
@@ -2632,7 +2632,7 @@ contains
    real(R8P)                              :: psi_energy        !< 1 if the total energy holds psi^2 / 2 (EGLM).
 
    if (.not.associated(self%field_fnl%maps%local_map_bc_crown_gpu)) return
-   if (.not.allocated(self%bc_pass_range)) call mpih_fnl%error_stop(msg=': set_boundary_conditions: the BC rows by '// &
+   if (.not.allocated(self%bc_pass_range)) call mpih%error_stop(msg=': set_boundary_conditions: the BC rows by '// &
                                                                   'pass are not built (build_bc_pass_rows)')
    psi_energy = merge(1._R8P, 0._R8P, self%physics%model == MODEL_MHD_EGLM)
    face_kind = self%bc%bc_type
@@ -2899,7 +2899,7 @@ contains
                                                   to_anchor=.false., q_gpu=q_gpu, blended=blended)
    endselect
    endassociate
-   if (blended > 0_I4P) print '(A)', mpih_fnl%myrankstr//'ghost positivity: '//trim(str(blended))// &
+   if (blended > 0_I4P) print '(A)', mpih%myrankstr//'ghost positivity: '//trim(str(blended))// &
                                      ' inadmissible face ghosts blended toward the interior at step '//trim(str(self%time%it))
    endsubroutine update_ghost
 
@@ -2975,10 +2975,10 @@ contains
    nclip = 0_I4P
    do f=1, flux_register%nfaces
       associate(face=>flux_register%face(f))
-      if (face%coarse_realm /= self%realm_index .or. face%coarse_rank /= mpih_fnl%myrank) cycle
+      if (face%coarse_realm /= self%realm_index .or. face%coarse_rank /= mpih%myrank) cycle
       if (.not.(allocated(face%F_coarse) .and. allocated(face%F_fine_sum))) cycle
       call face_axis_sign(face_code=face%coarse_face, axis=axis, sgn=sgn)
-      if (axis == 0_I4P) call mpih_fnl%error_stop(msg=': malformed coarse face code of register face '//trim(str(f)))
+      if (axis == 0_I4P) call mpih%error_stop(msg=': malformed coarse face code of register face '//trim(str(f)))
       allocate(delta(self%nv,face%nface_cells))
       delta = face%F_coarse(1:self%nv,:,1) - face%F_fine_sum(1:self%nv,:,1)
       ! the well-balanced mode (issue #73, M7-G2b): the equilibrium's own mismatch is not refluxed
@@ -2999,7 +2999,7 @@ contains
          enddo
       endif
       call dev_alloc(fptr_dev=delta_gpu, lbounds=[1,1], ubounds=[self%nv,face%nface_cells], ierr=ierr)
-      if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate delta_gpu in apply_reflux_to_stage_forest')
+      if (ierr /= 0_I4P) call mpih%error_stop(msg=': failed to allocate delta_gpu in apply_reflux_to_stage_forest')
       call dev_memcpy_to_device(dst=delta_gpu, src=delta)
       call apply_reflux_face_dev(axis=axis, sgn=sgn, b=face%coarse_block, ni=self%ni, nj=self%nj, nk=self%nk,  &
                                  ngc=self%ngc, nv=self%nv, nface_cells=face%nface_cells,                       &
@@ -3013,9 +3013,9 @@ contains
       deallocate(delta)
       endassociate
    enddo
-   if (troubled_only .and. ncell > 0_I4P) call mpih_fnl%print_message('reflux troubled: +'//trim(str(nflag, .true.))// &
+   if (troubled_only .and. ncell > 0_I4P) call mpih%print_message('reflux troubled: +'//trim(str(nflag, .true.))// &
                                                                       ' of +'//trim(str(ncell, .true.))//' face cells')
-   if (nclip > 0_I4P) call mpih_fnl%print_message('reflux positivity: +'//trim(str(nclip, .true.))//' coarse cells '// &
+   if (nclip > 0_I4P) call mpih%print_message('reflux positivity: +'//trim(str(nclip, .true.))//' coarse cells '// &
                                                   'limited at step '//trim(str(self%time%it, .true.)))
    endsubroutine apply_reflux_to_stage_forest
 
@@ -3086,7 +3086,7 @@ contains
       case(MODEL_MHD_EGLM)
          lambda_dissipative => compute_lambda_max_dissipative_mhd_eglm_dev
       case default
-         call mpih_fnl%error_stop(msg=': no dissipative time step kernels for physical model "'// &
+         call mpih%error_stop(msg=': no dissipative time step kernels for physical model "'// &
                                   self%physics%physical_model//'"')
       endselect
       call self%physics%dissipation%laws(tref=tref, suth=suth, omega_mu=omega_mu, omega_k=omega_k)
@@ -3170,7 +3170,7 @@ contains
                                              q_gpu=self%q_gpu, lambda_max=lambda_max)
          lambda_max = max(lambda_max, self%glm_lambda())
       case default
-         call mpih_fnl%error_stop(msg=': no FNL kernels for physical model "'//self%physics%physical_model//'"')
+         call mpih%error_stop(msg=': no FNL kernels for physical model "'//self%physics%physical_model//'"')
       endselect
    endif
    lambda_max = lambda_max + self%sgs_lambda ! zero without a subgrid-scale model (issue #119, T1)
@@ -3232,7 +3232,7 @@ contains
    do f=1, reg%nfaces
       associate(face=>reg%face(f))
       if (face%seam_kind /= SEAM_KIND_INTRA_REALM_AMR) cycle
-      if (face%coarse_realm /= self%realm_index .or. face%coarse_rank /= mpih_fnl%myrank) cycle
+      if (face%coarse_realm /= self%realm_index .or. face%coarse_rank /= mpih%myrank) cycle
       if (.not.(allocated(face%F_coarse) .and. allocated(face%F_fine_sum))) cycle
       call face_axis_sign(face_code=face%coarse_face, axis=axis, sgn=sgn)
       allocate(delta(self%nv,face%nface_cells))
@@ -3247,7 +3247,7 @@ contains
          enddo
       endif
       call dev_alloc(fptr_dev=delta_gpu, lbounds=[1,1], ubounds=[self%nv,face%nface_cells], ierr=ierr)
-      if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate delta_gpu in reflux_stage')
+      if (ierr /= 0_I4P) call mpih%error_stop(msg=': failed to allocate delta_gpu in reflux_stage')
       call dev_memcpy_to_device(dst=delta_gpu, src=delta)
       call apply_reflux_face_dev(axis=axis, sgn=sgn, b=face%coarse_block, ni=self%ni, nj=self%nj, nk=self%nk, &
                                  ngc=self%ngc, nv=self%nv, nface_cells=face%nface_cells,                      &
@@ -3293,7 +3293,7 @@ contains
                               rows_gpu=rows_gpu, src_gpu=src, dst_gpu=dst)
       endassociate
    class default
-      call mpih_fnl%error_stop(msg=': flume_fnl_object%fill_seam_from_peer_forest: peer realm is not a flume_fnl_object')
+      call mpih%error_stop(msg=': flume_fnl_object%fill_seam_from_peer_forest: peer realm is not a flume_fnl_object')
    endselect
    endsubroutine fill_seam_from_peer_forest
 
@@ -3314,7 +3314,7 @@ contains
    row_count = self%adam%maps%seam_mpi_send_row_count(p_idx)
    if (row_count == 0_I4P) return
    call dev_alloc(fptr_dev=buf_gpu, lbounds=[1], ubounds=[self%nv*row_count], ierr=ierr)
-   if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate buf_gpu in pack_seam_cells_forest')
+   if (ierr /= 0_I4P) call mpih%error_stop(msg=': failed to allocate buf_gpu in pack_seam_cells_forest')
    a => self%q_gpu
    if (self%stage_active > 0_I4P) then
       if (.not.self%ts%state_is_q(self%stage_active)) a => self%ts%stage_state()
@@ -3344,7 +3344,7 @@ contains
    row_count = self%adam%maps%seam_mpi_recv_row_count(p_idx)
    if (row_count == 0_I4P) return
    call dev_alloc(fptr_dev=buf_gpu, lbounds=[1], ubounds=[self%nv*row_count], ierr=ierr)
-   if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate buf_gpu in unpack_seam_cells_forest')
+   if (ierr /= 0_I4P) call mpih%error_stop(msg=': failed to allocate buf_gpu in unpack_seam_cells_forest')
    call dev_memcpy_to_device(dst=buf_gpu, src=buf)
    a => self%q_gpu
    if (self%stage_active > 0_I4P) then
@@ -3365,20 +3365,19 @@ contains
    endsubroutine finalize_forest
 
    subroutine initialize_process_context(self, verbose)
-   !< Initialize the process context once (the forest calls it before any realm, #80 P3): the FNL handler (device binding,
-   !< ranks sharing the device) first, since it may also be the MPI init, then the CPU handler.
+   !< Initialize the process context once (the forest calls it before any realm, #80 P3): `mpih`, the single handler, and
+   !< the binding of the rank to its device (HERALD's, then FUNDAL's `dev_init`; `bind_device`, #158).
    class(flume_fnl_object), intent(inout)        :: self    !< The equation (carries no MPI state).
    logical,           intent(in), optional :: verbose !< Trigger verbose output.
 
-   call initialize_mpih_fnl()
-   call mpih%initialize(verbose=verbose)
+   call bind_device(verbose=verbose)
    endsubroutine initialize_process_context
 
    subroutine finalize_mpi_forest(self)
-   !< Finalize the FNL MPI handler (called once by the forest after every realm is finalized).
+   !< Finalize `mpih`, and MPI with it (called once by the forest after every realm is finalized).
    class(flume_fnl_object), intent(inout) :: self !< The equation (carries no MPI state).
 
-   call mpih_fnl%finalize
+   call mpih%finalize
    endsubroutine finalize_mpi_forest
 
    ! hooks of the library initialize_forest template (#80 P3; issue #35, section 6.1): the initial state is set on the
@@ -3396,7 +3395,7 @@ contains
    !< Template hook: the state from the restart files (host) and the solids distance on it.
    class(flume_fnl_object), intent(inout) :: self !< The equation.
 
-   call mpih_fnl%print_message('restart simulation from "'//trim(self%io%restart_basename)//'" files')
+   call mpih%print_message('restart simulation from "'//trim(self%io%restart_basename)//'" files')
    call self%load_restart_files(t=self%time%it, time=self%time%time)
    call self%compute_phi
    endsubroutine restart_state_forest
@@ -3561,8 +3560,8 @@ contains
    call sync_dual_energy_dev(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, blocks_number=self%blocks_number,     &
                              gamma=self%physics%gamma, eta=self%physics%dual_energy_eta,                             &
                              dxyz_gpu=self%field_fnl%dxyz_gpu, q_gpu=self%q_gpu, sums=sums)
-   call MPI_ALLREDUCE(MPI_IN_PLACE, sums, 2, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih_fnl%error)
-   if (sums(2) > 0._R8P .and. mpih_fnl%myrank == 0) &
+   call MPI_ALLREDUCE(MPI_IN_PLACE, sums, 2, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih%error)
+   if (sums(2) > 0._R8P .and. mpih%myrank == 0) &
       print '(A)', 'dual energy: '//trim(str(nint(sums(2), I8P)))//' cold cells lifted to their adiabat at step '// &
                    trim(str(self%time%it))//', total energy raised by '//trim(str(sums(1)))
    endsubroutine sync_dual_energy
@@ -3599,7 +3598,7 @@ contains
                              dt=dt, dxyz_gpu=self%field_fnl%dxyz_gpu, q_gpu=self%q_gpu, radiated=radiated)
    endif
    endassociate
-   call MPI_ALLREDUCE(MPI_IN_PLACE, radiated, 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih_fnl%error)
+   call MPI_ALLREDUCE(MPI_IN_PLACE, radiated, 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih%error)
    self%physics%cooling%radiated = self%physics%cooling%radiated + radiated
    endsubroutine apply_cooling
 
@@ -3752,13 +3751,13 @@ contains
    self%equilibrium_stale = .true. ! the equilibrium residual of the new grid (M7-G2b), at the next step
    self%wm_filter_fresh = .true. ! the blocks moved: the wall-model averages restart from the next sample (#119)
    blocks = [self%regrid_phase%blocks, self%blocks_number]
-   call MPI_ALLREDUCE(MPI_IN_PLACE, blocks, 2, MPI_INTEGER, MPI_SUM, MPI_COMM_WORLD, mpih_fnl%error)
+   call MPI_ALLREDUCE(MPI_IN_PLACE, blocks, 2, MPI_INTEGER, MPI_SUM, MPI_COMM_WORLD, mpih%error)
    call self%check_regridded_state
    call self%update_ghost(q_gpu=self%q_gpu)
    call self%compute_q_aux(q_gpu=self%q_gpu)
    seconds = MPI_Wtime() - self%regrid_phase%seconds
-   call MPI_ALLREDUCE(MPI_IN_PLACE, seconds, 1, MPI_REAL8, MPI_MAX, MPI_COMM_WORLD, mpih_fnl%error)
-   if (mpih_fnl%myrank == 0) print '(A)', 'flume: regrid at step '//trim(str(self%time%it, .true.))//': blocks '// &
+   call MPI_ALLREDUCE(MPI_IN_PLACE, seconds, 1, MPI_REAL8, MPI_MAX, MPI_COMM_WORLD, mpih%error)
+   if (mpih%myrank == 0) print '(A)', 'flume: regrid at step '//trim(str(self%time%it, .true.))//': blocks '// &
                                           trim(str(blocks(1), .true.))//' -> '//trim(str(blocks(2), .true.))//', '//  &
                                           trim(str(self%regrid_phase%refined, .true.))//' refined, '//                &
                                           trim(str(self%regrid_phase%coarsened, .true.))//' coarsened, '//            &
@@ -3775,7 +3774,7 @@ contains
    if (self%ts%is_butcher()) then
       K = self%ts%stages()
    else
-      call mpih_fnl%error_stop(msg=': RK scheme "'//trim(self%ts%scheme)//'" is not stage-splittable: the staged '// &
+      call mpih%error_stop(msg=': RK scheme "'//trim(self%ts%scheme)//'" is not stage-splittable: the staged '// &
                                    'forest path (multi-realm, or AMR seam faces) requires an SSP scheme')
    endif
    endfunction stages_per_step_forest
@@ -3799,7 +3798,7 @@ contains
    if (blocks_number < 1_I4P) return
    call dev_alloc(fptr_dev=buf_gpu, lbounds=[1, 1-ngc, 1-ngc, 1-ngc, 1], &
                   ubounds=[nv, ni+ngc, nj+ngc, nk+ngc, blocks_number], ierr=ierr)
-   if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate buf_gpu in copy_blocks_transposed')
+   if (ierr /= 0_I4P) call mpih%error_stop(msg=': failed to allocate buf_gpu in copy_blocks_transposed')
    if (to_device) then
       call dev_memcpy_to_device(dst=buf_gpu, src=a(:,:,:,:,1:blocks_number))
       call unpack_blocks_transposed_dev(blocks_number=blocks_number, ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, &
@@ -3833,7 +3832,7 @@ contains
    call self%ic%set_equilibrium(field=self%adam%field, q=qe)
    call dev_alloc(fptr_dev=qe_gpu, ubounds=[self%nb,ni+ngc,nj+ngc,nk+ngc,nv], lbounds=[1,1-ngc,1-ngc,1-ngc,1], &
                   init_value=0._R8P, ierr=ierr)
-   if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate qe_gpu in refresh_equilibrium_residual')
+   if (ierr /= 0_I4P) call mpih%error_stop(msg=': failed to allocate qe_gpu in refresh_equilibrium_residual')
    call copy_blocks_transposed(blocks_number=nb, ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, a=qe, a_gpu=qe_gpu, &
                                to_device=.true.)
    if (allocated(self%seam_e)) deallocate(self%seam_e)
@@ -3847,7 +3846,7 @@ contains
       if (allocated(reg%face)) then
          do f=1, reg%nfaces
             associate(face=>reg%face(f))
-            if (face%coarse_realm /= self%realm_index .or. face%coarse_rank /= mpih_fnl%myrank) cycle
+            if (face%coarse_realm /= self%realm_index .or. face%coarse_rank /= mpih%myrank) cycle
             if (.not.(allocated(face%F_coarse) .and. allocated(face%F_fine_sum))) cycle
             self%seam_e(f)%d = face%F_coarse(1:nv,1:face%nface_cells,1) - face%F_fine_sum(1:nv,1:face%nface_cells,1)
             endassociate
@@ -3958,7 +3957,7 @@ contains
          case(RIEMANN_SOLVER_HLLD) ; edge_riemann => add_gravity_edge_correction_mhd_eglm_hlld_dev
          endselect
       endselect
-      if (.not.associated(edge_riemann)) call mpih_fnl%error_stop(msg=': no FNL gravity edge kernel for the model '// &
+      if (.not.associated(edge_riemann)) call mpih%error_stop(msg=': no FNL gravity edge kernel for the model '// &
                                                                       'and Riemann solver')
       do d=1, 3
          if (g(d) /= 0._R8P) call edge_riemann(d=d, di=ids(1,d), dj=ids(2,d), dk=ids(3,d), ni=ni, nj=nj, nk=nk,        &
@@ -3981,7 +3980,7 @@ contains
       case(MODEL_MHD_GLM_BARO)  ; edge_split => add_gravity_edge_correction_mhd_glm_baro_dev ! issue #100, P5
       case(MODEL_MHD_EGLM) ; edge_split => add_gravity_edge_correction_mhd_eglm_dev
       endselect
-      if (.not.associated(edge_split)) call mpih_fnl%error_stop(msg=': no FNL gravity edge kernel for the model')
+      if (.not.associated(edge_split)) call mpih%error_stop(msg=': no FNL gravity edge kernel for the model')
       do d=1, 3
          if (g(d) /= 0._R8P) call edge_split(d=d, di=ids(1,d), dj=ids(2,d), dk=ids(3,d), ni=ni, nj=nj, nk=nk, ngc=ngc, &
                                              blocks_number=nb, S=weno_s, gamma=gamma, ch=ch,                           &
@@ -4263,7 +4262,7 @@ contains
                                                                 weno_sigma=sigma, q_gpu=q_gpu,                         &
                                                                 q_aux_gpu=self%q_aux_gpu, fl_gpu=self%flz_f_gpu)
    case default
-      call mpih_fnl%error_stop(msg=': no FNL kernels for physical model "'//self%physics%physical_model//'"')
+      call mpih%error_stop(msg=': no FNL kernels for physical model "'//self%physics%physical_model//'"')
    endselect
    if (self%has_noslip) call self%close_noslip_fluxes ! before the gravity correction, which reads the face mass fluxes
    if (self%physics%gravity%is_active .and. .not.has_inert_energy(self%physics%model)) &
@@ -4494,7 +4493,7 @@ contains
          face_fluxes => compute_riemann_face_fluxes_mhd_eglm_hlld_dev
       endselect
    endif
-   if (.not.associated(face_fluxes)) call mpih_fnl%error_stop(msg=': no FNL weno-riemann kernels yet for '//      &
+   if (.not.associated(face_fluxes)) call mpih%error_stop(msg=': no FNL weno-riemann kernels yet for '//      &
                                                                   '[physics].(physical_model)='//                 &
                                                                   self%physics%physical_model//                   &
                                                                   ' with [numerics].(riemann_solver)='//          &
@@ -4513,9 +4512,9 @@ contains
                                          weno_zeps=zeps, weno_sigma=sigma, cc=cc, tau=tau, q_gpu=q_gpu,                &
                                          q_aux_gpu=self%q_aux_gpu, fl_gpu=self%flz_f_gpu, fallbacks=fallbacks(3))
    if (self%numerics%riemann_solver == RIEMANN_SOLVER_HLLD) then
-      call MPI_ALLREDUCE(MPI_IN_PLACE, fallbacks, 3, MPI_INTEGER, MPI_SUM, MPI_COMM_WORLD, mpih_fnl%error)
-      if (sum(fallbacks) > 0_I4P .and. mpih_fnl%myrank == 0) &
-         print '(A)', mpih_fnl%myrankstr//'HLLD fallbacks to HLL: '//trim(str(sum(fallbacks)))//' faces at step '// &
+      call MPI_ALLREDUCE(MPI_IN_PLACE, fallbacks, 3, MPI_INTEGER, MPI_SUM, MPI_COMM_WORLD, mpih%error)
+      if (sum(fallbacks) > 0_I4P .and. mpih%myrank == 0) &
+         print '(A)', mpih%myrankstr//'HLLD fallbacks to HLL: '//trim(str(sum(fallbacks)))//' faces at step '// &
                       trim(str(self%time%it))
    endif
    if (self%has_noslip) call self%close_noslip_fluxes ! before the gravity correction, which reads the face mass fluxes

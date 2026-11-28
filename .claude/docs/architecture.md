@@ -23,7 +23,6 @@ src/lib/common/  (CPU base layer)
 └── forest_object (behavior-only orchestrator over realm(:) — issue #10 Step 6 Phase C, 2d74fb6d + a294681a)
 
 src/lib/fnl/  (OpenACC GPU backend)
-├── mpih_fnl_object   extends mpih_object
 ├── field_fnl_object  (composite, wraps field_object data on GPU)
 ├── ib_fnl_object     (composite, GPU phi and BC vars)
     (no GPU RK object: `stepper_object` keeps SELAH's registers on the device itself)
@@ -53,7 +52,7 @@ src/app/patch/
 
 ## Object Ownership (realm composition)
 
-**Only two program-scope singletons exist:** `mpih` (`adam_mpih_global`, re-exported by `adam_common_library` and by the convenience module `adam_globals`) and `mpih_fnl` (`adam_fnl_mpih_global`, re-exported by `adam_fnl_library`). Both are one-per-process by nature; `mpih_fnl` also owns the device context and must be initialised exactly once (`mpih_fnl_is_initialized` guard — FUNDAL's `initialize` is `intent(out)`).
+**Only one program-scope singleton exists:** `mpih` (`adam_mpih_global`, HERALD's `mpih_object`, re-exported by `adam_common_library` and by the convenience module `adam_globals`). #158 merged the FNL handler `mpih_fnl` into it: the FNL backends bind the device with `bind_device` (`adam_fnl_device`, stateless; HERALD's `mpih%device`, then FUNDAL's `dev_init`, checked equal), once per process from `initialize_process_context`. HERALD's `initialize` is once-only: a late `do_device_init=.true.` would be ignored, hence `bind_device` binds through `mpih%device%initialize` when `mpih` is already up.
 
 The former `adam_{grid,field,maps,tree,weno,ib,rk}_global`, `adam_fnl_{field,ib,rk,weno}_global` and `adam_prism_fnl_{coil,fwlayer}_global` modules **were deleted** (issues #14/#15 and the FNL follow-up `b2cb77c5`). Every other object is a **per-realm component**:
 
@@ -70,11 +69,9 @@ Rules:
 - FNL helpers are initialised **after** the common init, from the realm's own objects:
 
 ```fortran
-! prism_fnl_object%initialize_prism (adam_prism_fnl_object.F90)
-if (.not.mpih_fnl_is_initialized) then                                           ! once per process
-   call mpih_fnl%initialize(do_mpi_init=..., do_device_init=.true.)
-   mpih_fnl_is_initialized = .true.
-endif
+! prism_fnl_object%initialize_process_context, once per process (the forest calls it before any realm)
+call bind_device(verbose=verbose)
+! prism_fnl_object%initialize_prism (adam_prism_fnl_object.F90), per realm
 call self%prism_common_object%initialize(filename=filename, memory_avail=memory_avail_, verbose=.true.)
 call self%field_fnl%initialize(grid=self%adam%grid, field=self%adam%field, maps=self%adam%maps, verbose=.true.)
 call self%ib_fnl%initialize(grid=self%adam%grid, field=self%adam%field, ib=self%ib)
@@ -464,15 +461,14 @@ adam_common_library
  ├── adam_turbulence_object, adam_turbulence_library, adam_turbulence_kernels
  ├── adam_tree_node_object, adam_tree_bucket_object
  ├── adam_fdv_operators_library, adam_riemann_euler_library
- └── adam_mpih_global  (the only CPU singleton; also via `adam_globals`)
+ └── adam_mpih_global  (the only singleton, HERALD's mpih_object; also via `adam_globals`)
 
 adam_fnl_library
  ├── adam_common_library  (full CPU layer)
  ├── adam_fnl_field_object, adam_fnl_ib_object
- ├── adam_fnl_maps_object, adam_fnl_mpih_object
+ ├── adam_fnl_maps_object, adam_fnl_device (bind_device)
  ├── adam_fnl_field_kernels, adam_fnl_ib_kernels, adam_fnl_turbulence_kernels
- ├── adam_fnl_fdv_operators_library
- └── adam_fnl_mpih_global  (the only FNL singleton)
+ └── adam_fnl_fdv_operators_library
 
 adam_nasto_common_library
  ├── adam_nasto_bc_object, adam_nasto_common_object, adam_nasto_eos_object
@@ -516,7 +512,7 @@ associate(ni=>self%adam%grid%ni, ngc=>self%adam%grid%ngc, nb=>self%adam%field%nb
 endassociate
 ```
 
-`mpih` / `mpih_fnl` are the only objects reached by `use` of a global module.
+`mpih` is the only object reached by `use` of a global module.
 
 ### Scalar Replica Pointers
 

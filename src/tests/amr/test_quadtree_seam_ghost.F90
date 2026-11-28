@@ -28,7 +28,7 @@ use :: adam_parameters,     only : TO_BE_REFINED, TO_NOT_TOUCH
 use :: adam_mpih_global,    only : mpih
 #ifdef _FNL
 use :: adam_fnl_field_object, only : field_fnl_object
-use :: adam_fnl_mpih_global,  only : mpih_fnl
+use :: adam_fnl_device,       only : bind_device
 use :: fundal
 #endif
 use :: mpi
@@ -43,7 +43,7 @@ logical              :: test_passed          !< Aggregate pass flag.
 
 call mpih%initialize(do_mpi_init=.true., do_device_init=.false.)
 #ifdef _FNL
-call mpih_fnl%initialize(do_mpi_init=.false., do_device_init=.true.)
+call bind_device()
 #endif
 test_passed = .true.
 call check_configuration(label='octree,   nk 8', ratio=8_I4P, nk=8_I4P)

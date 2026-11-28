@@ -246,7 +246,7 @@ contains
 
    verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
    if (.not.associated(self%q_pic_gpu)) return ! no particles in the whole run; a rank with none still zeroes and copies
-   if (verbose_) call mpih_fnl%print_message('prism_fnl_pic_object%copy_cpu_gpu start')
+   if (verbose_) call mpih%print_message('prism_fnl_pic_object%copy_cpu_gpu start')
    call dev_memcpy_to_device(bb=self%db2_q_pic,              tb=self%hb2_q_pic,              &
                              dst=self%q_pic_gpu,             src=q_pic,                       &
                              buf=self%buf_q_pic_R8P)
@@ -256,7 +256,7 @@ contains
    call dev_memcpy_to_device(bb=self%db2_neighbour_list,     tb=self%hb2_neighbour_list,     &
                              dst=self%neighbour_list_gpu,    src=pic%neighbour_list,          &
                              buf=self%buf_neighbour_list_I4P)
-   if (verbose_) call mpih_fnl%print_message('prism_fnl_pic_object%copy_cpu_gpu finish')
+   if (verbose_) call mpih%print_message('prism_fnl_pic_object%copy_cpu_gpu finish')
    endsubroutine copy_cpu_gpu
 
    subroutine copy_gpu_cpu(self, pic, q_pic, pic_fields, verbose)
@@ -270,7 +270,7 @@ contains
 
    verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
    if (.not.associated(self%q_pic_gpu)) return ! no particles in the whole run; a rank with none still zeroes and copies
-   if (verbose_) call mpih_fnl%print_message('prism_fnl_pic_object%copy_gpu_cpu start')
+   if (verbose_) call mpih%print_message('prism_fnl_pic_object%copy_gpu_cpu start')
    call dev_memcpy_from_device(bb=self%db2_q_pic,           tb=self%hb2_q_pic,           &
                                dst=q_pic,                   src=self%q_pic_gpu,           &
                                buf=self%buf_q_pic_R8P)
@@ -280,7 +280,7 @@ contains
    call dev_memcpy_from_device(bb=self%db2_neighbour_list,  tb=self%hb2_neighbour_list,  &
                                dst=pic%neighbour_list,      src=self%neighbour_list_gpu,  &
                                buf=self%buf_neighbour_list_I4P)
-   if (verbose_) call mpih_fnl%print_message('prism_fnl_pic_object%copy_gpu_cpu finish')
+   if (verbose_) call mpih%print_message('prism_fnl_pic_object%copy_gpu_cpu finish')
    endsubroutine copy_gpu_cpu
 
    subroutine copy_q_pic_gpu_cpu(self, q_pic, verbose)
@@ -292,9 +292,9 @@ contains
 
    verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
    if (.not.associated(self%q_pic_gpu)) return ! no particles in the whole run; a rank with none still zeroes and copies
-   if (verbose_) call mpih_fnl%print_message('prism_fnl_pic_object%copy_q_pic_gpu_cpu start')
+   if (verbose_) call mpih%print_message('prism_fnl_pic_object%copy_q_pic_gpu_cpu start')
    call dev_memcpy_from_device(bb=self%db2_q_pic, tb=self%hb2_q_pic, dst=q_pic, src=self%q_pic_gpu, buf=self%buf_q_pic_R8P)
-   if (verbose_) call mpih_fnl%print_message('prism_fnl_pic_object%copy_q_pic_gpu_cpu finish')
+   if (verbose_) call mpih%print_message('prism_fnl_pic_object%copy_q_pic_gpu_cpu finish')
    endsubroutine copy_q_pic_gpu_cpu
 
    subroutine initialize(self, pic, q_pic, pic_fields)
@@ -307,7 +307,7 @@ contains
    integer(I4P)                                :: ierr              !< Error status.
    integer(I4P)                                :: capacity          !< Particle arrays capacity of the rank.
 
-   call mpih_fnl%print_message('prism_fnl_pic_object%initialize start')
+   call mpih%print_message('prism_fnl_pic_object%initialize start')
    call self%destroy()
 
    ! the arrays hold the capacity of the rank (issue #112); the particles in them are set by sync_particle_number
@@ -346,7 +346,7 @@ contains
    case('Gaussian')
       self%particle_weighting_dev => Gaussian_charge_weighting_dev
    case default
-      call mpih_fnl%error_stop(msg=': invalid particle weighting model in prism_fnl_pic_object%initialize')
+      call mpih%error_stop(msg=': invalid particle weighting model in prism_fnl_pic_object%initialize')
    endselect
 
    select case(trim(pic%current_weighting_model))
@@ -379,10 +379,10 @@ contains
       case('sextic')   ; self%current_weighting_dev => sextic_current_weighting_dev
       case('Gaussian') ; self%current_weighting_dev => Gaussian_current_weighting_dev
       case default
-         call mpih_fnl%error_stop(msg=': invalid particle weighting model for conserving current initialization')
+         call mpih%error_stop(msg=': invalid particle weighting model for conserving current initialization')
       endselect
    case default
-      call mpih_fnl%error_stop(msg=': invalid current weighting model in prism_fnl_pic_object%initialize')
+      call mpih%error_stop(msg=': invalid current weighting model in prism_fnl_pic_object%initialize')
    endselect
 
    select case(trim(pic%field_weighting_model))
@@ -404,7 +404,7 @@ contains
       self%field_weighting_dev => Gaussian_field_weighting_dev
    case default
       if (.not.pic%coherent_gather()) &
-         call mpih_fnl%error_stop(msg=': invalid field weighting model in prism_fnl_pic_object%initialize')
+         call mpih%error_stop(msg=': invalid field weighting model in prism_fnl_pic_object%initialize')
       ! coherent gathers: the particle-shape gather (on the P^T-filtered fields of conserving_fnl for totorica and
       ! esirkepov_Q<N>, which also switch the binomial filter off; CPU twin: shape_field_weighting)
       select case(trim(pic%particle_weighting_model))
@@ -420,33 +420,33 @@ contains
    endselect
 
    if (capacity == 0) then
-      call mpih_fnl%print_message('prism_fnl_pic_object%initialize finish (no particles: nothing on device)')
+      call mpih%print_message('prism_fnl_pic_object%initialize finish (no particles: nothing on device)')
       return
    endif
 
    call dev_alloc(fptr_dev=self%q_pic_gpu,          ubounds=[capacity, PIC_VARIABLES_NUMBER ], &
                   lbounds=[1,1], ierr=ierr)
-   if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate q_pic_gpu in prism_fnl_pic_object%initialize')
+   if (ierr /= 0_I4P) call mpih%error_stop(msg=': failed to allocate q_pic_gpu in prism_fnl_pic_object%initialize')
    call dev_alloc(fptr_dev=self%pic_fields_gpu,     ubounds=[capacity, PIC_FIELDS_NUMBER    ], &
                   lbounds=[1,1], ierr=ierr)
-   if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate pic_fields_gpu in prism_fnl_pic_object%initialize')
+   if (ierr /= 0_I4P) call mpih%error_stop(msg=': failed to allocate pic_fields_gpu in prism_fnl_pic_object%initialize')
    call dev_alloc(fptr_dev=self%neighbour_list_gpu, ubounds=[capacity, PIC_NEIGHBOURS_NUMBER], &
                   lbounds=[1,1], ierr=ierr)
-   if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate neighbour_list_gpu in prism_fnl_pic_object%initialize')
+   if (ierr /= 0_I4P) call mpih%error_stop(msg=': failed to allocate neighbour_list_gpu in prism_fnl_pic_object%initialize')
    ! the migration buffers, needed from the first step on: allocated here, as pic_fnl_device_bytes counts them (issue #130)
-   if (mpih_fnl%procs_number > 1_I4P) then
+   if (mpih%procs_number > 1_I4P) then
       call dev_alloc(fptr_dev=self%mig_index_gpu, ubounds=[2*capacity], lbounds=[1], ierr=ierr)
-      if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate mig_index_gpu in prism_fnl_pic_object%initialize')
+      if (ierr /= 0_I4P) call mpih%error_stop(msg=': failed to allocate mig_index_gpu in prism_fnl_pic_object%initialize')
       call dev_alloc(fptr_dev=self%mig_buffer_gpu, ubounds=[PIC_VARIABLES_NUMBER*capacity], lbounds=[1], ierr=ierr)
-      if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate mig_buffer_gpu in prism_fnl_pic_object%initialize')
+      if (ierr /= 0_I4P) call mpih%error_stop(msg=': failed to allocate mig_buffer_gpu in prism_fnl_pic_object%initialize')
    endif
    allocate(self%buf_q_pic_R8P(1:capacity,1:PIC_VARIABLES_NUMBER), stat=ierr)
-   if (ierr /= 0) call mpih_fnl%error_stop(msg=': failed host allocation of buf_q_pic_R8P in prism_fnl_pic_object%initialize')
+   if (ierr /= 0) call mpih%error_stop(msg=': failed host allocation of buf_q_pic_R8P in prism_fnl_pic_object%initialize')
    allocate(self%buf_pic_fields_R8P(1:capacity,1:PIC_FIELDS_NUMBER), stat=ierr)
-   if (ierr /= 0) call mpih_fnl%error_stop(msg=': failed host allocation of buf_pic_fields_R8P in prism_fnl_pic_object%initialize')
+   if (ierr /= 0) call mpih%error_stop(msg=': failed host allocation of buf_pic_fields_R8P in prism_fnl_pic_object%initialize')
    allocate(self%buf_neighbour_list_I4P(1:capacity,1:PIC_NEIGHBOURS_NUMBER), stat=ierr)
    if (ierr /= 0) &
-      call mpih_fnl%error_stop(msg=': failed host allocation of buf_neighbour_list_I4P in prism_fnl_pic_object%initialize')
+      call mpih%error_stop(msg=': failed host allocation of buf_neighbour_list_I4P in prism_fnl_pic_object%initialize')
    self%db2_q_pic(1,:)          = [1_I4P, 1_I4P]
    self%db2_q_pic(2,:)          = [capacity, PIC_VARIABLES_NUMBER]
    self%hb2_q_pic(1,:)          = [1_I4P, 1_I4P]
@@ -460,7 +460,7 @@ contains
    self%hb2_neighbour_list(1,:) = [1_I4P, 1_I4P]
    self%hb2_neighbour_list(2,:) = [PIC_NEIGHBOURS_NUMBER, capacity]
    call self%copy_cpu_gpu(pic=pic, q_pic=q_pic, pic_fields=pic_fields)
-   call mpih_fnl%print_message('prism_fnl_pic_object%initialize finish')
+   call mpih%print_message('prism_fnl_pic_object%initialize finish')
    endsubroutine initialize
 
    subroutine migrate_particles_dev(self, pic, field_fnl, field, grid)
@@ -480,10 +480,10 @@ contains
    integer(I4P), pointer                      :: mig_index_gpu(:), neighbour_list_gpu(:,:)
    real(R8P),    pointer                      :: mig_buffer_gpu(:), q_pic_gpu(:,:)
 
-   if (mpih_fnl%procs_number == 1_I4P .or. .not.associated(self%q_pic_gpu)) return
+   if (mpih%procs_number == 1_I4P .or. .not.associated(self%q_pic_gpu)) return
    capacity = size(self%q_pic_gpu, dim=1)
    if (.not.associated(self%mig_index_gpu)) &
-      call mpih_fnl%error_stop(msg=': migrate_particles_dev without the migration buffers (allocated at initialize)')
+      call mpih%error_stop(msg=': migrate_particles_dev without the migration buffers (allocated at initialize)')
    mig_index_gpu => self%mig_index_gpu
    mig_buffer_gpu => self%mig_buffer_gpu
    q_pic_gpu => self%q_pic_gpu
@@ -543,7 +543,7 @@ contains
    endif
    n_keep = np - n_dep
    if (n_keep + n_arrived > capacity) &
-      call mpih_fnl%error_stop(msg=': PIC migration: local particles exceed the particle arrays capacity '// &
+      call mpih%error_stop(msg=': PIC migration: local particles exceed the particle arrays capacity '// &
                                    trim(str(capacity,.true.))//': raise [PIC].(particle_capacity_factor) (or remove it)')
    ! append the arrived particles, zero the slots left free
    if (n_arrived > 0_I4P) then
@@ -607,7 +607,7 @@ contains
    owned_only_ = .false. ; if (present(owned_only)) owned_only_ = owned_only
    ! CPU twin of the multi-block stencil check of prism_pic_object%particle_cartesian_grid_index
    if (field_fnl%blocks_number > 1_I4P .and. self%stencil_radius > grid%ngc) &
-      call mpih_fnl%error_stop(msg=': PIC multi-block needs deposit/gather stencils within ngc cells (stencil radius '// &
+      call mpih%error_stop(msg=': PIC multi-block needs deposit/gather stencils within ngc cells (stencil radius '// &
                                    trim(str(self%stencil_radius,.true.))//', ngc '//trim(str(grid%ngc,.true.))//')')
 
    ngc = grid%ngc
@@ -616,8 +616,8 @@ contains
    nk = grid%nk
    m = max(0_I4P, ngc - self%stencil_radius - 1_I4P) ! CPU twin: prism_pic_object%halo_margin_cells
    ! CPU twin of the halo check of prism_pic_object%particle_cartesian_grid_index
-   if ((mpih_fnl%procs_number > 1_I4P .or. any(self%is_periodic)) .and. m < 1_I4P) &
-      call mpih_fnl%error_stop(msg=': PIC needs ngc >= stencil radius + 2 = '//trim(str(self%stencil_radius+2_I4P,.true.))// &
+   if ((mpih%procs_number > 1_I4P .or. any(self%is_periodic)) .and. m < 1_I4P) &
+      call mpih%error_stop(msg=': PIC needs ngc >= stencil radius + 2 = '//trim(str(self%stencil_radius+2_I4P,.true.))// &
                                    ' (ngc '//trim(str(ngc,.true.))//'): one ghost cell of halo for the particles that leave '// &
                                    'the blocks of their rank within a time step (more ranks or periodic faces)')
    if (owned_only_) m = -1_I4P
@@ -694,10 +694,10 @@ contains
       neighbour_list_gpu(n,4) = k_p
    enddo
    ! CPU twin: a particle outside the domain across a face without particle closure stops the run
-   if (outside > 0_I4P) call mpih_fnl%error_stop(msg=': '//trim(str(outside,.true.))//' PIC particle(s) outside the '// &
+   if (outside > 0_I4P) call mpih%error_stop(msg=': '//trim(str(outside,.true.))//' PIC particle(s) outside the '// &
                                                      'domain across a face without particle closure (only periodic is '// &
                                                      'implemented)')
-   if (lost > 0_I4P) call mpih_fnl%error_stop(msg=': '//trim(str(lost,.true.))//' PIC particle(s) moved beyond the '// &
+   if (lost > 0_I4P) call mpih%error_stop(msg=': '//trim(str(lost,.true.))//' PIC particle(s) moved beyond the '// &
                                                   'ghost halo of their rank within a time step')
    endsubroutine particle_cartesian_grid_index_dev_impl
 
@@ -750,7 +750,7 @@ contains
          if (q_pic_gpu(n,3) > dmax_z .or. q_pic_gpu(n,3) <= dmin_z) escaped = escaped + 1_I4P
       endif
    enddo
-   if (escaped > 0_I4P) call mpih_fnl%error_stop(msg=': '//trim(str(escaped,.true.))//' PIC particle coordinate(s) '// &
+   if (escaped > 0_I4P) call mpih%error_stop(msg=': '//trim(str(escaped,.true.))//' PIC particle coordinate(s) '// &
                                                      'moved more than one domain length in a step')
    endsubroutine wrap_periodic_positions_dev
 

@@ -174,8 +174,8 @@ type, extends(prism_common_object) :: prism_fnl_object
       procedure, pass(self) :: post_step_forest                  !< Invoked by forest%post_step per realm per timestep.
       procedure, pass(self) :: is_done_forest                    !< Invoked by forest%is_done during the termination reduction.
       procedure, pass(self) :: finalize_forest                   !< Invoked by forest%finalize per realm at shutdown.
-      procedure, pass(self) :: finalize_mpi_forest               !< Process-global MPI finalize (mpih_fnl).
-      procedure, pass(self) :: initialize_process_context        !< Process-global MPI init (mpih_fnl + mpih), once.
+      procedure, pass(self) :: finalize_mpi_forest               !< Process-global MPI finalize (mpih).
+      procedure, pass(self) :: initialize_process_context        !< Process-global MPI init and device binding, once.
       ! inter-realm seam ghost-fill contract (agnostic-dummy redesign)
       procedure, pass(self) :: fill_seam_from_peer_forest !< OpenACC device-direct copy of peer's GPU interior into self's GPU
       procedure, pass(self) :: seam_ghosts_to_state       !< Copy the end_of_step seam ghosts into the stage state (#132).
@@ -431,7 +431,7 @@ contains
    extra_fields = -2_I4P*physics%nv
    if (has_tv_marker(amr)) extra_fields = extra_fields + 1_I4P
    if (.not.is_pic_model(physics%physical_model)) then
-      call mpih_fnl%print_message('prism_fnl_object estimate_backend_memory: '//trim(str(extra_fields))// &
+      call mpih%print_message('prism_fnl_object estimate_backend_memory: '//trim(str(extra_fields))// &
                                   ' block fields with respect to compute_fields_number')
       return
    endif
@@ -448,7 +448,7 @@ contains
    conserving = trim(pic%current_weighting_model) == CONSERVING_CURRENT_WEIGHTING_MODEL
 
    ! the particle arrays of pic_fnl, at the capacity of a rank
-   particles_bytes = pic_fnl_device_bytes(capacity=pic%particle_capacity, ranks=mpih_fnl%procs_number)
+   particles_bytes = pic_fnl_device_bytes(capacity=pic%particle_capacity, ranks=mpih%procs_number)
    ! the particles' SELAH companion: its registers, as many as SELAH allocates for the scheme (#134 D5)
    companion_bytes = 0_I8P
    if (pic%scheme_time == NUM_SCHEME_TIME_PIC_RUNGE_KUTTA) &
@@ -471,13 +471,13 @@ contains
       call bc%load_from_file(file_parameters=file_parameters)
       call external_fields%load_from_file(file_parameters=file_parameters)
       layout = conserving_layout_from(pic=pic, periodic=pic_periodic_axes(bc%bc_type), n=n, ngc=ngc, nrk=nrk, &
-                                      ranks=mpih_fnl%procs_number, nv=physics%nv,                         &
+                                      ranks=mpih%procs_number, nv=physics%nv,                         &
                                       external=external_fields%ef_type /= EF_TYPE_NONE)
       virtual_bytes = layout%device_bytes()
       extra_fields = extra_fields + layout%slot_fields() ! gq_gpu, gather_gpu on the block slots
    endif
    reserved_memory = real(particles_bytes + companion_bytes + virtual_bytes, R8P)/1e9_R8P
-   call mpih_fnl%print_message('prism_fnl_object estimate_backend_memory: '//trim(str(pic%particle_capacity, .true.))// &
+   call mpih%print_message('prism_fnl_object estimate_backend_memory: '//trim(str(pic%particle_capacity, .true.))// &
                                ' particles (capacity): particles '//trim(str(real(particles_bytes, R8P)/1e9_R8P))// &
                                ' GB, companion '//trim(str(real(companion_bytes, R8P)/1e9_R8P))//' GB, conserving '// &
                                trim(str(real(virtual_bytes, R8P)/1e9_R8P))//' GB, total '//trim(str(reserved_memory))// &
@@ -504,48 +504,48 @@ contains
    integer(I4P)                           :: nc   !< Number of coils.
    integer(I4P)                           :: nv_coil !< Number of coil vector components.
 
-   call mpih_fnl%print_message('prism_fnl_object%allocate_gpu start')
+   call mpih%print_message('prism_fnl_object%allocate_gpu start')
    call free_prism_core_gpu(self)
    associate(nv=>self%nv, nb=>self%nb, ngc=>self%ngc, ni=>self%ni, nj=>self%nj, nk=>self%nk)
    call dev_alloc(fptr_dev=self%q_gpu, &
                   ubounds=[nb,ni+ngc,nj+ngc,nk+ngc,nv], lbounds=[1,1-ngc,1-ngc,1-ngc,1], init_value=0._R8P, ierr=ierr)
-   if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate q_gpu in prism_fnl_object%allocate_gpu')
+   if (ierr /= 0_I4P) call mpih%error_stop(msg=': failed to allocate q_gpu in prism_fnl_object%allocate_gpu')
    call dev_alloc(fptr_dev=self%dq_gpu, &
                   ubounds=[nb,ni+ngc,nj+ngc,nk+ngc,nv], lbounds=[1,1-ngc,1-ngc,1-ngc,1], init_value=0._R8P, ierr=ierr)
-   if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate dq_gpu in prism_fnl_object%allocate_gpu')
+   if (ierr /= 0_I4P) call mpih%error_stop(msg=': failed to allocate dq_gpu in prism_fnl_object%allocate_gpu')
    ! the FV fluxes only with the FV scheme, the only one that uses them (WENO is not ported): with centered FD they were
    ! 12 nv of the 21 nv block fields, never touched (issue #112); compute_fields_number counts the same
    if (self%numerics%scheme_space == NUM_SCHEME_SPACE_FV_CENTERED) then
       call dev_alloc(fptr_dev=self%flxyz_c_gpu, &
                      ubounds=[nb,3,3,ni+ngc,nj+ngc,nk+ngc,nv], lbounds=[1,1,1,1-ngc,1-ngc,1-ngc,1], init_value=0._R8P, &
                      ierr=ierr)
-      if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate flxyz_c_gpu in prism_fnl_object%allocate_gpu')
+      if (ierr /= 0_I4P) call mpih%error_stop(msg=': failed to allocate flxyz_c_gpu in prism_fnl_object%allocate_gpu')
       call dev_alloc(fptr_dev=self%flx_f_gpu, &
                      ubounds=[nb,ni,nj,nk,nv], lbounds=[1,0,1,1,1], init_value=0._R8P, ierr=ierr)
-      if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate flx_f_gpu in prism_fnl_object%allocate_gpu')
+      if (ierr /= 0_I4P) call mpih%error_stop(msg=': failed to allocate flx_f_gpu in prism_fnl_object%allocate_gpu')
       call dev_alloc(fptr_dev=self%fly_f_gpu, &
                      ubounds=[nb,ni,nj,nk,nv], lbounds=[1,1,0,1,1], init_value=0._R8P, ierr=ierr)
-      if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate fly_f_gpu in prism_fnl_object%allocate_gpu')
+      if (ierr /= 0_I4P) call mpih%error_stop(msg=': failed to allocate fly_f_gpu in prism_fnl_object%allocate_gpu')
       call dev_alloc(fptr_dev=self%flz_f_gpu, &
                      ubounds=[nb,ni,nj,nk,nv], lbounds=[1,1,1,0,1], init_value=0._R8P, ierr=ierr)
-      if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate flz_f_gpu in prism_fnl_object%allocate_gpu')
+      if (ierr /= 0_I4P) call mpih%error_stop(msg=': failed to allocate flz_f_gpu in prism_fnl_object%allocate_gpu')
    endif
    ! the cell total variation of the coil AMR marker, one field, only when that marker is configured; counted in the blocks
    ! budget by estimate_backend_memory_fnl
    if (has_tv_marker(self%amr)) then
       call dev_alloc(fptr_dev=self%j_vec_tv_gpu, &
                      ubounds=[nb,ni+ngc,nj+ngc,nk+ngc], lbounds=[1,1-ngc,1-ngc,1-ngc], init_value=0._R8P, ierr=ierr)
-      if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate j_vec_tv_gpu in prism_fnl_object%allocate_gpu')
+      if (ierr /= 0_I4P) call mpih%error_stop(msg=': failed to allocate j_vec_tv_gpu in prism_fnl_object%allocate_gpu')
    endif
    if (is_pic_model(self%physics%physical_model) .and. self%pic%charge_conservation_save > 0_I4P) then
       call dev_alloc(fptr_dev=self%charge_conservation_acc_gpu, &
                      ubounds=[nb,ni+ngc,nj+ngc,nk+ngc], lbounds=[1,1-ngc,1-ngc,1-ngc], init_value=0._R8P, ierr=ierr)
       if (ierr /= 0_I4P) &
-         call mpih_fnl%error_stop(msg=': failed to allocate charge_conservation_acc_gpu in allocate_gpu')
+         call mpih%error_stop(msg=': failed to allocate charge_conservation_acc_gpu in allocate_gpu')
       call dev_alloc(fptr_dev=self%charge_conservation_divj_gpu, &
                      ubounds=[nb,ni+ngc,nj+ngc,nk+ngc], lbounds=[1,1-ngc,1-ngc,1-ngc], init_value=0._R8P, ierr=ierr)
       if (ierr /= 0_I4P) &
-         call mpih_fnl%error_stop(msg=': failed to allocate charge_conservation_divj_gpu in allocate_gpu')
+         call mpih%error_stop(msg=': failed to allocate charge_conservation_divj_gpu in allocate_gpu')
    endif
    ! buffer for transposed copy
    call allocate_variable(var=self%buf_5D_R8P,       &
@@ -576,7 +576,7 @@ contains
       self%hb6(2,:) = [nv_coil,ni+ngc,nj+ngc,nk+ngc,nb,nc] ! upper host   bounds, rank 6D
    endif
    endassociate
-   call mpih_fnl%print_message('prism_fnl_object%allocate_gpu finish')
+   call mpih%print_message('prism_fnl_object%allocate_gpu finish')
    endsubroutine allocate_gpu
 
    subroutine copy_cpu_gpu(self, verbose)
@@ -653,14 +653,14 @@ contains
    integer(I4P)                                   :: realms_number_      !< Local realm count (>=1).
 
    realms_number_ = 1_I4P ; if (present(realms_number)) realms_number_ = max(realms_number, 1_I4P)
-   call mpih_fnl%print_message('prism_fnl_object%initialize start')
+   call mpih%print_message('prism_fnl_object%initialize start')
    ! TOTAL device memory, not free: the capacity budget must be a machine
    ! property, else nb varies with whatever was resident at init and the grid
    ! size becomes irreproducible. dev_memory_avail (free) is still the right
    ! value for the j_vec_gpu OOM diagnostic in prism_fnl_coil_object.
    ! Split among the realms and among the ranks bound to the same device (#96).
    ! Bytes -> GB via 1e9 to match compute_blocks_number's memory_avail*1e9.
-   memory_avail_ = real(mpih_fnl%dev_memory_total, R8P)/1e9_R8P / real(realms_number_ * mpih_fnl_device_sharers, R8P)
+   memory_avail_ = real(dev_memory_total, R8P)/1e9_R8P / real(realms_number_ * mpih%device%sharers, R8P)
    self%estimate_backend_memory => estimate_backend_memory_fnl
    ! the time integrator is SELAH's (stepper_object, #132 phase 4), on the (b, i, j, k, v) device fields
    self%selah_layout = LAYOUT_V_LAST
@@ -694,13 +694,13 @@ contains
       select case(self%numerics%scheme_time)
       ! the time integrators are SELAH's (szaghi/adam#134); those ADAM never made functional moved to SELAH (szaghi/SELAH#3)
       case(NUM_SCHEME_TIME_BLANES_MOAN)
-         call mpih_fnl%error_stop(msg=': Blanes-Moan time integration is not available in ADAM (moved to SELAH, '// &
+         call mpih%error_stop(msg=': Blanes-Moan time integration is not available in ADAM (moved to SELAH, '// &
                                       'szaghi/SELAH#3)')
       case(NUM_SCHEME_TIME_CFM)
-         call mpih_fnl%error_stop(msg=': Commutator-Free Magnus time integration is not available in ADAM (moved to '// &
+         call mpih%error_stop(msg=': Commutator-Free Magnus time integration is not available in ADAM (moved to '// &
                                       'SELAH, szaghi/SELAH#3)')
       case(NUM_SCHEME_TIME_LEAPFROG)
-         call mpih_fnl%error_stop(msg=': leapfrog time integration is not available in ADAM (moved to SELAH, '// &
+         call mpih%error_stop(msg=': leapfrog time integration is not available in ADAM (moved to SELAH, '// &
                                       'szaghi/SELAH#3)')
       case(NUM_SCHEME_TIME_RUNGE_KUTTA)
          ! the stepper's form picks the integrator (#134 D4)
@@ -710,18 +710,18 @@ contains
             self%integrate_dev => integrate_rk_ssp_dev
          elseif (self%ts%is_splitting()) then
             ! SELAH's Yoshida splitting runs on the CPU backend only (issue #55)
-            call mpih_fnl%error_stop(msg=': Yoshida Runge-Kutta time integration not ported to FNL backend')
+            call mpih%error_stop(msg=': Yoshida Runge-Kutta time integration not ported to FNL backend')
          endif
       endselect
    elseif (is_pic_model(self%physics%physical_model)) then
       select case(self%numerics%scheme_time)
       case(NUM_SCHEME_TIME_LEAPFROG)
-         call mpih_fnl%error_stop(msg=': PIC leapfrog time integration is not available in ADAM (moved to SELAH, '// &
+         call mpih%error_stop(msg=': PIC leapfrog time integration is not available in ADAM (moved to SELAH, '// &
                                       'szaghi/SELAH#4)')
       case(NUM_SCHEME_TIME_RUNGE_KUTTA)
          select case(self%pic%scheme_time)
          case(NUM_SCHEME_TIME_PIC_LEAPFROG)
-            call mpih_fnl%error_stop(msg=': PIC leapfrog time integration is not available in ADAM (moved to SELAH, '// &
+            call mpih%error_stop(msg=': PIC leapfrog time integration is not available in ADAM (moved to SELAH, '// &
                                          'szaghi/SELAH#4)')
          case(NUM_SCHEME_TIME_PIC_RUNGE_KUTTA)
             ! the particles are a SELAH companion of the field stepper (#134 D5): the Butcher form
@@ -735,10 +735,10 @@ contains
                call mpih%error_stop(msg=': PIC needs a Runge-Kutta scheme of the Butcher form (runge-kutta-ssp-*)')
             endif
          case default
-            call mpih_fnl%error_stop(msg=': PIC time integration combination not ported to FNL backend')
+            call mpih%error_stop(msg=': PIC time integration combination not ported to FNL backend')
          endselect
       case default
-         call mpih_fnl%error_stop(msg=': PIC time integration combination not ported to FNL backend')
+         call mpih%error_stop(msg=': PIC time integration combination not ported to FNL backend')
       endselect
    endif
 
@@ -870,7 +870,7 @@ contains
       ! self%compute_residuals_dev   => compute_residuals_weno_dev
       ! issue #23 R1: the WENO residual path is not ported to FNL — refuse cleanly at
       ! initialization instead of leaving a null procedure pointer (segfault at step 1).
-      call mpih_fnl%error_stop(msg=': scheme_space "weno" residual path is not ported to FNL — '// &
+      call mpih%error_stop(msg=': scheme_space "weno" residual path is not ported to FNL — '// &
                                    'run this case on the CPU backend')
    case(NUM_SCHEME_SPACE_FD_CENTERED)
       self%compute_curl_dev        => compute_curl_fd_dev
@@ -892,20 +892,20 @@ contains
 
    call external_fields_initialize_dev(external_fields=self%external_fields)
 
-   call mpih_fnl%print_message('prism_fnl_object%initialize finish')
+   call mpih%print_message('prism_fnl_object%initialize finish')
    contains
       subroutine check_pml_configuration()
       if (.not. self%pml%enabled) return
       if (self%numerics%scheme_space /= NUM_SCHEME_SPACE_FD_CENTERED) &
-         call mpih_fnl%error_stop(msg=': FNL PML is currently available only with scheme_space = FD_centered')
+         call mpih%error_stop(msg=': FNL PML is currently available only with scheme_space = FD_centered')
       if (self%numerics%scheme_time /= NUM_SCHEME_TIME_RUNGE_KUTTA) &
-         call mpih_fnl%error_stop(msg=': FNL PML is currently available only with scheme_time = Runge_Kutta')
+         call mpih%error_stop(msg=': FNL PML is currently available only with scheme_time = Runge_Kutta')
       if (.not.self%ts%is_butcher()) & ! the PML fields advance in step with the field's stages
-         call mpih_fnl%error_stop(msg=': FNL PML is currently available only with SSP RK schemes')
+         call mpih%error_stop(msg=': FNL PML is currently available only with SSP RK schemes')
       if (trim(self%numerics%div_corr_var) == DIV_CORR_VAR_HYPER) &
-         call mpih_fnl%error_stop(msg=': FNL PML is currently available only without divergence correction')
+         call mpih%error_stop(msg=': FNL PML is currently available only without divergence correction')
       if (self%numerics%constrained_transport_D .or. self%numerics%constrained_transport_B) &
-         call mpih_fnl%error_stop(msg=': FNL PML is currently available only without constrained transport')
+         call mpih%error_stop(msg=': FNL PML is currently available only without constrained transport')
       endsubroutine check_pml_configuration
    endsubroutine initialize_prism
 
@@ -978,10 +978,10 @@ contains
       call compute_normL2_residuals_dev(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, nv=self%nv, &
                                         blocks_number=self%blocks_number, dq_gpu=self%dq_gpu, norm=self%adam%field%residuals)
       do v=1, self%nv
-         call MPI_ALLREDUCE(MPI_IN_PLACE, self%adam%field%residuals(v), 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih_fnl%error)
+         call MPI_ALLREDUCE(MPI_IN_PLACE, self%adam%field%residuals(v), 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih%error)
          self%adam%field%residuals(v) = sqrt(self%adam%field%residuals(v))/sqrt(real(self%ni*self%nj*self%nk, R8P))
       enddo
-      if (mpih_fnl%myrank==0) call self%io%save_residuals(it=self%time%it, time=self%time%time, &
+      if (mpih%myrank==0) call self%io%save_residuals(it=self%time%it, time=self%time%time, &
                                                           blocks_number=self%blocks_number,     &
                                                           residuals=self%adam%field%residuals)
    endif
@@ -1385,11 +1385,11 @@ contains
       call self%update_ghost(q_gpu=self%q_gpu)
       allocate(tv(1:blocks_number))
       call dev_alloc(fptr_dev=tv_gpu, lbounds=[1], ubounds=[blocks_number], init_value=-huge(1._R8P), ierr=ierr)
-      if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate tv_gpu in '// &
+      if (ierr /= 0_I4P) call mpih%error_stop(msg=': failed to allocate tv_gpu in '// &
                                                       'prism_fnl_object%mark_by_j_vec_total_variation')
       ! Coil 1 only, replicating the host marker's `do c=1, 1!self%coil%total_coils_number`. Reducing over every
       ! coil here would silently diverge from the CPU backend; widening it is a deliberate change for both.
-      if (.not.associated(self%j_vec_tv_gpu)) call mpih_fnl%error_stop(msg=': j_vec_tv_gpu not allocated in '// &
+      if (.not.associated(self%j_vec_tv_gpu)) call mpih%error_stop(msg=': j_vec_tv_gpu not allocated in '// &
          'prism_fnl_object%mark_by_j_vec_total_variation: allocate_gpu allocates it only with an AMR_TV marker')
       call mark_by_j_vec_total_variation_kernel(ni=ni, nj=nj, nk=nk, blocks_number=blocks_number, s1=hs,       &
                                                 icoil=1_I4P, dxyz_gpu=dxyz_gpu, j_vec_gpu=self%coil_fnl%j_vec_gpu, &
@@ -1754,7 +1754,7 @@ contains
       integer(I4P)                :: c, face_stage, sweep
 
       if (hs <= 0_I4P) return
-      if (ngc < hs) call mpih_fnl%error_stop(msg='Silver_Muller requires ngc >= fdv_half_stencils(1)')
+      if (ngc < hs) call mpih%error_stop(msg='Silver_Muller requires ngc >= fdv_half_stencils(1)')
 
       do sweep=1, sm_face_sweeps
          do face_stage=1, 6
@@ -2655,7 +2655,7 @@ contains
                                              use_rho=merge(1_I4P, 0_I4P, is_pic_model(self%physics%physical_model)), &
                                              dxyz_gpu=self%field_fnl%dxyz_gpu, q_gpu=q_gpu, dq_gpu=dq_gpu)
       case default
-         call mpih_fnl%error_stop(msg=': unknown FD residual variant in FNL backend')
+         call mpih%error_stop(msg=': unknown FD residual variant in FNL backend')
       end select
       if (self%pml_fnl%enabled) call self%apply_pml_fd_centered_ade_dev(q_gpu=q_gpu, dq_gpu=dq_gpu, s=s)
    endif
@@ -4406,7 +4406,7 @@ contains
                                                              nv_c=self%nv_c, blocks_number=self%blocks_number, &
                                                              chi=self%physics%chi, q_gpu=q_gpu, flxyz_c_gpu=self%flxyz_c_gpu)
       case default
-         call mpih_fnl%error_stop(msg=': unknown FV flux variant in FNL backend')
+         call mpih%error_stop(msg=': unknown FV flux variant in FNL backend')
       end select
       call fv_recon_x_dev_kernel(s1=self%fdv_half_stencils(1), ni=self%ni, nj=self%nj,        &
                                  nk=self%nk, ngc=self%ngc, nv_c=self%nv_c,                    &
@@ -5117,7 +5117,7 @@ contains
          end select
 
          call dev_alloc(fptr_dev=skin_gpu, lbounds=[1,1], ubounds=[inner_n*outer_n, nv_c], ierr=ierr)
-         if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate skin_gpu in accumulate_seam_fluxes_fv')
+         if (ierr /= 0_I4P) call mpih%error_stop(msg=': failed to allocate skin_gpu in accumulate_seam_fluxes_fv')
          call fv_pack_face_skin_dev_kernel(fec=fec, ni=ni, nj=nj, nk=nk, nv_c=nv_c, b=b,       &
                                            inner_n=inner_n, outer_n=outer_n,                   &
                                            flx_f_gpu=self%flx_f_gpu, fly_f_gpu=self%fly_f_gpu, &
@@ -5391,7 +5391,7 @@ contains
    integer(I4P),            intent(in)    :: v_last  !< Last variable to fold.
 
    call self%field_fnl%reduce_ghost_local_gpu(q_gpu=q_gpu, v_first=v_first, v_last=v_last)
-   if (mpih_fnl%procs_number > 1_I4P) then
+   if (mpih%procs_number > 1_I4P) then
       call self%field_fnl%reduce_ghost_mpi_gpu(comm_map_send_ptr_ghost=self%adam%maps%comm_map_send_ptr_ghost, &
                                                comm_map_recv_ptr_ghost=self%adam%maps%comm_map_recv_ptr_ghost, &
                                                q_gpu=q_gpu, v_first=v_first, v_last=v_last)
@@ -5407,7 +5407,7 @@ contains
    !< particle counts of the device helpers. No-op with one rank.
    class(prism_fnl_object), intent(inout) :: self !< The equation.
 
-   if (mpih_fnl%procs_number == 1_I4P) return
+   if (mpih%procs_number == 1_I4P) return
    call self%pic_fnl%migrate_particles_dev(pic=self%pic, field_fnl=self%field_fnl, field=self%adam%field, &
                                            grid=self%adam%grid)
    call self%sync_particle_number
@@ -5876,7 +5876,7 @@ contains
    call self%save_simulation_data
    call self%io%close_file_residuals
    call self%report_plasma_on_coils
-   if (mpih_fnl%myrank == 0) then
+   if (mpih%myrank == 0) then
       inquire(unit=self%io%energy_history_unit, opened=is_open)
       if (is_open) close(self%io%energy_history_unit)
       if (self%grms%history_unit > 0_I4P) then
@@ -5900,24 +5900,21 @@ contains
    endsubroutine finalize_forest
 
    subroutine initialize_process_context(self, verbose)
-   !< Initialize the process context once (the forest calls it before any realm, #80 P3): the FNL handler (device binding,
-   !< ranks sharing the device) first, since it may also be the MPI init, then the CPU handler.
+   !< Initialize the process context once (the forest calls it before any realm, #80 P3): `mpih`, the single handler, and
+   !< the binding of the rank to its device (HERALD's, then FUNDAL's `dev_init`; `bind_device`, #158).
    class(prism_fnl_object), intent(inout)        :: self    !< The equation (carries no MPI state).
    logical,          intent(in), optional :: verbose !< Trigger verbose output.
 
-   call initialize_mpih_fnl()
-   call mpih%initialize(verbose=verbose)
+   call bind_device(verbose=verbose)
    endsubroutine initialize_process_context
 
    subroutine finalize_mpi_forest(self)
-   !< Finalize the process-global FNL MPI handler (mpih_fnl).
+   !< Finalize `mpih`, the single handler, and MPI with it.
    !<
-   !< Overrides realm_object%finalize_mpi_forest to target the FNL `mpih_fnl`
-   !< singleton instead of the CPU `mpih`. Called ONCE by forest%finalize
-   !< after every realm's finalize_forest (see the base for the rationale).
+   !< Called ONCE by forest%finalize after every realm's finalize_forest (see the base for the rationale).
    class(prism_fnl_object), intent(inout) :: self !< The realm (carries no MPI state).
 
-   call mpih_fnl%finalize
+   call mpih%finalize
    endsubroutine finalize_mpi_forest
 
    subroutine simulate(self, filename)
@@ -5948,17 +5945,17 @@ contains
    integer(I4P),            intent(in), optional :: realms_number !< Realm count; divides the budget.
 
    call self%initialize_prism(filename=filename, realms_number=realms_number)
-   if (.not.self%io%restart) call mpih_fnl%print_message('impose initial conditions start')
+   if (.not.self%io%restart) call mpih%print_message('impose initial conditions start')
    endsubroutine initialize_app_forest
 
    subroutine restart_state_forest(self)
    !< Template hook: the state from the restart files, then the coils and the t0 state on it.
    class(prism_fnl_object), intent(inout) :: self !< The realm.
 
-   call mpih_fnl%print_message('restart simulation from "'//trim(self%io%restart_basename)//'" files')
+   call mpih%print_message('restart simulation from "'//trim(self%io%restart_basename)//'" files')
    call self%load_restart_files(t=self%time%it, time=self%time%time)
    self%restarted_at = self%time%it
-   call mpih_fnl%print_message('restart [t, time]: '//trim(str(self%time%it))//', '//trim(str(self%time%time)))
+   call mpih%print_message('restart [t, time]: '//trim(str(self%time%it))//', '//trim(str(self%time%time)))
    call self%set_initial_conditions(is_restart=.true.)
    endsubroutine restart_state_forest
 
@@ -5984,7 +5981,7 @@ contains
    ! AND the maps) so the device sees the final refined topology (a restart pushed it in load_restart_files). Verbose:
    ! this copy establishes the FINAL device topology, its printed map row counts are the record of what the kernels use.
    if (.not.self%io%restart) call self%copy_cpu_gpu(verbose=.true.)
-   if (.not.self%io%restart) call mpih_fnl%print_message('impose initial conditions finish')
+   if (.not.self%io%restart) call mpih%print_message('impose initial conditions finish')
 
    associate(hs => self%fdv_half_stencils(1))
    call self%compute_divergence(hs=hs, ivar=1_I4P, q=self%q(VAR_DX:VAR_DZ,:,:,:,:), divergence=self%divergence(1,:,:,:,:))
@@ -5993,28 +5990,28 @@ contains
    ! interior cells only, absorbing layers (and the cells whose stencil reaches them) excluded: CPU twin
    call self%compute_max_divergence_outside_absorbing_layers(hs=self%fdv_half_stencils(1), max_div_D=max_div_D, &
                                                              max_div_B=max_div_B, max_div_J=max_div_J)
-   call mpih_fnl%print_message('Initial conditions setting completed')
+   call mpih%print_message('Initial conditions setting completed')
    if (self%physics%physical_model == EM_PHYSICAL_MODEL .or. self%physics%physical_model == ADIM_EM_PHYSICAL_MODEL) then
-      call mpih_fnl%print_message('   max div(D) outside absorbing layers at t0='//trim(str(max_div_D)))
+      call mpih%print_message('   max div(D) outside absorbing layers at t0='//trim(str(max_div_D)))
    elseif (is_pic_model(self%physics%physical_model)) then
-      call mpih_fnl%print_message('   max div(D)-rho outside absorbing layers at t0='//trim(str(max_div_D)))
+      call mpih%print_message('   max div(D)-rho outside absorbing layers at t0='//trim(str(max_div_D)))
    endif
-   call mpih_fnl%print_message('   max div(B) outside absorbing layers at t0='//trim(str(max_div_B)))
+   call mpih%print_message('   max div(B) outside absorbing layers at t0='//trim(str(max_div_B)))
 
    call self%update_ghost(q_gpu=self%q_gpu)
 
-   call mpih_fnl%print_message('Coils initialization values')
+   call mpih%print_message('Coils initialization values')
    do n=1, self%coil%total_coils_number
       call self%compute_divergence(hs=self%fdv_half_stencils(1), ivar=1_I4P, q=self%coil%J_vec(1:3,:,:,:,:,n), &
                                     divergence=self%divergence(3,:,:,:,:))
-      call mpih_fnl%print_message('Coil n='//trim(str(n,.true.)))
-      call mpih_fnl%print_message('   max div(j_vec)='//trim(str(maxval(abs(self%divergence(3,1:self%ni,1:self%nj,1:self%nk, &
+      call mpih%print_message('Coil n='//trim(str(n,.true.)))
+      call mpih%print_message('   max div(j_vec)='//trim(str(maxval(abs(self%divergence(3,1:self%ni,1:self%nj,1:self%nk, &
                                                                                        1:self%blocks_number))))))
    enddo
 
-   call mpih_fnl%print_message('assigned block number: '//trim(str(self%adam%field%blocks_number,.true.)))
+   call mpih%print_message('assigned block number: '//trim(str(self%adam%field%blocks_number,.true.)))
    do b = 1, self%adam%field%blocks_number
-      call mpih_fnl%print_message('  b='//trim(str(b,.true.))//' code='//trim(str(self%adam%field%code(b))))
+      call mpih%print_message('  b='//trim(str(b,.true.))//' code='//trim(str(self%adam%field%code(b))))
    enddo
 
    if (.not.self%io%restart .and. self%pic%problem_type == SINGLE_PARTICLE_TYPE_PROBLEM) then
@@ -6031,11 +6028,11 @@ contains
    call self%compute_max_divergence_outside_absorbing_layers(hs=self%fdv_half_stencils(1), max_div_D=max_div_D, &
                                                              max_div_B=max_div_B, max_div_J=max_div_J)
    if (self%physics%physical_model == EM_PHYSICAL_MODEL .or. self%physics%physical_model == ADIM_EM_PHYSICAL_MODEL) then
-      call mpih_fnl%print_message('   max div(D) outside absorbing layers at t0 after update_ghost='//trim(str(max_div_D)))
+      call mpih%print_message('   max div(D) outside absorbing layers at t0 after update_ghost='//trim(str(max_div_D)))
    elseif (is_pic_model(self%physics%physical_model)) then
-      call mpih_fnl%print_message('   max div(D)-rho outside absorbing layers at t0 after update ghost='//trim(str(max_div_D)))
+      call mpih%print_message('   max div(D)-rho outside absorbing layers at t0 after update ghost='//trim(str(max_div_D)))
    endif
-   call mpih_fnl%print_message('   max div(B) outside absorbing layers at t0 after update_ghost='//trim(str(max_div_B)))
+   call mpih%print_message('   max div(B) outside absorbing layers at t0 after update_ghost='//trim(str(max_div_B)))
    call self%save_simulation_data
    call self%compute_energy
    if (self%grms%do_save_history) call self%compute_grms
@@ -6061,7 +6058,7 @@ contains
       call self%plasma_freq_fnl%initialize(nb=self%nb, ni=self%adam%grid%ni, nj=self%adam%grid%nj, nk=self%adam%grid%nk)
       ! on restart the particle terms are those of the restart file (issue #129, R7): only the cell term from the restored map
       call self%compute_plasma_frequencies(particles=.not.self%io%restart)
-      call mpih_fnl%print_message(self%plasma_freq%description())
+      call mpih%print_message(self%plasma_freq%description())
    endif
    call report_device_memory
    call check_pic_reserve
@@ -6081,7 +6078,7 @@ contains
       call dev_get_device_memory_info(mem_free=mem_free, mem_total=mem_total)
       used = real(mem_total - mem_free, R8P)/1e9_R8P
       slots = real(self%nb, R8P)*real(self%blocks_fields_number, R8P)*8._R8P*real(self%adam%grid%block_weight, R8P)/1e9_R8P
-      call mpih_fnl%print_message('device memory after initialization: '//trim(str(used, .true.))//' GB used of '// &
+      call mpih%print_message('device memory after initialization: '//trim(str(used, .true.))//' GB used of '// &
                                   trim(str(real(mem_total, R8P)/1e9_R8P, .true.))//' GB; block slots '//          &
                                   trim(str(self%nb, .true.))//' x '//trim(str(self%blocks_fields_number, .true.))// &
                                   ' fields = '//trim(str(slots, .true.))//' GB, reserve estimate '//              &
@@ -6133,7 +6130,7 @@ contains
       call dev_get_device_memory_info(mem_free=mem_free, mem_total=mem_total)
       used = real(mem_total - mem_free, R8P)/1e9_R8P
       slots = real(self%nb, R8P)*real(self%blocks_fields_number, R8P)*8._R8P*real(self%adam%grid%block_weight, R8P)/1e9_R8P
-      call mpih_fnl%print_message('device memory, rest: ghost maps local '//gb(local)//', receive '//gb(recv)//         &
+      call mpih%print_message('device memory, rest: ghost maps local '//gb(local)//', receive '//gb(recv)//         &
                                   ', send '//gb(send)//', buffers '//gb(buffers)//' ('//trim(str(remote, .true.))//      &
                                   ' remote ghost cells, '//trim(str((recv + send + buffers)/max(1_I8P, remote), .true.))// &
                                   ' B each), BC crown '//gb(crown)//', seam '//gb(seam)//', block geometry '//            &
@@ -6182,12 +6179,12 @@ contains
       if (associated(self%pic_st%regs)) companion = size(self%pic_st%regs, kind=I8P)*storage_size(1._R8P, kind=I8P)/8_I8P
       current = self%conserving_fnl%allocated_bytes(pending=pending)
       total = particles + companion + current + pending
-      call mpih_fnl%print_message('PIC device memory outside the block slots: '//trim(str(total, .true.))//' B (particles '// &
+      call mpih%print_message('PIC device memory outside the block slots: '//trim(str(total, .true.))//' B (particles '// &
                                   trim(str(particles, .true.))//', companion '//trim(str(companion, .true.))//            &
                                   ', conserving '//trim(str(current, .true.))//' + '//trim(str(pending, .true.))//        &
                                   ' pending), reserve '//trim(str(reserve, .true.))//' B')
       if (total /= reserve) &
-         call mpih_fnl%error_stop(msg=': the PIC device arrays ('//trim(str(total, .true.))//' B) differ from the '// &
+         call mpih%error_stop(msg=': the PIC device arrays ('//trim(str(total, .true.))//' B) differ from the '// &
                                       'reserve of the blocks budget ('//trim(str(reserve, .true.))//' B): an allocation '// &
                                       'outside conserving_layout / pic_fnl_device_bytes (issue #130)')
       ! the PIC arrays on the block slots against the block fields the budget counted for them (8-bis): gq_gpu and
@@ -6201,12 +6198,12 @@ contains
                                                                                     nj=self%adam%grid%nj, &
                                                                                     nk=self%adam%grid%nk, &
                                                                                     ngc=self%adam%grid%ngc), I8P)
-      call mpih_fnl%print_message('PIC device memory on the block slots: gather '//trim(str(gather, .true.))//' B of '// &
+      call mpih%print_message('PIC device memory on the block slots: gather '//trim(str(gather, .true.))//' B of '// &
                                   trim(str(gather_fields, .true.))//' fields ('//trim(str(gather_fields*field, .true.))// &
                                   ' B), wp2 '//trim(str(wp2, .true.))//' B within '//trim(str(wp2_fields, .true.))//   &
                                   ' fields ('//trim(str(wp2_fields*field, .true.))//' B)')
       if (gather /= gather_fields*field .or. wp2 > wp2_fields*field) &
-         call mpih_fnl%error_stop(msg=': the PIC arrays on the block slots differ from the block fields of the budget: '// &
+         call mpih%error_stop(msg=': the PIC arrays on the block slots differ from the block fields of the budget: '// &
                                       'an allocation outside conserving_layout%slot_fields / '// &
                                       'plasma_frequencies_block_fields (issue #130)')
       endsubroutine check_pic_reserve
@@ -6284,10 +6281,6 @@ contains
    if (self%ts%is_butcher()) then
       K = self%ts%stages()
    else
-      ! Routed through the ADAM (CPU) mpih handler, NOT mpih_fnl: FUNDAL's error_stop
-      ! ends with a plain `stop` (exit code 0), so a refusal through it looks SUCCESSFUL
-      ! to the calling shell/harness (upstream FUNDAL defect, flagged in issue #25).
-      ! This is host code; both handlers wrap the same communicator.
       call mpih%error_stop(msg=': RK scheme "'//trim(adjustl(self%ts%scheme))//'" is not stage-splittable: '  // &
                                'the staged forest path (multi-realm, or intra-realm AMR seam faces) requires '// &
                                'an SSP scheme (runge-kutta-ssp-*); low-storage schemes run only on the fused '// &
@@ -6495,7 +6488,7 @@ contains
          enddo
       enddo
    class default
-      call mpih_fnl%error_stop(msg='prism_fnl_object%fill_seam_from_peer_forest: peer realm is not prism_fnl_object')
+      call mpih%error_stop(msg='prism_fnl_object%fill_seam_from_peer_forest: peer realm is not prism_fnl_object')
    end select
    endsubroutine fill_seam_from_peer_forest
 
@@ -6516,7 +6509,7 @@ contains
    row_count = self%adam%maps%seam_mpi_send_row_count(p_idx)
    if (row_count == 0_I4P) return
    call dev_alloc(fptr_dev=buf_gpu, lbounds=[1], ubounds=[self%nv*row_count], ierr=ierr)
-   if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate buf_gpu in pack_seam_cells_forest')
+   if (ierr /= 0_I4P) call mpih%error_stop(msg=': failed to allocate buf_gpu in pack_seam_cells_forest')
    a => self%q_gpu ! the active buffer (#132 rule 2)
    if (self%stage_active > 0_I4P) then
       if (.not.self%ts%state_is_q(self%stage_active)) a => self%ts%stage_state()
@@ -6546,7 +6539,7 @@ contains
    row_count = self%adam%maps%seam_mpi_recv_row_count(p_idx)
    if (row_count == 0_I4P) return
    call dev_alloc(fptr_dev=buf_gpu, lbounds=[1], ubounds=[self%nv*row_count], ierr=ierr)
-   if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate buf_gpu in unpack_seam_cells_forest')
+   if (ierr /= 0_I4P) call mpih%error_stop(msg=': failed to allocate buf_gpu in unpack_seam_cells_forest')
    call dev_memcpy_to_device(dst=buf_gpu, src=buf)
    a => self%q_gpu ! the active buffer (#132 rule 2)
    if (self%stage_active > 0_I4P) then
@@ -6629,7 +6622,7 @@ contains
             if (dx_coarse > 0._R8P) then
                ! Register-level diagnostic (issue #23 R3): format matched with the CPU
                ! apply — the two backends' register contents stay log-comparable.
-               call mpih_fnl%print_message('reflux face '//trim(str(f, .true.))//' coarse_block '//                 &
+               call mpih%print_message('reflux face '//trim(str(f, .true.))//' coarse_block '//                 &
                                            trim(str(face_f%coarse_block, .true.))//' max|F_coarse-F_fine_sum| = '// &
                                            trim(str(maxval(abs(face_f%F_coarse(:,:,1) - face_f%F_fine_sum(:,:,1))))))
                ! Scale by the step the update used, self%time%dt: on the last step of a time-driven
@@ -6641,7 +6634,7 @@ contains
                allocate(delta(1:nv_reg, 1:nface_cells))
                delta = face_f%F_coarse(:,:,1) - face_f%F_fine_sum(:,:,1)
                call dev_alloc(fptr_dev=delta_gpu, lbounds=[1,1], ubounds=[nv_reg,nface_cells], ierr=ierr)
-               if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate delta_gpu in apply_reflux_to_stage_forest')
+               if (ierr /= 0_I4P) call mpih%error_stop(msg=': failed to allocate delta_gpu in apply_reflux_to_stage_forest')
                call dev_memcpy_to_device(dst=delta_gpu, src=delta)
                call fv_apply_reflux_face_dev_kernel(axis=axis, sgn=sgn, b=face_f%coarse_block,          &
                                                     ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc,   &
@@ -6690,13 +6683,13 @@ contains
    real(R8P)                                                :: current_residual  !< Max conserving-current solver residual.
 
    if (self%io_prism%save_memory_status) then
-      call save_memory_status_cpu(file_name='memory_cpu-'//mpih_fnl%myrankstr//'.dat', tag=str(self%time%it,.true.))
-      call save_memory_status_gpu(file_name='memory_gpu-'//mpih_fnl%myrankstr//'.dat', tag=str(self%time%it,.true.))
+      call save_memory_status_cpu(file_name='memory_cpu-'//mpih%myrankstr//'.dat', tag=str(self%time%it,.true.))
+      call save_memory_status_gpu(file_name='memory_gpu-'//mpih%myrankstr//'.dat', tag=str(self%time%it,.true.))
    endif
    if (self%time%is_on_cadence(self%amr%frequency)) then
-      call mpih_fnl%barrier(tictoc=.true.)
+      call mpih%barrier(tictoc=.true.)
       !call self%amr_update
-      call mpih_fnl%barrier(tictoc=.true.)
+      call mpih%barrier(tictoc=.true.)
    endif
    call self%save_simulation_data
    call self%update_ghost(q_gpu=self%q_gpu) !Cazzo
@@ -6722,7 +6715,7 @@ contains
    current_residual = 0._R8P
    if (self%conserving_fnl%enabled) then
       current_residual = self%conserving_fnl%residual_max
-      call MPI_ALLREDUCE(MPI_IN_PLACE, current_residual, 1, MPI_REAL8, MPI_MAX, MPI_COMM_WORLD, mpih_fnl%error)
+      call MPI_ALLREDUCE(MPI_IN_PLACE, current_residual, 1, MPI_REAL8, MPI_MAX, MPI_COMM_WORLD, mpih%error)
    endif
    ! issue #22 F1: pass the maxima compute_max_divergence just stored — the former locals were never assigned
    call self%save_divergence_history(div_D=self%max_divergence_D, div_B=self%max_divergence_B, &
@@ -6760,7 +6753,7 @@ contains
    !< particles: more than one rank or a periodic face.
    class(prism_fnl_object), intent(inout) :: self !< The equation.
 
-   if (mpih_fnl%procs_number == 1_I4P .and. .not.any(self%pic%bc%is_periodic)) return
+   if (mpih%procs_number == 1_I4P .and. .not.any(self%pic%bc%is_periodic)) return
    call self%pic_fnl%particle_cartesian_grid_index_dev(field_fnl=self%field_fnl, field=self%adam%field, &
                                                        grid=self%adam%grid, q_pic_gpu=self%pic_fnl%q_pic_gpu)
    endsubroutine locate_particles_end_of_step
@@ -6777,7 +6770,7 @@ contains
    class(prism_fnl_object), intent(inout) :: self !< The equation.
 
    call self%compute_local_dt_forest(dt_local=self%time%dt)
-   call MPI_ALLREDUCE(MPI_IN_PLACE, self%time%dt, 1, MPI_REAL8, MPI_MIN, MPI_COMM_WORLD, mpih_fnl%error)
+   call MPI_ALLREDUCE(MPI_IN_PLACE, self%time%dt, 1, MPI_REAL8, MPI_MIN, MPI_COMM_WORLD, mpih%error)
    endsubroutine compute_dt
 
    subroutine initialize_charge_conservation_diagnostic(self)
@@ -7025,16 +7018,16 @@ contains
                                                     Gauss_abs_sum=Gauss_abs_sum, Gauss2_sum=Gauss2_sum, &
                                                     Gauss_linf=Gauss_linf, volume_local=volume_local)
 
-   call MPI_ALLREDUCE(MPI_IN_PLACE, Q_particles,   1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih_fnl%error)
-   call MPI_ALLREDUCE(MPI_IN_PLACE, Q_deposited,   1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih_fnl%error)
-   call MPI_ALLREDUCE(MPI_IN_PLACE, R_sum,         1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih_fnl%error)
-   call MPI_ALLREDUCE(MPI_IN_PLACE, R_abs_sum,     1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih_fnl%error)
-   call MPI_ALLREDUCE(MPI_IN_PLACE, R2_sum,        1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih_fnl%error)
-   call MPI_ALLREDUCE(MPI_IN_PLACE, Gauss_abs_sum, 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih_fnl%error)
-   call MPI_ALLREDUCE(MPI_IN_PLACE, Gauss2_sum,    1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih_fnl%error)
-   call MPI_ALLREDUCE(MPI_IN_PLACE, volume_local,  1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih_fnl%error)
-   call MPI_ALLREDUCE(MPI_IN_PLACE, R_linf,        1, MPI_REAL8, MPI_MAX, MPI_COMM_WORLD, mpih_fnl%error)
-   call MPI_ALLREDUCE(MPI_IN_PLACE, Gauss_linf,    1, MPI_REAL8, MPI_MAX, MPI_COMM_WORLD, mpih_fnl%error)
+   call MPI_ALLREDUCE(MPI_IN_PLACE, Q_particles,   1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih%error)
+   call MPI_ALLREDUCE(MPI_IN_PLACE, Q_deposited,   1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih%error)
+   call MPI_ALLREDUCE(MPI_IN_PLACE, R_sum,         1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih%error)
+   call MPI_ALLREDUCE(MPI_IN_PLACE, R_abs_sum,     1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih%error)
+   call MPI_ALLREDUCE(MPI_IN_PLACE, R2_sum,        1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih%error)
+   call MPI_ALLREDUCE(MPI_IN_PLACE, Gauss_abs_sum, 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih%error)
+   call MPI_ALLREDUCE(MPI_IN_PLACE, Gauss2_sum,    1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih%error)
+   call MPI_ALLREDUCE(MPI_IN_PLACE, volume_local,  1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih%error)
+   call MPI_ALLREDUCE(MPI_IN_PLACE, R_linf,        1, MPI_REAL8, MPI_MAX, MPI_COMM_WORLD, mpih%error)
+   call MPI_ALLREDUCE(MPI_IN_PLACE, Gauss_linf,    1, MPI_REAL8, MPI_MAX, MPI_COMM_WORLD, mpih%error)
 
    volume_global = volume_local
    if (volume_global <= 0._R8P) return
@@ -7164,10 +7157,10 @@ contains
       coil_power = coil_power*EPS0
       poynting_flux = poynting_flux*MU0
    endif
-   call MPI_ALLREDUCE(MPI_IN_PLACE, energy_D,      1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih_fnl%error)
-   call MPI_ALLREDUCE(MPI_IN_PLACE, energy_B,      1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih_fnl%error)
-   call MPI_ALLREDUCE(MPI_IN_PLACE, coil_power,    1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih_fnl%error)
-   call MPI_ALLREDUCE(MPI_IN_PLACE, poynting_flux, 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih_fnl%error)
+   call MPI_ALLREDUCE(MPI_IN_PLACE, energy_D,      1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih%error)
+   call MPI_ALLREDUCE(MPI_IN_PLACE, energy_B,      1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih%error)
+   call MPI_ALLREDUCE(MPI_IN_PLACE, coil_power,    1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih%error)
+   call MPI_ALLREDUCE(MPI_IN_PLACE, poynting_flux, 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih%error)
    if (allocated(self%energy_D  ).and.allocated(self%energy_B     ).and. &
        allocated(self%coil_power).and.allocated(self%Poynting_flux)) then
       self%energy_D      = [self%energy_D,      energy_D     ]
@@ -7457,11 +7450,11 @@ contains
       call compute_bref_dev_kernel(b_ref=b_ref, i_ref=i_ref, j_ref=j_ref, k_ref=k_ref, ngc=self%ngc, q_gpu=self%q_gpu, &
            bref=bref_local)
    endif
-   call MPI_ALLREDUCE(best_r2_local, best_r2_global, 1, MPI_REAL8, MPI_MIN, MPI_COMM_WORLD, mpih_fnl%error)
+   call MPI_ALLREDUCE(best_r2_local, best_r2_global, 1, MPI_REAL8, MPI_MIN, MPI_COMM_WORLD, mpih%error)
    bref_candidate = 0.0_R8P
    if (abs(best_r2_local - best_r2_global) <= 1.0E-12_R8P * max(1.0_R8P, abs(best_r2_global))) bref_candidate = bref_local
    bref_global = bref_candidate
-   call MPI_ALLREDUCE(MPI_IN_PLACE, bref_global, 1, MPI_REAL8, MPI_MAX, MPI_COMM_WORLD, mpih_fnl%error)
+   call MPI_ALLREDUCE(MPI_IN_PLACE, bref_global, 1, MPI_REAL8, MPI_MAX, MPI_COMM_WORLD, mpih%error)
 
    threshold = GRMS_3DB_RATIO * bref_global
    call compute_grms_dev_kernel(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, blocks_number=self%blocks_number, &
@@ -7477,14 +7470,14 @@ contains
                                 weighted_sum_3db=weighted_sum_3db, &
                                 weighted_absdiff_3db=weighted_absdiff_3db, &
                                 measure_3db=measure_3db, cells_count_3db=cells_count_3db)
-   call MPI_ALLREDUCE(MPI_IN_PLACE, weighted_sum_domain, 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih_fnl%error)
-   call MPI_ALLREDUCE(MPI_IN_PLACE, weighted_sum_3db, 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih_fnl%error)
-   call MPI_ALLREDUCE(MPI_IN_PLACE, weighted_absdiff_domain, 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih_fnl%error)
-   call MPI_ALLREDUCE(MPI_IN_PLACE, weighted_absdiff_3db, 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih_fnl%error)
-   call MPI_ALLREDUCE(MPI_IN_PLACE, measure_domain, 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih_fnl%error)
-   call MPI_ALLREDUCE(MPI_IN_PLACE, measure_3db, 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih_fnl%error)
-   call MPI_ALLREDUCE(MPI_IN_PLACE, cells_count_domain, 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih_fnl%error)
-   call MPI_ALLREDUCE(MPI_IN_PLACE, cells_count_3db, 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih_fnl%error)
+   call MPI_ALLREDUCE(MPI_IN_PLACE, weighted_sum_domain, 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih%error)
+   call MPI_ALLREDUCE(MPI_IN_PLACE, weighted_sum_3db, 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih%error)
+   call MPI_ALLREDUCE(MPI_IN_PLACE, weighted_absdiff_domain, 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih%error)
+   call MPI_ALLREDUCE(MPI_IN_PLACE, weighted_absdiff_3db, 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih%error)
+   call MPI_ALLREDUCE(MPI_IN_PLACE, measure_domain, 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih%error)
+   call MPI_ALLREDUCE(MPI_IN_PLACE, measure_3db, 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih%error)
+   call MPI_ALLREDUCE(MPI_IN_PLACE, cells_count_domain, 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih%error)
+   call MPI_ALLREDUCE(MPI_IN_PLACE, cells_count_3db, 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih%error)
 
    cells_domain = int(nint(cells_count_domain), I8P)
    cells_3db = int(nint(cells_count_3db), I8P)
@@ -7731,7 +7724,7 @@ contains
    real(R8P)                             :: x, y, z
 
    center = 0.5_R8P * (self%adam%grid%domain_emin + self%adam%grid%domain_emax)
-   best_r2_local = [huge(1.0_R8P), real(mpih_fnl%myrank, R8P)]
+   best_r2_local = [huge(1.0_R8P), real(mpih%myrank, R8P)]
    magnetic_field = 0.0_R8P
    sample_point = center
    weighted_field_local = 0.0_R8P
@@ -7769,7 +7762,7 @@ contains
                                                                   weighted_bz=weighted_field_local(3),              &
                                                                   weight_sum=weighted_field_local(4))
    weighted_field_global = weighted_field_local
-   call MPI_ALLREDUCE(MPI_IN_PLACE, weighted_field_global, 4, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih_fnl%error)
+   call MPI_ALLREDUCE(MPI_IN_PLACE, weighted_field_global, 4, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, mpih%error)
 
    self%magnetic_field_at_center_domain%center = center
    if (weighted_field_global(4) > 100.0_R8P * epsilon(1.0_R8P)) then
@@ -7782,10 +7775,10 @@ contains
                                                                         ngc=self%ngc, q_gpu=self%q_gpu, bx=magnetic_field(1), &
                                                                         by=magnetic_field(2), bz=magnetic_field(3))
       endif
-      call MPI_ALLREDUCE(best_r2_local, best_r2_global, 1, MPI_2DOUBLE_PRECISION, MPI_MINLOC, MPI_COMM_WORLD, mpih_fnl%error)
+      call MPI_ALLREDUCE(best_r2_local, best_r2_global, 1, MPI_2DOUBLE_PRECISION, MPI_MINLOC, MPI_COMM_WORLD, mpih%error)
       owner_rank = nint(best_r2_global(2), I4P)
-      call MPI_BCAST(magnetic_field, 3, MPI_REAL8, owner_rank, MPI_COMM_WORLD, mpih_fnl%error)
-      call MPI_BCAST(sample_point, 3, MPI_REAL8, owner_rank, MPI_COMM_WORLD, mpih_fnl%error)
+      call MPI_BCAST(magnetic_field, 3, MPI_REAL8, owner_rank, MPI_COMM_WORLD, mpih%error)
+      call MPI_BCAST(sample_point, 3, MPI_REAL8, owner_rank, MPI_COMM_WORLD, mpih%error)
       self%magnetic_field_at_center_domain%sample_point = sample_point
       self%magnetic_field_at_center_domain%magnetic_field = magnetic_field
       self%magnetic_field_at_center_domain%distance = sqrt(best_r2_global(1))
@@ -7909,12 +7902,12 @@ contains
       max_div_B = max(max_div_B, maxval(abs(self%divergence(2,lo_i:hi_i,lo_j:hi_j,lo_k:hi_k,b:b))))
       max_div_J = max(max_div_J, maxval(abs(self%divergence(3,lo_i:hi_i,lo_j:hi_j,lo_k:hi_k,b:b))))
    enddo
-   call MPI_ALLREDUCE(MPI_IN_PLACE, max_div_D, 1, MPI_REAL8, MPI_MAX, MPI_COMM_WORLD, mpih_fnl%error)
-   if (mpih_fnl%error /= MPI_SUCCESS) call mpih_fnl%error_stop(msg=': failed to reduce D divergence diagnostic')
-   call MPI_ALLREDUCE(MPI_IN_PLACE, max_div_B, 1, MPI_REAL8, MPI_MAX, MPI_COMM_WORLD, mpih_fnl%error)
-   if (mpih_fnl%error /= MPI_SUCCESS) call mpih_fnl%error_stop(msg=': failed to reduce B divergence diagnostic')
-   call MPI_ALLREDUCE(MPI_IN_PLACE, max_div_J, 1, MPI_REAL8, MPI_MAX, MPI_COMM_WORLD, mpih_fnl%error)
-   if (mpih_fnl%error /= MPI_SUCCESS) call mpih_fnl%error_stop(msg=': failed to reduce J divergence diagnostic')
+   call MPI_ALLREDUCE(MPI_IN_PLACE, max_div_D, 1, MPI_REAL8, MPI_MAX, MPI_COMM_WORLD, mpih%error)
+   if (mpih%error /= MPI_SUCCESS) call mpih%error_stop(msg=': failed to reduce D divergence diagnostic')
+   call MPI_ALLREDUCE(MPI_IN_PLACE, max_div_B, 1, MPI_REAL8, MPI_MAX, MPI_COMM_WORLD, mpih%error)
+   if (mpih%error /= MPI_SUCCESS) call mpih%error_stop(msg=': failed to reduce B divergence diagnostic')
+   call MPI_ALLREDUCE(MPI_IN_PLACE, max_div_J, 1, MPI_REAL8, MPI_MAX, MPI_COMM_WORLD, mpih%error)
+   if (mpih%error /= MPI_SUCCESS) call mpih%error_stop(msg=': failed to reduce J divergence diagnostic')
    contains
       pure subroutine exclude_face(lo, hi, face_first, face_last, is_minus)
       !< Shrink a 1D window so that no retained cell uses a centered stencil intersecting the layer face.
@@ -8028,8 +8021,8 @@ contains
                                           max_div       = max_div)
    deallocate(valid_lo_i, valid_hi_i, valid_lo_j, valid_hi_j, valid_lo_k, valid_hi_k)
 
-   call MPI_ALLREDUCE(MPI_IN_PLACE, max_div, 3, MPI_REAL8, MPI_MAX, MPI_COMM_WORLD, mpih_fnl%error)
-   if (mpih_fnl%error /= MPI_SUCCESS) call mpih_fnl%error_stop(msg=': failed to reduce divergence diagnostics')
+   call MPI_ALLREDUCE(MPI_IN_PLACE, max_div, 3, MPI_REAL8, MPI_MAX, MPI_COMM_WORLD, mpih%error)
+   if (mpih%error /= MPI_SUCCESS) call mpih%error_stop(msg=': failed to reduce divergence diagnostics')
 	self%max_divergence_D = max_div(1)
 	self%max_divergence_B = max_div(2)
 	self%max_divergence_J = max_div(3)

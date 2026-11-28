@@ -73,8 +73,8 @@ hooks, the device setup before the state and the device push after it:
    ! the blocks budget is the device memory, shared by the ranks bound to the same device; the time integrator (SELAH,
    ! #132) integrates the (b, i, j, k, v) device fields
    self%selah_layout = LAYOUT_V_LAST
-   call self%initialize_ripple(filename=filename, memory_avail=real(mpih_fnl%dev_memory_total, R8P) / 1e9_R8P / &
-                                                               real(mpih_fnl_device_sharers, R8P))
+   call self%initialize_ripple(filename=filename, memory_avail=real(dev_memory_total, R8P) / 1e9_R8P / &
+                                                               real(mpih%device%sharers, R8P))
    call self%field_fnl%initialize(grid=self%adam%grid, field=self%adam%field, maps=self%adam%maps, verbose=.true.)
    call self%allocate_gpu
    endsubroutine initialize_app_forest
@@ -92,7 +92,8 @@ hooks, the device setup before the state and the device push after it:
 The block budget is the device memory divided by the ranks that share the device; the initial AMR and the initial
 condition run on the host, then the maps and the state go to the device once. The backend also overrides
 `initialize_process_context` and `finalize_mpi_forest`, which the forest calls once each, before the first realm and
-after the last, to open and close `mpih_fnl`.
+after the last: the first binds the rank to its device (`bind_device`: `mpih`, HERALD's handler, binds it, then
+FUNDAL's `dev_init`), the second finalizes `mpih`.
 
 ## A kernel
 

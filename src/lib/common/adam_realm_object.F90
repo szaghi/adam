@@ -849,8 +849,9 @@ contains
    !<
    !< MPI and the device context are process-global: the forest calls this ONCE, on a single realm, before any realm is
    !< initialized (issue #80 P3, the mirror of `finalize_mpi_forest`); a realm never initializes them itself. The default
-   !< initializes the CPU `mpih` singleton; the FNL backends override it to initialize `mpih_fnl` (device binding, the
-   !< ranks sharing a device) first. `mpih%initialize` is once-only, so a test driver that called it already is harmless.
+   !< initializes `mpih`, the single handler (HERALD's, #158); the FNL backends override it to bind the device too
+   !< (`bind_device`: HERALD's binding and the ranks sharing a device, then FUNDAL's `dev_init`). `mpih%initialize` is
+   !< once-only, so a test driver that called it already is harmless.
    class(realm_object), intent(inout)        :: self    !< The realm (carries no MPI state; dispatch picks the backend).
    logical,             intent(in), optional :: verbose !< Trigger verbose output.
 
@@ -866,8 +867,8 @@ contains
    !< inside `finalize_forest` (which runs per realm; doing the finalize there
    !< tore MPI down while later realms still had IO/ghost work pending —
    !< the next realm's update_ghost would hit MPI_Type_f2c on a finalized
-   !< communicator). The default targets the CPU `mpih` singleton; the FNL
-   !< backend overrides to finalize `mpih_fnl`.
+   !< communicator). `mpih%finalize` finalizes MPI if `mpih` initialized it;
+   !< the FNL backends' overrides do the same.
    class(realm_object), intent(inout) :: self !< The realm (carries no MPI state; dispatch picks the backend handler).
 
    call mpih%finalize

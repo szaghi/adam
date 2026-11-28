@@ -13,16 +13,22 @@ component of the application's FNL type, initialised from the realm's common obj
 coefficients and data structures are defined once in `src/lib/common` ([library objects](./library)) and mirrored to
 the device.
 
-`use adam_fnl_library` exposes the FNL API together with `adam_common_library` and `adam_fnl_mpih_global` (the
+`use adam_fnl_library` exposes the FNL API together with `adam_common_library` and `adam_fnl_device` (the
 exceptions are listed in the [module summary](#module-summary)).
 
 ## Program-scope singletons
 
-The only FNL singleton is `mpih_fnl` (`adam_fnl_mpih_global`, type `mpih_fnl_object`): the GPU-aware MPI handler,
-which also owns the device context and is initialised once per process: the forest calls the realm hook
-`initialize_process_context` once, before any realm, and the FNL backends override it with `initialize_mpih_fnl()`
-(`adam_fnl_mpih_global`: device binding and the ranks sharing the device) followed by the CPU `mpih%initialize`. The
-other FNL objects are components of the application's FNL type, one set per realm, initialised after the common
+The FNL backend has no singleton of its own: its handler is `mpih` (`adam_mpih_global`), HERALD's `mpih_object`, as on
+the CPU ([#158](https://github.com/szaghi/adam/issues/158) merged the former `mpih_fnl` into it). The device is bound
+once per process: the forest calls the realm hook `initialize_process_context` once, before any realm, and the FNL
+backends override it with `bind_device(verbose)` (`adam_fnl_device`, no module state). It initializes `mpih` with the
+device (`do_device_init=.true.`), or binds through `mpih%device%initialize` when `mpih` is already up (a test
+driver): HERALD's `initialize` is once-only and would ignore a late device request. HERALD binds device
+`mod(node rank, devices)` and counts the ranks sharing it (`mpih%device%sharers`, the divisor of the block budget);
+then FUNDAL's `dev_init(local_rank=mpih%node_myrank)` fills the state FUNDAL's data layer reads (`mydev`, the default
+device of `dev_alloc`/`dev_free`) and binds the same device: the run stops if the two disagree. The block budget keeps
+FUNDAL's `dev_memory_total`; one log line per rank prints both binders' devices and memories. `finalize_mpi_forest`
+finalizes `mpih` (and MPI, which `mpih` started). The other FNL objects are components of the application's FNL type, one set per realm, initialised after the common
 initialisation from the realm's own objects (PRISM, `adam_prism_fnl_object.F90`):
 
 ```fortran
@@ -317,15 +323,17 @@ the kernel spectrum `khat` made once on the device (`enter data`, released by `d
 | Memory | Not FUNDAL-agnostic: the arrays live in an OpenACC data region around the cuFFT calls (`host_data use_device`) |
 | Verification | SV-2 against the discrete solution at round-off, SV-6 against the exact potentials of two spheres; both against the FFTW solver (`selfgravity/poisson_oracle.py compare`, isolated: `1.6e-15`) |
 
-## MPI handler
+## Device binding
 
-### `adam_fnl_mpih_object`
+### `adam_fnl_device`
 
 ```fortran
-use :: fundal_mpih_object, only : mpih_fnl_object => mpih_object
+call bind_device(verbose=verbose) ! once per process, collective on the node
 ```
 
-FUNDAL's MPI handler under the alias `mpih_fnl_object`: rank and size, rank-prefixed output, timing, GPU-aware MPI.
+The binding described in [Program-scope singletons](#program-scope-singletons): HERALD's (`mpih%device`), then FUNDAL's
+`dev_init`, checked equal. FUNDAL's own MPI handler (`fundal_mpih_object`) is no longer used
+([#158](https://github.com/szaghi/adam/issues/158)).
 
 ## Module summary
 
@@ -341,5 +349,4 @@ FUNDAL's MPI handler under the alias `mpih_fnl_object`: rank and size, rank-pref
 | `adam_fnl_fdv_operators_library` | Device-callable FD/FV operators | — |
 | `adam_fnl_poisson_fft_object` | FFT Poisson solver on cuFFT (not re-exported) | `poisson_fft_object` |
 | `adam_fnl_poisson_mg_object` | Multigrid Poisson solver on the device (not re-exported) | `poisson_mg_object` |
-| `adam_fnl_mpih_object` | FUNDAL MPI handler alias | — |
-| `adam_fnl_mpih_global` | Singleton `mpih_fnl` | — |
+| `adam_fnl_device` | `bind_device`: the device binding of the process (HERALD, then FUNDAL) | — |

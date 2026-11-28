@@ -92,7 +92,7 @@ contains
    ! twins are zero-size — any memcpy would fault (SIGSEGV in cuMemcpy on the first
    ! source-free case ever run on FNL, rmf-amr-fd-pulse). Nothing to move: return.
    if (coil%total_coils_number == 0) return
-   if (verbose_) call mpih_fnl%print_message('prism_fnl_coil_object%copy_cpu_gpu start')
+   if (verbose_) call mpih%print_message('prism_fnl_coil_object%copy_cpu_gpu start')
    call dev_memcpy_to_device(src=coil%coil_amplitude    ,dst=self%A_gpu    )
    call dev_memcpy_to_device(src=coil%f                 ,dst=self%f_gpu    )
    call dev_memcpy_to_device(src=coil%phase             ,dst=self%phase_gpu)
@@ -108,7 +108,7 @@ contains
       call dev_assign_to_device(src=coil%j_vec,dst=self%j_vec_gpu,ij=[1,5])
    endif
    call self%push_support(coil=coil, blocks_number=blocks_number)
-   if (verbose_) call mpih_fnl%print_message('prism_fnl_coil_object%copy_cpu_gpu finish')
+   if (verbose_) call mpih%print_message('prism_fnl_coil_object%copy_cpu_gpu finish')
    endsubroutine copy_cpu_gpu
 
    subroutine copy_gpu_cpu(self, coil, grid, buf6D, db6, hb6, verbose)
@@ -130,7 +130,7 @@ contains
    ! Zero-coil case (issue #22 F1): see copy_cpu_gpu — nothing to move, and the
    ! host destinations are unallocated. Return before any device memcpy.
    if (coil%total_coils_number == 0) return
-   if (verbose_) call mpih_fnl%print_message('prism_fnl_coil_object%copy_gpu_cpu start')
+   if (verbose_) call mpih%print_message('prism_fnl_coil_object%copy_gpu_cpu start')
    call dev_memcpy_from_device(src=self%A_gpu    ,dst=coil%coil_amplitude)
    call dev_memcpy_from_device(src=self%f_gpu    ,dst=coil%f             )
    call dev_memcpy_from_device(src=self%phase_gpu,dst=coil%phase         )
@@ -145,12 +145,12 @@ contains
    else
       call dev_assign_from_device(src=self%j_vec_gpu,dst=coil%j_vec,ij=[1,5])
    endif
-   if (verbose_) call mpih_fnl%print_message('prism_fnl_coil_object%copy_gpu_cpu finish')
+   if (verbose_) call mpih%print_message('prism_fnl_coil_object%copy_gpu_cpu finish')
    endsubroutine copy_gpu_cpu
 
    subroutine initialize(self, coil, field, grid, buf6D, db6, hb6)
    !< Initialize class from program-scope `field` (adam_field_global) and `grid` (adam_grid_global) singletons.
-   !< Requires `mpih_fnl` (adam_fnl_mpih_global), `field` and `grid` singletons to be ready.
+   !< Requires `mpih` (adam_mpih_global), `field` and `grid` singletons to be ready.
    class(prism_fnl_coil_object), intent(inout)      :: self !< Coils.
    class(prism_coil_object),     intent(in), target :: coil !< Coils on host.
    type(field_object),           intent(in)         :: field !< Field (sibling realm component, threaded in).
@@ -171,12 +171,12 @@ contains
    call self%destroy()
    associate(ni=>grid%ni, nj=>grid%nj, nk=>grid%nk, ngc=>grid%ngc, nb=>field%nb, blocks_number=>field%blocks_number, &
              nc=>coil%total_coils_number)
-   print '(A)', mpih_fnl%myrankstr//'prism_fnl_coil_object%initialize start'
+   print '(A)', mpih%myrankstr//'prism_fnl_coil_object%initialize start'
    ! Zero-coil case (issue #22 F1): host j_vec is unallocated (size() on it is illegal)
    ! and every device twin would be zero-size. Leave the device pointers null; all the
    ! copy paths return early on total_coils_number == 0.
    if (nc == 0) then
-      print '(A)', mpih_fnl%myrankstr//'prism_fnl_coil_object%initialize finish (no coils: nothing on device)'
+      print '(A)', mpih%myrankstr//'prism_fnl_coil_object%initialize finish (no coils: nothing on device)'
       return
    endif
    nv = size(coil%j_vec,dim=1)
@@ -184,25 +184,25 @@ contains
                     int(nk + 2_I4P * ngc, I8P) * int(nv, I8P) * int(nc, I8P)
    j_vec_bytes = j_vec_elements * int(storage_size(0._R8P) / 8, I8P)
    j_vec_gib = real(j_vec_bytes, R8P) / 1024._R8P**3
-   dev_free_gib = real(mpih_fnl%dev_memory_avail, R8P) / 1024._R8P**3
+   dev_free_gib = real(dev_memory_avail, R8P) / 1024._R8P**3
    call dev_alloc(fptr_dev=self%A_gpu        ,ubounds=[nc                           ],lbounds=[0                      ],ierr=ierr)
-   if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate A_gpu in prism_fnl_coil_object%initialize')
+   if (ierr /= 0_I4P) call mpih%error_stop(msg=': failed to allocate A_gpu in prism_fnl_coil_object%initialize')
    call dev_alloc(fptr_dev=self%f_gpu        ,ubounds=[nc                           ],lbounds=[0                      ],ierr=ierr)
-   if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate f_gpu in prism_fnl_coil_object%initialize')
+   if (ierr /= 0_I4P) call mpih%error_stop(msg=': failed to allocate f_gpu in prism_fnl_coil_object%initialize')
    call dev_alloc(fptr_dev=self%phase_gpu    ,ubounds=[nc                           ],lbounds=[0                      ],ierr=ierr)
-   if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate phase_gpu in prism_fnl_coil_object%initialize')
+   if (ierr /= 0_I4P) call mpih%error_stop(msg=': failed to allocate phase_gpu in prism_fnl_coil_object%initialize')
    call dev_alloc(fptr_dev=self%j_vec_gpu    ,ubounds=[nb,ni+ngc,nj+ngc,nk+ngc,nv,nc],lbounds=[1,1-ngc,1-ngc,1-ngc,1,1],ierr=ierr)
    if (ierr /= 0_I4P) then
       alloc_msg = ': failed to allocate j_vec_gpu in prism_fnl_coil_object%initialize'// &
                   ' ierr='//trim(str(ierr))// &
                   ' requested_GiB='//trim(str(j_vec_gib))// &
                   ' device_init_free_GiB='//trim(str(dev_free_gib))// &
-                  ' device='//trim(str(mpih_fnl%mydev))// &
+                  ' device='//trim(str(mydev))// &
                   ' nb='//trim(str(nb))// &
                   ' blocks_number='//trim(str(blocks_number))// &
                   ' ni='//trim(str(ni))//' nj='//trim(str(nj))//' nk='//trim(str(nk))// &
                   ' ngc='//trim(str(ngc))//' nv_coil='//trim(str(nv))//' coils='//trim(str(nc))
-      call mpih_fnl%error_stop(msg=alloc_msg)
+      call mpih%error_stop(msg=alloc_msg)
    endif
    if (present(buf6D) .and. present(db6) .and. present(hb6)) then
       call self%copy_cpu_gpu(coil=coil, grid=grid, blocks_number=blocks_number, buf6D=buf6D, db6=db6, hb6=hb6)
@@ -211,7 +211,7 @@ contains
    else
       call self%copy_cpu_gpu(coil=coil, grid=grid, blocks_number=blocks_number)
    endif
-   print '(A)', mpih_fnl%myrankstr//'prism_fnl_coil_object%initialize finish'
+   print '(A)', mpih%myrankstr//'prism_fnl_coil_object%initialize finish'
    endassociate
    endsubroutine initialize
 

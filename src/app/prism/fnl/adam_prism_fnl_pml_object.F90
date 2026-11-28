@@ -8,7 +8,7 @@ module adam_prism_fnl_pml_object
 use :: adam_prism_common_library, only : prism_pml_object
 use :: adam_grid_object,         only : grid_object
 use :: adam_field_object,        only : field_object
-use :: adam_fnl_mpih_global, only : mpih_fnl
+use :: adam_mpih_global,     only : mpih
 use :: fundal
 use :: penf
 
@@ -404,7 +404,7 @@ contains
    if (.not. allocated(q_face_cpu)) return
    call dev_alloc(fptr_dev=q_face_gpu, ubounds=[nblocks,cmax,grid%nj,grid%nk,PML_VARS_PER_FACE], lbounds=[1,1,1,1,1], &
                   init_value=0._R8P, ierr=ierr)
-   if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate x-face GPU PML state')
+   if (ierr /= 0_I4P) call mpih%error_stop(msg=': failed to allocate x-face GPU PML state')
    call copy_face_state_cpu_gpu(q_cpu=q_face_cpu, q_gpu=q_face_gpu)
    endsubroutine initialize_x_face
 
@@ -466,7 +466,7 @@ contains
    if (.not. allocated(q_face_cpu)) return
    call dev_alloc(fptr_dev=q_face_gpu, ubounds=[nblocks,grid%ni,cmax,grid%nk,PML_VARS_PER_FACE], lbounds=[1,1,1,1,1], &
                   init_value=0._R8P, ierr=ierr)
-   if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate y-face GPU PML state')
+   if (ierr /= 0_I4P) call mpih%error_stop(msg=': failed to allocate y-face GPU PML state')
    call copy_face_state_cpu_gpu(q_cpu=q_face_cpu, q_gpu=q_face_gpu)
    endsubroutine initialize_y_face
 
@@ -528,7 +528,7 @@ contains
    if (.not. allocated(q_face_cpu)) return
    call dev_alloc(fptr_dev=q_face_gpu, ubounds=[nblocks,grid%ni,grid%nj,cmax,PML_VARS_PER_FACE], lbounds=[1,1,1,1,1], &
                   init_value=0._R8P, ierr=ierr)
-   if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate z-face GPU PML state')
+   if (ierr /= 0_I4P) call mpih%error_stop(msg=': failed to allocate z-face GPU PML state')
    call copy_face_state_cpu_gpu(q_cpu=q_face_cpu, q_gpu=q_face_gpu)
    endsubroutine initialize_z_face
 

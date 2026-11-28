@@ -9,7 +9,7 @@ use :: adam_grid_object,  only : grid_object
 ! ADAM FNL classes, libraries, parameters
 use :: adam_fnl_ib_kernels
 ! ADAM FNL singleton objects
-use :: adam_fnl_mpih_global, only : mpih_fnl
+use :: adam_mpih_global,     only : mpih
 ! third party modules
 use :: fundal
 use :: penf
@@ -84,14 +84,14 @@ contains
 
    subroutine initialize(self, grid, field, ib)
    !< Initialize class from the host `grid`/`field`/`ib` sibling realm components (threaded in).
-   !< Requires `mpih_fnl` (adam_fnl_mpih_global) to be ready.
+   !< Requires `mpih` (adam_mpih_global) to be ready.
    class(ib_fnl_object), intent(inout) :: self  !< IB FNL object.
    type(grid_object),    intent(in)    :: grid  !< Grid (sibling realm component, threaded in).
    type(field_object),   intent(in)    :: field !< Field (sibling realm component, threaded in).
    type(ib_object),      intent(in)    :: ib    !< Host IB (sibling realm component, threaded in).
    integer(I4P)                        :: ierr  !< Error status.
 
-   call mpih_fnl%print_message('ib_fnl_object%initialize start')
+   call mpih%print_message('ib_fnl_object%initialize start')
    associate(ngc=>grid%ngc, ni=>grid%ni, nj=>grid%nj, nk=>grid%nk, nb=>field%nb, solids_number=>ib%solids_number)
    ! ib%q is allocated only when solids_number > 0; with no immersed solids
    ! it is unallocated, and passing an unallocated allocatable as the
@@ -104,7 +104,7 @@ contains
                      ubounds=[nb,ni+ngc,nj+ngc,nk+ngc,solids_number+1], &
                      lbounds=[1, 1-ngc, 1-ngc, 1-ngc, 1              ], &
                      ierr=ierr, init_value=-1._R8P)
-      if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate phi_gpu in ib_fnl_object%initialize')
+      if (ierr /= 0_I4P) call mpih%error_stop(msg=': failed to allocate phi_gpu in ib_fnl_object%initialize')
    endif
    endassociate
    endsubroutine initialize

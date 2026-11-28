@@ -220,7 +220,7 @@ use :: adam_fnl_field_kernels,          only : update_ghost_local_copy_gpu_dev
 use :: adam_fnl_field_kernels,          only : update_ghost_local_gpu_dev, interp_seam_ghost_gpu_dev, &
                                                interp_seam_value_gpu_dev, seam_guard_density_gpu_dev,  &
                                                seam_guard_value_gpu_dev, restrict_seam_high_order_gpu_dev
-use :: adam_fnl_mpih_global,            only : mpih_fnl
+use :: adam_fnl_device,                 only : bind_device
 use :: adam_seam_interpolation_library, only : SEAM_FILL_TRICUBIC, seam_interpolate_tricubic, SEAM_DENSITY_GUARD, &
                                                seam_meta_unpack, seam_mp_bound, seam_bracket_nodes, seam_bracket_range
 use :: adam_seam_interpolation_library, only : SEAM_RESTRICT_MEAN, SEAM_SUB_COINCIDENT, seam_shift_anchor_pos,      &
@@ -307,7 +307,7 @@ integer(I4P)                :: plane                !< Cells of one variable pla
 real(R8P),    allocatable   :: t(:)
 
 call mpih%initialize(do_mpi_init=.true., do_device_init=.false.)
-call mpih_fnl%initialize(do_mpi_init=.false., do_device_init=.true.)
+call bind_device()
 call get_args()
 call build_realm()
 call describe()

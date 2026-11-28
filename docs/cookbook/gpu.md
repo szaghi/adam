@@ -44,7 +44,7 @@ call dev_alloc(fptr_dev=self%q_gpu, lbounds=[1,1-ngc,1-ngc,1-ngc,1], ubounds=[nb
 ...
 subroutine check(name)
 character(*), intent(in) :: name
-if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate '//name//' in ripple_fnl_object')
+if (ierr /= 0_I4P) call mpih%error_stop(msg=': failed to allocate '//name//' in ripple_fnl_object')
 endsubroutine check
 ```
 
@@ -57,7 +57,7 @@ $n_b = 0.85\,M / (F\,B)$, with $M$ the memory, $B = 8\,(n_i+2n_g)(n_j+2n_g)(n_k+
 variable** on one block (ghosts included, `grid%block_weight`) and $F$ = `fields_number` the number of such **scalar**
 arrays the application allocates per block: FLUME counts `nv*(5 + stages) + nv_aux + ...` (state, residuals, stages
 and fluxes, each `nv` wide). On FNL $M$ is the device
-memory divided by the ranks that share the device (`count_device_sharers`) and, in a forest, by the realms. An
+memory divided by the ranks that share the device (`mpih%device%sharers`, HERALD's count) and, in a forest, by the realms. An
 application that under-counts `fields_number` over-commits the device.
 
 **Reference.** `adam_object%initialize` (`src/lib/common/adam_adam_object.F90`); FUNDAL's `dev_alloc`.
@@ -72,7 +72,7 @@ application that under-counts `fields_number` over-commits the device.
 allocate(self%buf_5D_R8P(1:nb,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nv))   ! the extent of q_gpu
 ...
 if (any(shape(self%buf_5D_R8P) /= shape(self%q_gpu))) &
-   call mpih_fnl%error_stop(msg=': flume_fnl_object%copy_cpu_gpu: buf_5D_R8P does not match q_gpu (issue #63)')
+   call mpih%error_stop(msg=': flume_fnl_object%copy_cpu_gpu: buf_5D_R8P does not match q_gpu (issue #63)')
 call dev_memcpy_to_device(bb=self%db5, ij=[1,5], tb=self%hb5, dst=self%q_gpu, src=self%q, buf=self%buf_5D_R8P)
 ```
 

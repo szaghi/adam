@@ -72,7 +72,7 @@ src/
 
 ### Object ownership: realm composition, not singletons
 
-The only program-scope singletons are **`mpih`** (`adam_mpih_global`) and **`mpih_fnl`** (`adam_fnl_mpih_global`). The former `adam_{grid,field,maps,tree,weno,ib,rk}_global` and `adam_fnl_{field,ib,rk,weno}_global` / `adam_prism_fnl_{coil,fwlayer}_global` modules **no longer exist**. Every other object is a per-realm component:
+The only program-scope singleton is **`mpih`** (`adam_mpih_global`, HERALD's `mpih_object`; #158 merged the FNL handler `mpih_fnl` into it: on the device builds `bind_device` (`adam_fnl_device`) binds the rank to its device through `mpih%device`, then calls FUNDAL's `dev_init`). The former `adam_{grid,field,maps,tree,weno,ib,rk}_global` and `adam_fnl_{field,ib,rk,weno}_global` / `adam_prism_fnl_{coil,fwlayer}_global` modules **no longer exist**. Every other object is a per-realm component:
 
 - CPU library objects live in `realm_object` (`self%adam%grid`, `self%adam%field`, `self%adam%maps`, `self%ts`, `self%weno`, `self%ib`, …) and are passed **as arguments** to library calls (e.g. `self%adam%field%update_ghost_local(q=q, grid=self%adam%grid, maps=self%adam%maps)`).
 - FNL helpers are components of the backend type (`prism_fnl_object%field_fnl/ib_fnl/coil_fnl`, `adam_prism_fnl_object.F90`), initialised **after** the common init by argument passing (no WENO helper: SETH's kernels have compile-time coefficients, #139):

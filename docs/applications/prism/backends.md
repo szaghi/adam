@@ -68,7 +68,8 @@ Both programs hand the realm (one, or the manifest's realms) to the library's fo
 7. The ghost-width checks (`ngc >= fdv_order/2`, and `>= [weno] S` with WENO), the field arrays, the uniform
    refinement, the variable names of the field files (they must number `nv`).
 
-The FNL backend first initializes `mpih_fnl` (device selection, once per process), then runs the PIC, PML and
+The FNL backend first binds the rank to its device (`bind_device`: HERALD's `mpih`, then FUNDAL's `dev_init`; once
+per process), then runs the PIC, PML and
 time-scheme checks before any device allocation, then builds its device objects: `field_fnl`, `ib_fnl`,
 the PML, the device arrays, `coil_fnl`, the PIC objects, FLAIL on cuFFT, the external-field kernels.
 

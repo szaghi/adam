@@ -12,7 +12,7 @@ use :: adam_maps_object,  only : maps_object
 use :: adam_parameters,   only : FEC_1_6_ARRAY
 use :: adam_fnl_field_kernels
 use :: adam_fnl_maps_object
-use :: adam_fnl_mpih_global, only : mpih_fnl
+use :: adam_mpih_global,     only : mpih
 ! third party modules
 use :: fundal
 use :: penf
@@ -92,14 +92,14 @@ contains
    character(:), allocatable                     :: r        !< My rank stringified.
 
    verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
-   if (verbose_) call mpih_fnl%print_message('field_fnl_object%copy_cpu_gpu start')
-   r = mpih_fnl%myrankstr
+   if (verbose_) call mpih%print_message('field_fnl_object%copy_cpu_gpu start')
+   r = mpih%myrankstr
    call self%maps%copy_cpu_gpu(maps=maps, verbose=verbose_)
    call dev_assign_to_device(src=field%x_cell, dst=self%x_cell_gpu, ij=[1,2])
    call dev_assign_to_device(src=field%y_cell, dst=self%y_cell_gpu, ij=[1,2])
    call dev_assign_to_device(src=field%z_cell, dst=self%z_cell_gpu, ij=[1,2])
    call dev_assign_to_device(src=field%dxyz,   dst=self%dxyz_gpu,   ij=[1,2])
-   if (verbose_) call mpih_fnl%print_message('field_fnl_object%copy_cpu_gpu finish')
+   if (verbose_) call mpih%print_message('field_fnl_object%copy_cpu_gpu finish')
    endsubroutine copy_cpu_gpu
 
    subroutine copy_transpose_cpu_gpu(self, nv, q_cpu, q_t, q_gpu)
@@ -216,7 +216,7 @@ contains
 
    subroutine initialize(self, grid, field, maps, nv_aux, q_gpu, verbose)
    !< Initialize field from the (realm-local) CPU `grid`, `field` and `maps`.
-   !< Requires `mpih_fnl` (adam_fnl_mpih_global) initialized and the passed CPU objects populated before calling.
+   !< Requires `mpih` (adam_mpih_global) initialized and the passed CPU objects populated before calling.
    class(field_fnl_object), intent(inout)           :: self             !< The field.
    type(grid_object),       intent(in),    target   :: grid
                                                                         !< Realm-local CPU grid (ngc, ni/nj/nk); was the `grid`
@@ -233,7 +233,7 @@ contains
    integer(I4P)                                     :: nv_aux_          !< Number of auxiliary variables (local var).
    integer(I4P)                                     :: ierr             !< Error status.
 
-   call mpih_fnl%print_message('field_fnl_object%initialize start')
+   call mpih%print_message('field_fnl_object%initialize start')
    self%ngc           => grid%ngc
    self%ni            => grid%ni
    self%nj            => grid%nj
@@ -245,13 +245,13 @@ contains
    associate(nb=>field%nb, ngc=>grid%ngc, ni=>grid%ni, nj=>grid%nj, nk=>grid%nk, nv=>field%nv)
       if (present(q_gpu)) then
          call dev_alloc(fptr_dev=q_gpu, ubounds=[nb,ni+ngc,nj+ngc,nk+ngc,nv], lbounds=[1,1-ngc,1-ngc,1-ngc,1], ierr=ierr)
-         if (ierr /= 0_I4P) call mpih_fnl%error_stop(msg=': failed to allocate q_gpu in field_fnl_object%initialize')
+         if (ierr /= 0_I4P) call mpih%error_stop(msg=': failed to allocate q_gpu in field_fnl_object%initialize')
       endif
       call dev_assign_to_device(dst=self%fec_1_6_array_gpu, src=FEC_1_6_ARRAY)
       nv_aux_ = field%nv ; if (present(nv_aux)) nv_aux_ = max(nv_aux_, nv_aux)
    endassociate
    call self%copy_cpu_gpu(field=field, maps=maps, verbose=verbose)
-   call mpih_fnl%print_message('field_fnl_object%initialize finish')
+   call mpih%print_message('field_fnl_object%initialize finish')
    endsubroutine initialize
 
    subroutine update_ghost_local_gpu(self, q_gpu, seam_guard)
@@ -300,7 +300,7 @@ contains
    call reduce_ghost_local_gpu_dev(ngc=self%ngc, v_first=v_first, v_last=v_last,                 &
                                    l_map_ghost_cell_gpu=self%maps%local_map_ghost_cell_gpu, q_gpu=q_gpu, &
                                    bad_rows=bad_rows)
-   if (bad_rows > 0_I4P) call mpih_fnl%error_stop(msg=': reduce_ghost_local_gpu does not support 2:1 (AMR) ghost rows')
+   if (bad_rows > 0_I4P) call mpih%error_stop(msg=': reduce_ghost_local_gpu does not support 2:1 (AMR) ghost rows')
    endsubroutine reduce_ghost_local_gpu
 
    subroutine reduce_ghost_mpi_gpu(self, comm_map_send_ptr_ghost, comm_map_recv_ptr_ghost, q_gpu, v_first, v_last)
@@ -322,8 +322,8 @@ contains
    integer(I4P)                           :: ptr_start, ptr_end, n_slots !< Buffer segment.
    integer(I4P)                           :: bad_rows                    !< Number of 2:1 rows.
 
-   if (mpih_fnl%procs_number == 1_I4P) return
-   associate(procs_number=>mpih_fnl%procs_number, error=>mpih_fnl%error, req_send_recv=>mpih_fnl%req_send_recv, &
+   if (mpih%procs_number == 1_I4P) return
+   associate(procs_number=>mpih%procs_number, error=>mpih%error, req_send_recv=>mpih%req_send_recv, &
              recv_buffer_ghost_gpu=>self%maps%recv_buffer_ghost_gpu, send_buffer_ghost_gpu=>self%maps%send_buffer_ghost_gpu)
    req_send_recv = MPI_REQUEST_NULL
    call pack_reduce_ghost_mpi_gpu_dev(ngc=self%ngc, v_first=v_first, v_last=v_last,                          &
@@ -347,7 +347,7 @@ contains
                                       comm_map_send_ghost_cell_gpu=self%maps%comm_map_send_ghost_cell_gpu, &
                                       send_buffer_ghost_gpu=self%maps%send_buffer_ghost_gpu, q_gpu=q_gpu,  &
                                       bad_rows=bad_rows)
-   if (bad_rows > 0_I4P) call mpih_fnl%error_stop(msg=': reduce_ghost_mpi_gpu does not support 2:1 (AMR) ghost rows')
+   if (bad_rows > 0_I4P) call mpih%error_stop(msg=': reduce_ghost_mpi_gpu does not support 2:1 (AMR) ghost rows')
    endassociate
    endsubroutine reduce_ghost_mpi_gpu
 
@@ -381,9 +381,9 @@ contains
    if (present(seam_guard)) then
       if (.not.seam_guard) density_var = 0_I4P
    endif
-   associate(procs_number=>mpih_fnl%procs_number,                                 &
-             error=>mpih_fnl%error,                                               &
-             req_send_recv=>mpih_fnl%req_send_recv,                               &
+   associate(procs_number=>mpih%procs_number,                                 &
+             error=>mpih%error,                                               &
+             req_send_recv=>mpih%req_send_recv,                               &
              recv_buffer_ghost_gpu=>self%maps%recv_buffer_ghost_gpu,               &
              send_buffer_ghost_gpu=>self%maps%send_buffer_ghost_gpu,               &
              ngc=>self%ngc, q_gpu=>q_gpu)
@@ -486,8 +486,8 @@ contains
    integer(I4P)                           :: ptr_start, ptr_end          !< Segment bounds.
    integer(I4P)                           :: n_recv, n_send              !< Segment sizes.
 
-   if (mpih_fnl%procs_number == 1_I4P) return
-   associate(procs_number=>mpih_fnl%procs_number, error=>mpih_fnl%error, req_send_recv=>mpih_fnl%req_send_recv)
+   if (mpih%procs_number == 1_I4P) return
+   associate(procs_number=>mpih%procs_number, error=>mpih%error, req_send_recv=>mpih%req_send_recv)
    req_send_recv = MPI_REQUEST_NULL
    if (associated(maps%comm_map_send_ghost_cell_gpu))                                                         &
       call populate_send_buffer_ghost_gpu_dev(ngc=self%ngc, seam_ghost_fill=maps%seam_ghost_fill,            &

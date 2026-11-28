@@ -29,7 +29,7 @@ use :: adam_parameters,             only : BC_PERIODIC, TO_BE_REFINED
 use :: adam_tree_node_object,       only : tree_node_object
 use :: adam_mpih_global,            only : mpih
 #ifdef _FNL
-use :: adam_fnl_mpih_global,        only : mpih_fnl
+use :: adam_fnl_device,             only : bind_device
 use :: adam_fnl_poisson_fft_object, only : poisson_fft_fnl_object
 use :: adam_fnl_poisson_mg_object,  only : poisson_mg_fnl_object
 #endif
@@ -83,7 +83,7 @@ enddo
 call mpih%initialize(do_mpi_init=.true., do_device_init=.false.)
 if (amr .and. level < 2) call mpih%error_stop(msg='bench_poisson: --amr needs --level 2 or more')
 #ifdef _FNL
-call mpih_fnl%initialize(do_mpi_init=.false., do_device_init=.true.)
+call bind_device()
 #endif
 filename = 'bench_poisson-l'//trim(str(level, .true.))//'-n'//trim(str(ni, .true.))//'.ini'
 if (mpih%myrank == 0) call write_input(filename=filename, ni=ni, max_level=level+1)
