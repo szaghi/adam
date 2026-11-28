@@ -188,6 +188,7 @@
    real(R8P),    intent(out) :: divb_seam_max                 !< Maximum of |div B| over the seam-local cells.
    real(R8P)                 :: wx, wy, wz                    !< Direction weights: 1 active, 0 null.
    real(R8P)                 :: dbx, dby, dbz                 !< Derivatives dBx/dx, dBy/dy, dBz/dz.
+   real(R8P)                 :: st(-S_MAX:S_MAX)              !< Contiguous stencil of one field (GIDEON's window).
    real(R8P)                 :: divb                          !< |div B| of one cell.
    logical                   :: is_seam                       !< Seam-local cell.
    integer(I4P)              :: b, i, j, k                    !< Counters.
@@ -202,9 +203,12 @@
       do k=1, nk
          do j=1, nj
             do i=1, ni
-               call compute_derivative1_fd_centered(s=hs, ds=dxyz(1,b), q=q(IQ_BX,i-hs:i+hs,j,k,b), dq_ds=dbx)
-               call compute_derivative1_fd_centered(s=hs, ds=dxyz(2,b), q=q(IQ_BY,i,j-hs:j+hs,k,b), dq_ds=dby)
-               call compute_derivative1_fd_centered(s=hs, ds=dxyz(3,b), q=q(IQ_BZ,i,j,k-hs:k+hs,b), dq_ds=dbz)
+               st(-hs:hs) = q(IQ_BX,i-hs:i+hs,j,k,b)
+               call gideon_fd_d1_c(order=2*hs, q=st(-hs:hs), ds=dxyz(1,b), d=dbx)
+               st(-hs:hs) = q(IQ_BY,i,j-hs:j+hs,k,b)
+               call gideon_fd_d1_c(order=2*hs, q=st(-hs:hs), ds=dxyz(2,b), d=dby)
+               st(-hs:hs) = q(IQ_BZ,i,j,k-hs:k+hs,b)
+               call gideon_fd_d1_c(order=2*hs, q=st(-hs:hs), ds=dxyz(3,b), d=dbz)
                divb = abs(wx * dbx + wy * dby + wz * dbz)
                divb_max = max(divb_max, divb)
                divb_l1  = divb_l1 + divb * dxyz(1,b) * dxyz(2,b) * dxyz(3,b)

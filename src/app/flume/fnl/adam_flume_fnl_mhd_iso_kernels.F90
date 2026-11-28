@@ -11,7 +11,7 @@ module adam_flume_fnl_mhd_iso_kernels
 !< split (M2-P3). Same kernel rules as `adam_flume_fnl_kernels` (issue #35, D-11/D-12).
 
 ! ADAM classes, libraries, parameters
-use :: adam_fdv_operators_library, only : compute_derivative1_fd_centered
+use :: gideon,                     only : gideon_fd_d1_c
 ! ADAM FNL classes, libraries
 ! FLUME modules
 use :: adam_flume_dissipation_library, only : dissipative_diffusivity

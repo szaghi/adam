@@ -8,7 +8,7 @@ module adam_flume_cpu_mhd_glm_kernels
 !< section 4). The face-flux kernel is the shared body with the MHD split (M2-P3).
 
 ! ADAM classes, libraries, parameters
-use :: adam_fdv_operators_library, only : compute_derivative1_fd_centered
+use :: gideon,                     only : gideon_fd_d1_c
 use :: adam_weno_object,           only : weno_object
 ! FLUME modules
 use :: adam_flume_dissipation_library, only : dissipative_diffusivity

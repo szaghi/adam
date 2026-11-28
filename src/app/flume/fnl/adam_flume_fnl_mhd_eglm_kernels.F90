@@ -12,7 +12,7 @@ module adam_flume_fnl_mhd_eglm_kernels
 !< (issue #35, D-11/D-12).
 
 ! ADAM classes, libraries, parameters
-use :: adam_fdv_operators_library, only : compute_derivative1_fd_centered
+use :: gideon,                     only : gideon_fd_d1_c, gideon_fd_d1_c2
 ! ADAM FNL classes, libraries
 ! FLUME modules
 use :: adam_flume_dissipation_library, only : dissipative_diffusivity
@@ -101,18 +101,18 @@ contains
          sy(1+m) = q_gpu(b,i,j+m,k,IQ_BY)
          sz(1+m) = q_gpu(b,i,j,k+m,IQ_BZ)
       enddo
-      call compute_derivative1_fd_centered(s=hs, ds=dxyz_gpu(b,1), q=sx(1-hs:1+hs), dq_ds=dbx)
-      call compute_derivative1_fd_centered(s=hs, ds=dxyz_gpu(b,2), q=sy(1-hs:1+hs), dq_ds=dby)
-      call compute_derivative1_fd_centered(s=hs, ds=dxyz_gpu(b,3), q=sz(1-hs:1+hs), dq_ds=dbz)
+      call gideon_fd_d1_c(order=2*hs, q=sx(1-hs:1+hs), ds=dxyz_gpu(b,1), d=dbx)
+      call gideon_fd_d1_c(order=2*hs, q=sy(1-hs:1+hs), ds=dxyz_gpu(b,2), d=dby)
+      call gideon_fd_d1_c(order=2*hs, q=sz(1-hs:1+hs), ds=dxyz_gpu(b,3), d=dbz)
       !$acc loop seq
       do m=-hs, hs
          sx(1+m) = q_gpu(b,i+m,j,k,IQ_PSI)
          sy(1+m) = q_gpu(b,i,j+m,k,IQ_PSI)
          sz(1+m) = q_gpu(b,i,j,k+m,IQ_PSI)
       enddo
-      call compute_derivative1_fd_centered(s=hs, ds=dxyz_gpu(b,1), q=sx(1-hs:1+hs), dq_ds=dpx)
-      call compute_derivative1_fd_centered(s=hs, ds=dxyz_gpu(b,2), q=sy(1-hs:1+hs), dq_ds=dpy)
-      call compute_derivative1_fd_centered(s=hs, ds=dxyz_gpu(b,3), q=sz(1-hs:1+hs), dq_ds=dpz)
+      call gideon_fd_d1_c(order=2*hs, q=sx(1-hs:1+hs), ds=dxyz_gpu(b,1), d=dpx)
+      call gideon_fd_d1_c(order=2*hs, q=sy(1-hs:1+hs), ds=dxyz_gpu(b,2), d=dpy)
+      call gideon_fd_d1_c(order=2*hs, q=sz(1-hs:1+hs), ds=dxyz_gpu(b,3), d=dpz)
       divb = mhd_sum3(wx * dbx, wy * dby, wz * dbz)
       upsi = mhd_sum3(wx * q_aux_gpu(b,i,j,k,IA_U) * dpx, wy * q_aux_gpu(b,i,j,k,IA_V) * dpy, &
                       wz * q_aux_gpu(b,i,j,k,IA_W) * dpz)
@@ -179,24 +179,24 @@ contains
          sy(1+m) = q_gpu(b,i,j+m,k,IQ_BY)
          sz(1+m) = q_gpu(b,i,j,k+m,IQ_BZ)
       enddo
-      call compute_derivative1_fd_centered(s=hs, ds=dxyz_gpu(b,1), q=sx(1-hs:1+hs), dq_ds=dbx)
-      call compute_derivative1_fd_centered(s=hs, ds=dxyz_gpu(b,2), q=sy(1-hs:1+hs), dq_ds=dby)
-      call compute_derivative1_fd_centered(s=hs, ds=dxyz_gpu(b,3), q=sz(1-hs:1+hs), dq_ds=dbz)
-      call compute_derivative1_fd_centered(s=1, ds=dxyz_gpu(b,1), q=sx(0:2), dq_ds=lbx)
-      call compute_derivative1_fd_centered(s=1, ds=dxyz_gpu(b,2), q=sy(0:2), dq_ds=lby)
-      call compute_derivative1_fd_centered(s=1, ds=dxyz_gpu(b,3), q=sz(0:2), dq_ds=lbz)
+      call gideon_fd_d1_c(order=2*hs, q=sx(1-hs:1+hs), ds=dxyz_gpu(b,1), d=dbx)
+      call gideon_fd_d1_c(order=2*hs, q=sy(1-hs:1+hs), ds=dxyz_gpu(b,2), d=dby)
+      call gideon_fd_d1_c(order=2*hs, q=sz(1-hs:1+hs), ds=dxyz_gpu(b,3), d=dbz)
+      call gideon_fd_d1_c2(q=sx(0:2), ds=dxyz_gpu(b,1), d=lbx)
+      call gideon_fd_d1_c2(q=sy(0:2), ds=dxyz_gpu(b,2), d=lby)
+      call gideon_fd_d1_c2(q=sz(0:2), ds=dxyz_gpu(b,3), d=lbz)
       !$acc loop seq
       do m=-hs, hs
          sx(1+m) = q_gpu(b,i+m,j,k,IQ_PSI)
          sy(1+m) = q_gpu(b,i,j+m,k,IQ_PSI)
          sz(1+m) = q_gpu(b,i,j,k+m,IQ_PSI)
       enddo
-      call compute_derivative1_fd_centered(s=hs, ds=dxyz_gpu(b,1), q=sx(1-hs:1+hs), dq_ds=dpx)
-      call compute_derivative1_fd_centered(s=hs, ds=dxyz_gpu(b,2), q=sy(1-hs:1+hs), dq_ds=dpy)
-      call compute_derivative1_fd_centered(s=hs, ds=dxyz_gpu(b,3), q=sz(1-hs:1+hs), dq_ds=dpz)
-      call compute_derivative1_fd_centered(s=1, ds=dxyz_gpu(b,1), q=sx(0:2), dq_ds=lpx)
-      call compute_derivative1_fd_centered(s=1, ds=dxyz_gpu(b,2), q=sy(0:2), dq_ds=lpy)
-      call compute_derivative1_fd_centered(s=1, ds=dxyz_gpu(b,3), q=sz(0:2), dq_ds=lpz)
+      call gideon_fd_d1_c(order=2*hs, q=sx(1-hs:1+hs), ds=dxyz_gpu(b,1), d=dpx)
+      call gideon_fd_d1_c(order=2*hs, q=sy(1-hs:1+hs), ds=dxyz_gpu(b,2), d=dpy)
+      call gideon_fd_d1_c(order=2*hs, q=sz(1-hs:1+hs), ds=dxyz_gpu(b,3), d=dpz)
+      call gideon_fd_d1_c2(q=sx(0:2), ds=dxyz_gpu(b,1), d=lpx)
+      call gideon_fd_d1_c2(q=sy(0:2), ds=dxyz_gpu(b,2), d=lpy)
+      call gideon_fd_d1_c2(q=sz(0:2), ds=dxyz_gpu(b,3), d=lpz)
       divb = mhd_sum3(wx * dbx, wy * dby, wz * dbz)
       upsi = mhd_sum3(wx * q_aux_gpu(b,i,j,k,IA_U) * dpx, wy * q_aux_gpu(b,i,j,k,IA_V) * dpy, &
                       wz * q_aux_gpu(b,i,j,k,IA_W) * dpz)
@@ -366,17 +366,17 @@ contains
       sy(1+m) = qsy(IQ_BY,m)
       sz(1+m) = qsz(IQ_BZ,m)
    enddo
-   call compute_derivative1_fd_centered(s=hs, ds=ds(1), q=sx(1-hs:1+hs), dq_ds=dbx)
-   call compute_derivative1_fd_centered(s=hs, ds=ds(2), q=sy(1-hs:1+hs), dq_ds=dby)
-   call compute_derivative1_fd_centered(s=hs, ds=ds(3), q=sz(1-hs:1+hs), dq_ds=dbz)
+   call gideon_fd_d1_c(order=2*hs, q=sx(1-hs:1+hs), ds=ds(1), d=dbx)
+   call gideon_fd_d1_c(order=2*hs, q=sy(1-hs:1+hs), ds=ds(2), d=dby)
+   call gideon_fd_d1_c(order=2*hs, q=sz(1-hs:1+hs), ds=ds(3), d=dbz)
    do m=-hs, hs
       sx(1+m) = qsx(IQ_PSI,m)
       sy(1+m) = qsy(IQ_PSI,m)
       sz(1+m) = qsz(IQ_PSI,m)
    enddo
-   call compute_derivative1_fd_centered(s=hs, ds=ds(1), q=sx(1-hs:1+hs), dq_ds=dpx)
-   call compute_derivative1_fd_centered(s=hs, ds=ds(2), q=sy(1-hs:1+hs), dq_ds=dpy)
-   call compute_derivative1_fd_centered(s=hs, ds=ds(3), q=sz(1-hs:1+hs), dq_ds=dpz)
+   call gideon_fd_d1_c(order=2*hs, q=sx(1-hs:1+hs), ds=ds(1), d=dpx)
+   call gideon_fd_d1_c(order=2*hs, q=sy(1-hs:1+hs), ds=ds(2), d=dpy)
+   call gideon_fd_d1_c(order=2*hs, q=sz(1-hs:1+hs), ds=ds(3), d=dpz)
    divb = mhd_sum3(w(1) * dbx, w(2) * dby, w(3) * dbz)
    upsi = mhd_sum3(w(1) * qac(IA_U) * dpx, w(2) * qac(IA_V) * dpy, w(3) * qac(IA_W) * dpz)
    endsubroutine eglm_stencil_scalars

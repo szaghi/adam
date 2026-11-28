@@ -291,9 +291,9 @@
          sy(1+m) = q_gpu(b,i,j+m,k,IQ_BY)
          sz(1+m) = q_gpu(b,i,j,k+m,IQ_BZ)
       enddo
-      call compute_derivative1_fd_centered(s=hs, ds=dxyz_gpu(b,1), q=sx(1-hs:1+hs), dq_ds=dbx)
-      call compute_derivative1_fd_centered(s=hs, ds=dxyz_gpu(b,2), q=sy(1-hs:1+hs), dq_ds=dby)
-      call compute_derivative1_fd_centered(s=hs, ds=dxyz_gpu(b,3), q=sz(1-hs:1+hs), dq_ds=dbz)
+      call gideon_fd_d1_c(order=2*hs, q=sx(1-hs:1+hs), ds=dxyz_gpu(b,1), d=dbx)
+      call gideon_fd_d1_c(order=2*hs, q=sy(1-hs:1+hs), ds=dxyz_gpu(b,2), d=dby)
+      call gideon_fd_d1_c(order=2*hs, q=sz(1-hs:1+hs), ds=dxyz_gpu(b,3), d=dbz)
       divb = abs(wx * dbx + wy * dby + wz * dbz)
       divb_max = max(divb_max, divb)
       divb_l1  = divb_l1 + divb * dxyz_gpu(b,1) * dxyz_gpu(b,2) * dxyz_gpu(b,3)

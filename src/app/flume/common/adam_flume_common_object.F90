@@ -13,7 +13,7 @@ use :: adam_amr_object,               only : amr_marker_object, AMR_DELTA_T_MAX,
                                              AMR_GEO, AMR_GEO_PRIMITIVE_BOX, AMR_GEO_SOLID, AMR_GEO_STL, AMR_GRAD, &
                                              AMR_JEANS, AMR_KOLMOGOROV, AMR_LOHNER, AMR_TV, AMR_USER, prolongation_name
 use :: adam_amr_criterion_object,     only : amr_criterion_object, amr_criterion_pointer
-use :: adam_fdv_operators_library,    only : compute_derivative1_fd_centered
+use :: gideon,                        only : gideon_fd_d1_c
 use :: adam_flux_register_object,     only : face_tangential_ratios, flux_register_object, restrict_fine_face_to_quadrant, &
                                              SEAM_KIND_INTER_REALM, SEAM_KIND_INTRA_REALM_AMR
 use :: adam_parameters,               only : AMR_PROLONGATION_CONSERVATIVE, TO_BE_DEREFINED, TO_BE_REFINED, TO_NOT_TOUCH
@@ -54,7 +54,7 @@ use :: adam_flume_parameters,         only : has_entropy, is_hydrodynamic, has_i
                                              MODEL_EULER_DE, &
                                              MODEL_EULER_PS, MODEL_EULER_DE_PS, MODEL_EULER_ISO, MODEL_EULER_BARO, NS_MAX, &
                                              MODEL_MHD, MODEL_MHD_EGLM, MODEL_MHD_GLM,            &
-                                             MODEL_MHD_ISO, MODEL_MHD_GLM_ISO, MODEL_MHD_BARO, MODEL_MHD_GLM_BARO, &
+                                             MODEL_MHD_ISO, MODEL_MHD_GLM_ISO, MODEL_MHD_BARO, MODEL_MHD_GLM_BARO, S_MAX, &
                                              IQ_PSI, POSITIVITY_LIMITER_CELL, POSITIVITY_LIMITER_KAPPA,               &
                                              RECON_PRIMITIVE, RIEMANN_SOLVER_HLL,                                     &
                                              RIEMANN_SOLVER_HLLC, RIEMANN_SOLVER_HLLD, RIEMANN_SOLVER_LLF,            &
@@ -3225,6 +3225,7 @@ contains
    real(R8P)                               :: b2                              !< |B|^2.
    real(R8P)                               :: w(3)                            !< Direction weights: 1 active, 0 null.
    real(R8P)                               :: db(3)                           !< dBx/dx, dBy/dy, dBz/dz.
+   real(R8P)                               :: st(-S_MAX:S_MAX)                !< Contiguous stencil of one field.
    integer(I4P)                            :: hs                              !< Finite difference half stencil.
    integer(I4P)                            :: i, j, k                         !< Counters.
 
@@ -3245,12 +3246,12 @@ contains
    do k=1, self%nk
       do j=1, self%nj
          do i=1, self%ni
-            call compute_derivative1_fd_centered(s=hs, ds=self%adam%field%dxyz(1,b), q=self%q(IQ_BX,i-hs:i+hs,j,k,b), &
-                                                 dq_ds=db(1))
-            call compute_derivative1_fd_centered(s=hs, ds=self%adam%field%dxyz(2,b), q=self%q(IQ_BY,i,j-hs:j+hs,k,b), &
-                                                 dq_ds=db(2))
-            call compute_derivative1_fd_centered(s=hs, ds=self%adam%field%dxyz(3,b), q=self%q(IQ_BZ,i,j,k-hs:k+hs,b), &
-                                                 dq_ds=db(3))
+            st(-hs:hs) = self%q(IQ_BX,i-hs:i+hs,j,k,b)
+            call gideon_fd_d1_c(order=2*hs, q=st(-hs:hs), ds=self%adam%field%dxyz(1,b), d=db(1))
+            st(-hs:hs) = self%q(IQ_BY,i,j-hs:j+hs,k,b)
+            call gideon_fd_d1_c(order=2*hs, q=st(-hs:hs), ds=self%adam%field%dxyz(2,b), d=db(2))
+            st(-hs:hs) = self%q(IQ_BZ,i,j,k-hs:k+hs,b)
+            call gideon_fd_d1_c(order=2*hs, q=st(-hs:hs), ds=self%adam%field%dxyz(3,b), d=db(3))
             derived(4,i,j,k) = w(1) * db(1) + w(2) * db(2) + w(3) * db(3)
          enddo
       enddo

@@ -10,7 +10,7 @@ module adam_flume_cpu_mhd_eglm_kernels
 !< without it); the nonconservative sources and the damping are local residual terms.
 
 ! ADAM classes, libraries, parameters
-use :: adam_fdv_operators_library, only : compute_derivative1_fd_centered
+use :: gideon,                     only : gideon_fd_d1_c
 use :: adam_weno_object,           only : weno_object
 ! FLUME modules
 use :: adam_flume_dissipation_library, only : dissipative_diffusivity
@@ -74,6 +74,7 @@ contains
    real(R8P),    intent(inout) :: dq(1:,1-ngc:,1-ngc:,1-ngc:,1:)     !< Residuals.
    real(R8P)                   :: wx, wy, wz                         !< Direction weights: 1 active, 0 null.
    real(R8P)                   :: dbx, dby, dbz                      !< Derivatives dBx/dx, dBy/dy, dBz/dz.
+   real(R8P)                   :: st(-S_MAX:S_MAX)                   !< Contiguous stencil of one field (GIDEON's window).
    real(R8P)                   :: dpx, dpy, dpz                      !< Derivatives of psi.
    real(R8P)                   :: divb                               !< div B.
    real(R8P)                   :: upsi                               !< u.grad psi.
@@ -88,12 +89,18 @@ contains
       do k=1, nk
          do j=1, nj
             do i=1, ni
-               call compute_derivative1_fd_centered(s=hs, ds=dxyz(1,b), q=q(IQ_BX,i-hs:i+hs,j,k,b), dq_ds=dbx)
-               call compute_derivative1_fd_centered(s=hs, ds=dxyz(2,b), q=q(IQ_BY,i,j-hs:j+hs,k,b), dq_ds=dby)
-               call compute_derivative1_fd_centered(s=hs, ds=dxyz(3,b), q=q(IQ_BZ,i,j,k-hs:k+hs,b), dq_ds=dbz)
-               call compute_derivative1_fd_centered(s=hs, ds=dxyz(1,b), q=q(IQ_PSI,i-hs:i+hs,j,k,b), dq_ds=dpx)
-               call compute_derivative1_fd_centered(s=hs, ds=dxyz(2,b), q=q(IQ_PSI,i,j-hs:j+hs,k,b), dq_ds=dpy)
-               call compute_derivative1_fd_centered(s=hs, ds=dxyz(3,b), q=q(IQ_PSI,i,j,k-hs:k+hs,b), dq_ds=dpz)
+               st(-hs:hs) = q(IQ_BX,i-hs:i+hs,j,k,b)
+               call gideon_fd_d1_c(order=2*hs, q=st(-hs:hs), ds=dxyz(1,b), d=dbx)
+               st(-hs:hs) = q(IQ_BY,i,j-hs:j+hs,k,b)
+               call gideon_fd_d1_c(order=2*hs, q=st(-hs:hs), ds=dxyz(2,b), d=dby)
+               st(-hs:hs) = q(IQ_BZ,i,j,k-hs:k+hs,b)
+               call gideon_fd_d1_c(order=2*hs, q=st(-hs:hs), ds=dxyz(3,b), d=dbz)
+               st(-hs:hs) = q(IQ_PSI,i-hs:i+hs,j,k,b)
+               call gideon_fd_d1_c(order=2*hs, q=st(-hs:hs), ds=dxyz(1,b), d=dpx)
+               st(-hs:hs) = q(IQ_PSI,i,j-hs:j+hs,k,b)
+               call gideon_fd_d1_c(order=2*hs, q=st(-hs:hs), ds=dxyz(2,b), d=dpy)
+               st(-hs:hs) = q(IQ_PSI,i,j,k-hs:k+hs,b)
+               call gideon_fd_d1_c(order=2*hs, q=st(-hs:hs), ds=dxyz(3,b), d=dpz)
                divb = mhd_sum3(wx * dbx, wy * dby, wz * dbz)
                upsi = mhd_sum3(wx * q_aux(IA_U,i,j,k,b) * dpx, wy * q_aux(IA_V,i,j,k,b) * dpy, &
                                wz * q_aux(IA_W,i,j,k,b) * dpz)
@@ -290,6 +297,7 @@ contains
    real(R8P),    intent(out) :: divb, upsi                        !< div B, u.grad psi.
    real(R8P)                 :: wx, wy, wz                        !< Direction weights: 1 active, 0 null.
    real(R8P)                 :: dbx, dby, dbz                     !< Derivatives dBx/dx, dBy/dy, dBz/dz.
+   real(R8P)                 :: st(-S_MAX:S_MAX)                  !< Contiguous stencil of one field (GIDEON's window).
    real(R8P)                 :: dpx, dpy, dpz                     !< Derivatives of psi.
    !$acc routine seq
    !$omp declare target
@@ -297,12 +305,18 @@ contains
    wx = merge(0._R8P, 1._R8P, is_null(1))
    wy = merge(0._R8P, 1._R8P, is_null(2))
    wz = merge(0._R8P, 1._R8P, is_null(3))
-   call compute_derivative1_fd_centered(s=hs, ds=dxyz(1), q=q(IQ_BX,i-hs:i+hs,j,k,b), dq_ds=dbx)
-   call compute_derivative1_fd_centered(s=hs, ds=dxyz(2), q=q(IQ_BY,i,j-hs:j+hs,k,b), dq_ds=dby)
-   call compute_derivative1_fd_centered(s=hs, ds=dxyz(3), q=q(IQ_BZ,i,j,k-hs:k+hs,b), dq_ds=dbz)
-   call compute_derivative1_fd_centered(s=hs, ds=dxyz(1), q=q(IQ_PSI,i-hs:i+hs,j,k,b), dq_ds=dpx)
-   call compute_derivative1_fd_centered(s=hs, ds=dxyz(2), q=q(IQ_PSI,i,j-hs:j+hs,k,b), dq_ds=dpy)
-   call compute_derivative1_fd_centered(s=hs, ds=dxyz(3), q=q(IQ_PSI,i,j,k-hs:k+hs,b), dq_ds=dpz)
+   st(-hs:hs) = q(IQ_BX,i-hs:i+hs,j,k,b)
+   call gideon_fd_d1_c(order=2*hs, q=st(-hs:hs), ds=dxyz(1), d=dbx)
+   st(-hs:hs) = q(IQ_BY,i,j-hs:j+hs,k,b)
+   call gideon_fd_d1_c(order=2*hs, q=st(-hs:hs), ds=dxyz(2), d=dby)
+   st(-hs:hs) = q(IQ_BZ,i,j,k-hs:k+hs,b)
+   call gideon_fd_d1_c(order=2*hs, q=st(-hs:hs), ds=dxyz(3), d=dbz)
+   st(-hs:hs) = q(IQ_PSI,i-hs:i+hs,j,k,b)
+   call gideon_fd_d1_c(order=2*hs, q=st(-hs:hs), ds=dxyz(1), d=dpx)
+   st(-hs:hs) = q(IQ_PSI,i,j-hs:j+hs,k,b)
+   call gideon_fd_d1_c(order=2*hs, q=st(-hs:hs), ds=dxyz(2), d=dpy)
+   st(-hs:hs) = q(IQ_PSI,i,j,k-hs:k+hs,b)
+   call gideon_fd_d1_c(order=2*hs, q=st(-hs:hs), ds=dxyz(3), d=dpz)
    divb = mhd_sum3(wx * dbx, wy * dby, wz * dbz)
    upsi = mhd_sum3(wx * q_aux(IA_U,i,j,k,b) * dpx, wy * q_aux(IA_V,i,j,k,b) * dpy, wz * q_aux(IA_W,i,j,k,b) * dpz)
    endsubroutine eglm_source_scalars
