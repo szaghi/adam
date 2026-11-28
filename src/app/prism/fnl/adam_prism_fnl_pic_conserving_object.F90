@@ -43,6 +43,7 @@ use :: adam_prism_common_library
 use :: adam_prism_fnl_pic_object
 ! third party modules
 use :: fundal
+use :: gideon, only : FV_FACE
 use :: mpi
 use :: penf
 use :: selah, only : box, box_interior, stepper, selah_copy
@@ -166,7 +167,7 @@ type :: prism_fnl_pic_conserving_object
    real(R8P),    pointer :: jv_gpu(:,:,:,:,:)         => null() !< Virtual current [1,ghosts...,3].
    real(R8P),    pointer :: p_gpu(:)                  => null() !< P kernel [-7:7].
    real(R8P),    pointer :: qw_gpu(:)                 => null() !< Q kernel [0:9].
-   real(R8P),    pointer :: fv1_gpu(:)                => null() !< FV1_CC(1:hs,hs), face reconstruction coefficients.
+   real(R8P),    pointer :: fv1_gpu(:)                => null() !< FV_FACE(1:hs,hs), face reconstruction coefficients.
    real(R8P),    pointer :: h_gpu(:,:,:,:,:,:)        => null() !< Stage directional charge changes [nb,ni,nj,nk,3,nrk].
    real(R8P),    pointer :: hs_gpu(:,:,:,:,:)         => null() !< A stage current, scratch [nb,ni,nj,nk,3].
    real(R8P),    pointer :: q_next_gpu(:,:)           => null() !< Particle stage target [np,8].
@@ -547,9 +548,9 @@ contains
          call dev_assign_to_device(src=reshape(self%fw, [63]), dst=self%fw_gpu)
       endif
    endif
-   ! Stencil coefficients uploaded once: the kernels do not read the module tables FV1_CC/FD1_CC, whose device copy
+   ! Stencil coefficients uploaded once: the kernels do not read the module tables FV_FACE/FD_D1, whose device copy
    ! (`!$acc declare copyin` of a parameter) is not reliably initialized when no other kernel references it.
-   call dev_assign_to_device(src=FV1_CC(1:hs,hs), dst=self%fv1_gpu)
+   call dev_assign_to_device(src=FV_FACE(1:hs,hs), dst=self%fv1_gpu)
    ! FNL-only limit: the Esirkepov weights of one trajectory live in gang-private arrays of MAX_SPAN cells
    if (2_I4P*(support_radius(self)+1_I4P)+2_I4P > MAX_SPAN) &
       call mpih%error_stop(msg=': particle support too wide for the FNL Esirkepov current (MAX_SPAN='// &
@@ -2995,7 +2996,7 @@ contains
    endsubroutine odd_mirror_index
 
    subroutine build_centered_reconstruction_matrix(hs, n, a)
-   !< Face-reconstruction matrix R such that FD1_CC J = (R_{i+1/2}-R_{i-1/2})/dx. CPU twin of the same name.
+   !< Face-reconstruction matrix R such that FD_D1 J = (R_{i+1/2}-R_{i-1/2})/dx. CPU twin of the same name.
    integer(I4P), intent(in)    :: hs, n
    real(R8P),    intent(inout) :: a(0:,1:)
    integer(I4P)                :: face, m, col
@@ -3004,7 +3005,7 @@ contains
    a(0:n,1:n) = 0._R8P
    do face=0, n
       do m=1, hs
-         coeff = FV1_CC(m,hs)
+         coeff = FV_FACE(m,hs)
          call odd_mirror_index(idx=face+m, n=n, col=col, sgn=sgn)
          a(face,col) = a(face,col) + coeff * sgn
          call odd_mirror_index(idx=face+1-m, n=n, col=col, sgn=sgn)
