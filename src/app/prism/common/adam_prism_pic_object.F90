@@ -5,7 +5,7 @@ module adam_prism_pic_object
 ! ADAM classes, libraries, parameters
 use :: adam_field_object, only : field_object
 use :: adam_grid_object,  only : grid_object
-use :: adam_fdv_operators_library, only : FV1_CC
+use :: gideon,                     only : FV_FACE
 ! ADAM singleton objects
 use :: adam_ini_library, only : ini_check, ini_get, ini_stop
 use :: adam_mpih_global,  only : mpih
@@ -289,7 +289,7 @@ contains
 
    pure subroutine totorica_kernels(hs, p, qw, radius, qfirst, nq)
    !< Totorica's matched current (Totorica 2025, eq. 53-54, S^JO = I) for the centered FD of half stencil hs. The derivative
-   !< factors as D = delta A, A the face reconstruction FV1_CC(:,hs) (A = m C, m = [1,1]/2); then L = Q = m and P = A m:
+   !< factors as D = delta A, A the face reconstruction FV_FACE(:,hs) (A = m C, m = [1,1]/2); then L = Q = m and P = A m:
    !< center i <- faces i-1/2, i+1/2 (weight 1/2 each) <- centers i+1-m, i+m and i-m, i-1+m (weight a_m). FD2 gives
    !< P = [1,2,1]/4, the former esirkepov_Q2; from FD4 on P has negative lobes (those of C).
    integer(I4P), intent(in)  :: hs     !< FD half stencil.
@@ -302,10 +302,10 @@ contains
 
    p = 0._R8P ; qw = 0._R8P
    do m=1,hs
-      p(1-m) = p(1-m) + 0.5_R8P*FV1_CC(m,hs)
-      p(m)   = p(m)   + 0.5_R8P*FV1_CC(m,hs)
-      p(-m)  = p(-m)  + 0.5_R8P*FV1_CC(m,hs)
-      p(m-1) = p(m-1) + 0.5_R8P*FV1_CC(m,hs)
+      p(1-m) = p(1-m) + 0.5_R8P*FV_FACE(m,hs)
+      p(m)   = p(m)   + 0.5_R8P*FV_FACE(m,hs)
+      p(-m)  = p(-m)  + 0.5_R8P*FV_FACE(m,hs)
+      p(m-1) = p(m-1) + 0.5_R8P*FV_FACE(m,hs)
    enddo
    qw(0:1) = [1._R8P,1._R8P]/2._R8P
    radius = hs ; qfirst = -1_I4P ; nq = 2_I4P

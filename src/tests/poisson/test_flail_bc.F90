@@ -39,7 +39,7 @@ program test_flail_bc
 !< ghost-Dirichlet faces, bitwise.
 !<
 !< **PRISM's operators (E3a).** The identity PRISM's elliptic solves rest on: PRISM computes the correction as the
-!< divergence of the gradient with its own library operators (`adam_fdv_operators_library`, centred FD or FV of order
+!< divergence of the gradient with its own library operators (GIDEON's, #159; centred FD or FV of order
 !< 2s), the gradient read from the solution's ghost layers. With a manufactured source `f = div(grad u)` (the test's
 !< ghost rules for u), FLAIL's solution phi, its returned ghosts to depth 2s, gives `div(grad phi) = f` to `TOL_PRISM`
 !< (zero-ghost faces, solved by CG: `TOL_PCG`) for FD and FV, s = 1..4, periodic, PEC on a scalar (odd), PEC on the
@@ -64,8 +64,8 @@ program test_flail_bc
 #ifdef _FNL
 #include "fundal.H"
 #endif
-use :: adam_fdv_operators_library,  only : compute_divergence_fd_centered, compute_divergence_fv_centered, &
-                                           compute_gradient_fd_centered, compute_gradient_fv_centered
+use :: gideon,                      only : gideon_fd_divergence_c, gideon_fd_gradient_c, gideon_fv_divergence_c, &
+                                           gideon_fv_gradient_c
 use :: adam_flail_parameters,       only : FLAIL_BC_PERIODIC, FLAIL_BC_DIRICHLET, FLAIL_BC_NEUMANN, &
                                            FLAIL_BC_DIRICHLET_GHOST, FLAIL_BC_ZERO_GHOSTS, FLAIL_BC_FREE_GHOSTS
 use :: adam_mpih_global,            only : mpih
@@ -174,7 +174,7 @@ test_passed = test_passed .and. abs(it32 - it16) <= 1
 endblock
 call check_zero_compact
 ! PRISM's own operators (E3a): div(grad phi) = f with the library's FD and FV centred derivatives
-if (mpih%myrank == 0) print '(A)', '   PRISM''s operators (E3a), div(grad phi) - f with adam_fdv_operators_library:'
+if (mpih%myrank == 0) print '(A)', '   PRISM''s operators (E3a), div(grad phi) - f with GIDEON''s operators:'
 do po=1, 4
    call check_prism_ops('P/P P/P P/P', reshape([P,P, P,P, P,P], [2,3]), po)
    call check_prism_ops('D/D D/D D/D', reshape([D,D, D,D, D,D], [2,3]), po)
@@ -787,11 +787,11 @@ contains
       do jj=1-s_, nc+s_
          do ii=1-s_, nc+s_
             if (sch_ == 1) then
-               call compute_gradient_fd_centered(s=s_, dxyz=dxyz, q=q(ii-s_:ii+s_,jj-s_:jj+s_,kk-s_:kk+s_), &
-                                                 gradient=gr(:,ii,jj,kk))
+               call gideon_fd_gradient_c(order=2*s_, qx=q(ii-s_:ii+s_,jj,kk), qy=q(ii,jj-s_:jj+s_,kk), &
+                                         qz=q(ii,jj,kk-s_:kk+s_), dxyz=dxyz, g=gr(:,ii,jj,kk))
             else
-               call compute_gradient_fv_centered(s=s_, dxyz=dxyz, q=q(ii-s_:ii+s_,jj-s_:jj+s_,kk-s_:kk+s_), &
-                                                 gradient=gr(:,ii,jj,kk))
+               call gideon_fv_gradient_c(order=2*s_, qx=q(ii-s_:ii+s_,jj,kk), qy=q(ii,jj-s_:jj+s_,kk), &
+                                         qz=q(ii,jj,kk-s_:kk+s_), dxyz=dxyz, g=gr(:,ii,jj,kk))
             endif
          enddo
       enddo
@@ -800,11 +800,11 @@ contains
       do jj=1, nc
          do ii=1, nc
             if (sch_ == 1) then
-               call compute_divergence_fd_centered(s=s_, dxyz=dxyz, q=gr(:,ii-s_:ii+s_,jj-s_:jj+s_,kk-s_:kk+s_), &
-                                                   divergence=y(ii,jj,kk))
+               call gideon_fd_divergence_c(order=2*s_, vx_x=gr(1,ii-s_:ii+s_,jj,kk), vy_y=gr(2,ii,jj-s_:jj+s_,kk), &
+                                           vz_z=gr(3,ii,jj,kk-s_:kk+s_), dxyz=dxyz, div=y(ii,jj,kk))
             else
-               call compute_divergence_fv_centered(s=s_, dxyz=dxyz, q=gr(:,ii-s_:ii+s_,jj-s_:jj+s_,kk-s_:kk+s_), &
-                                                   divergence=y(ii,jj,kk))
+               call gideon_fv_divergence_c(order=2*s_, vx_x=gr(1,ii-s_:ii+s_,jj,kk), vy_y=gr(2,ii,jj-s_:jj+s_,kk), &
+                                           vz_z=gr(3,ii,jj,kk-s_:kk+s_), dxyz=dxyz, div=y(ii,jj,kk))
             endif
          enddo
       enddo

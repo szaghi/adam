@@ -23,6 +23,7 @@ use :: adam_prism_particle_injection_object
 use :: adam_prism_probes_object
 use :: adam_prism_pml_stepper_object
 use :: adam_stepper_object, only : stepper_stored_fields, LAYOUT_V_FIRST
+use :: gideon, only : gideon_fd_curl_c, gideon_fd_d1_c, gideon_fv_curl_c
 use :: selah,               only : stepper
 use :: adam_prism_time_object
 ! third party modules
@@ -5666,9 +5667,15 @@ contains
          do j=l(2), u(2)
             do i=l(1), u(1)
                if (fd) then
-                  call compute_curl_fd_centered(s=hs, dxyz=dxyz, q=Ae(:,i-hs:i+hs,j-hs:j+hs,k-hs:k+hs), curl=Jb(:,i,j,k))
+                  call gideon_fd_curl_c(order=2*hs, vy_x=Ae(2,i-hs:i+hs,j,k), vz_x=Ae(3,i-hs:i+hs,j,k),        &
+                                        vx_y=Ae(1,i,j-hs:j+hs,k), vz_y=Ae(3,i,j-hs:j+hs,k),                &
+                                        vx_z=Ae(1,i,j,k-hs:k+hs), vy_z=Ae(2,i,j,k-hs:k+hs), dxyz=dxyz, &
+                                        c=Jb(1:3,i,j,k))
                else
-                  call compute_curl_fv_centered(s=hs, dxyz=dxyz, q=Ae(:,i-hs:i+hs,j-hs:j+hs,k-hs:k+hs), curl=Jb(:,i,j,k))
+                  call gideon_fv_curl_c(order=2*hs, vy_x=Ae(2,i-hs:i+hs,j,k), vz_x=Ae(3,i-hs:i+hs,j,k),        &
+                                        vx_y=Ae(1,i,j-hs:j+hs,k), vz_y=Ae(3,i,j-hs:j+hs,k),                &
+                                        vx_z=Ae(1,i,j,k-hs:k+hs), vy_z=Ae(2,i,j,k-hs:k+hs), dxyz=dxyz, &
+                                        c=Jb(1:3,i,j,k))
                endif
             enddo
          enddo
@@ -5823,9 +5830,9 @@ contains
                                             Radius=Radius, N_points=N_points, s_map=s_map, csi_map=csi_map,           &
                                             theta_c=theta_c, sigma=sigma)
             if (chi == 0._R8P) cycle
-            call compute_derivative1_fd_centered(s=hs, ds=dxyz(1), q=G(i-hs:i+hs,j,k), dq_ds=grad_G(1))
-            call compute_derivative1_fd_centered(s=hs, ds=dxyz(2), q=G(i,j-hs:j+hs,k), dq_ds=grad_G(2))
-            call compute_derivative1_fd_centered(s=hs, ds=dxyz(3), q=G(i,j,k-hs:k+hs), dq_ds=grad_G(3))
+            call gideon_fd_d1_c(order=2*hs, q=G(i-hs:i+hs,j,k), ds=dxyz(1), d=grad_G(1))
+            call gideon_fd_d1_c(order=2*hs, q=G(i,j-hs:j+hs,k), ds=dxyz(2), d=grad_G(2))
+            call gideon_fd_d1_c(order=2*hs, q=G(i,j,k-hs:k+hs), ds=dxyz(3), d=grad_G(3))
             Ae(:,i,j,k) = eta * chi * grad_G
          enddo
       enddo

@@ -37,7 +37,8 @@ module adam_realm_object
 use :: adam_adam_object
 use :: adam_amr_object
 use :: adam_eos_ic_object
-use :: adam_fdv_operators_library
+use :: gideon, only : gideon_fd_curl_c, gideon_fd_divergence_c, gideon_fd_gradient_c, gideon_fv_curl_c, &
+                      gideon_fv_divergence_c, gideon_fv_gradient_c
 use :: adam_field_object
 use :: adam_flail_object
 use :: adam_flux_register_object
@@ -143,16 +144,8 @@ type :: realm_object
    !< Procedure pointer TBPs for FDV operators (set at initialization by backend).
    procedure(compute_block_total_variation_interface), pass(self),pointer :: compute_block_total_variation=>null()!< Compute TV.
    procedure(compute_curl_interface),                  pass(self),pointer :: compute_curl                 =>null()!< Compute curl.
-   procedure(compute_curl_interface),                  pass(self),pointer :: compute_curl_extended        =>null()
-      !< Compute curl on extended support.
-   procedure(compute_derivative1_interface),           pass(self),pointer :: compute_derivative1          =>null()!< Compute deriv1.
-   procedure(compute_derivative2_interface),           pass(self),pointer :: compute_derivative2          =>null()!< Compute deriv2.
-   procedure(compute_derivative4_interface),           pass(self),pointer :: compute_derivative4          =>null()!< Compute deriv4.
    procedure(compute_divergence_interface),            pass(self),pointer :: compute_divergence           =>null()!< Compute dive.
    procedure(compute_gradient_interface),              pass(self),pointer :: compute_gradient             =>null()!< Compute grad.
-   procedure(compute_gradient_interface),              pass(self),pointer :: compute_gradient_extended    =>null()
-      !< Compute gradient on extended support.
-   procedure(compute_laplacian_interface),             pass(self),pointer :: compute_laplacian            =>null()!< Compute laplac.
    contains
       ! public methods
       procedure, pass(self) :: initialize         !< Initialize common data.
@@ -200,26 +193,15 @@ type :: realm_object
       procedure, pass(self) :: open_file_xh5f   !< Open file XH5F.
       procedure, pass(self) :: save_q_xh5f      !< Save in XH5F (XDMF/HDF5) format.
       ! public FDV operators
-      procedure, pass(self)  :: compute_curl_fd_extended !< Compute curl of vector field, finite difference, even for half gcs.
-      procedure, pass(self)  :: compute_gradient_fd_extended !< Compute gradient of scalar field, finite difference, even for half
          !< gcs. private FDV operators
       procedure, pass(self), private :: compute_block_total_variation_fd !< Return the max of block total variation for a given var.
       procedure, pass(self), private :: compute_curl_fd                  !< Compute curl of vector field, finite difference.
       procedure, pass(self), private :: compute_curl_fv                  !< Compute curl of vector field, finite volume.
-      procedure, pass(self), private :: compute_curl_fv_extended !< Compute curl of vector field, finite volume, even for half gcs.
-      procedure, pass(self), private :: compute_derivative1_fd           !< Compute derivative1 of scalar field, finite difference.
-      procedure, pass(self), private :: compute_derivative1_fv           !< Compute derivative1 of scalar field, finite volume.
-      procedure, pass(self), private :: compute_derivative2_fd           !< Compute derivative2 of scalar field, finite difference.
-      procedure, pass(self), private :: compute_derivative2_fv           !< Compute derivative2 of scalar field, finite volume.
-      procedure, pass(self), private :: compute_derivative4_fd           !< Compute derivative4 of scalar field, finite difference.
       procedure, pass(self), private :: compute_divergence_fd            !< Compute divergence of vector field, finite difference.
       procedure, pass(self), private :: compute_divergence_fv            !< Compute divergence of vector field, finite volume.
       procedure, pass(self), private :: compute_gradient_fd              !< Compute gradient of scalar field, finite difference.
       procedure, pass(self), private :: compute_gradient_fv              !< Compute gradient of scalar field, finite volume.
-      procedure, pass(self), private :: compute_gradient_fv_extended !< Compute gradient of scalar field, finite volume, even for
          !< half gcs.
-      procedure, pass(self), private :: compute_laplacian_fd             !< Compute laplacian of scalar field, finite difference.
-      procedure, pass(self), private :: compute_laplacian_fv             !< Compute laplacian of scalar field, finite volume.
 endtype realm_object
 
 type :: realm_pointer
@@ -260,39 +242,6 @@ interface
    real(R8P),           intent(inout) :: curl(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Curl.
    endsubroutine compute_curl_interface
 
-   subroutine compute_derivative1_interface(self, hs, dir, ivar, q, dq_ds)
-   !< Compute first derivative of scalar field, dq(ivar)/ds.
-   import :: realm_object, I4P, R8P
-   class(realm_object), intent(in)    :: self                                             !< The equation.
-   integer(I4P),        intent(in)    :: hs                                               !< FDV half stencil length.
-   integer(I4P),        intent(in)    :: dir                                              !< Direction: 1=X, 2=Y, 3=Z.
-   integer(I4P),        intent(in)    :: ivar                                             !< Index of variable of q.
-   real(R8P),           intent(in)    :: q(    1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Field variables.
-   real(R8P),           intent(inout) :: dq_ds(   1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< First derivative dq/ds.
-   endsubroutine compute_derivative1_interface
-
-   subroutine compute_derivative2_interface(self, hs, dir, ivar, q, d2q_ds2)
-   !< Compute second derivative of scalar field, d2q(ivar)/ds2.
-   import :: realm_object, I4P, R8P
-   class(realm_object), intent(in)    :: self                                               !< The equation.
-   integer(I4P),        intent(in)    :: hs                                                 !< FDV half stencil length.
-   integer(I4P),        intent(in)    :: dir                                                !< Direction: 1=X, 2=Y, 3=Z.
-   integer(I4P),        intent(in)    :: ivar                                               !< Index of variable of q.
-   real(R8P),           intent(in)    :: q(      1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Field variables.
-   real(R8P),           intent(inout) :: d2q_ds2(   1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Second derivative d2q/ds2.
-   endsubroutine compute_derivative2_interface
-
-   subroutine compute_derivative4_interface(self, hs, dir, ivar, q, d4q_ds4)
-   !< Compute fourth derivative of scalar field, d4q(ivar)/ds4.
-   import :: realm_object, I4P, R8P
-   class(realm_object), intent(in)    :: self                                               !< The equation.
-   integer(I4P),        intent(in)    :: hs                                                 !< FDV half stencil length.
-   integer(I4P),        intent(in)    :: dir                                                !< Direction: 1=X, 2=Y, 3=Z.
-   integer(I4P),        intent(in)    :: ivar                                               !< Index of variable of q.
-   real(R8P),           intent(in)    :: q(      1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Field variables.
-   real(R8P),           intent(inout) :: d4q_ds4(   1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Fourth derivative d4q/ds4.
-   endsubroutine compute_derivative4_interface
-
    subroutine compute_divergence_interface(self, hs, ivar, q, divergence)
    !< Compute divergence of vector field, div(q(ivar:ivar+2)).
    import :: realm_object, I4P, R8P
@@ -312,16 +261,6 @@ interface
    real(R8P),           intent(in)    :: q(        1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:)  !< Field variables.
    real(R8P),           intent(inout) :: gradient( 1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:)  !< Gradient.
    endsubroutine compute_gradient_interface
-
-   subroutine compute_laplacian_interface(self, hs, ivar, q, laplacian)
-   !< Compute laplacian of scalar variable q(ivar).
-   import :: realm_object, I4P, R8P
-   class(realm_object), intent(in)    :: self                                                  !< The equation.
-   integer(I4P),        intent(in)    :: hs                                                    !< FDV half stencil length.
-   integer(I4P),        intent(in)    :: ivar                                                  !< Index of scalar variable of q.
-   real(R8P),           intent(in)    :: q(        1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:)  !< Field variables.
-   real(R8P),           intent(inout) :: laplacian(   1-self%ngc:,1-self%ngc:,1-self%ngc:,1:)  !< Laplacian.
-   endsubroutine compute_laplacian_interface
 endinterface
 
 contains
@@ -445,24 +384,14 @@ contains
       self%fdv_scheme = 'FD'
       self%compute_block_total_variation => compute_block_total_variation_fd
       self%compute_curl                  => compute_curl_fd
-      self%compute_curl_extended         => compute_curl_fd_extended
-      self%compute_derivative1           => compute_derivative1_fd
-      self%compute_derivative2           => compute_derivative2_fd
       self%compute_divergence            => compute_divergence_fd
       self%compute_gradient              => compute_gradient_fd
-      self%compute_gradient_extended     => compute_gradient_fd_extended
-      self%compute_laplacian             => compute_laplacian_fd
    case('FV', 'fv', 'Fv', 'fV')
       self%fdv_scheme = 'FV'
       ! self%compute_block_total_variation => compute_block_total_variation_fd
       self%compute_curl                  => compute_curl_fv
-      self%compute_curl_extended         => compute_curl_fv_extended
-      self%compute_derivative1           => compute_derivative1_fv
-      self%compute_derivative2           => compute_derivative2_fv
       self%compute_divergence            => compute_divergence_fv
       self%compute_gradient              => compute_gradient_fv
-      self%compute_gradient_extended     => compute_gradient_fv_extended
-      self%compute_laplacian             => compute_laplacian_fv
    case default
       call mpih%error_stop(msg=': unknown FDV scheme "'//trim(adjustl(buff))//'"')
    endselect
@@ -1246,12 +1175,12 @@ contains
    do k=1, self%nk
    do j=1, self%nj
    do i=1, self%ni
-      call compute_gradient_fd_centered(s=hs,dxyz=dxyz,q=q(ivar,  i-hs:i+hs,j-hs:j+hs,k-hs:k+hs),&
-                                        gradient=gradient(:,1))
-      call compute_gradient_fd_centered(s=hs,dxyz=dxyz,q=q(ivar+1,i-hs:i+hs,j-hs:j+hs,k-hs:k+hs),&
-                                        gradient=gradient(:,2))
-      call compute_gradient_fd_centered(s=hs,dxyz=dxyz,q=q(ivar+2,i-hs:i+hs,j-hs:j+hs,k-hs:k+hs),&
-                                        gradient=gradient(:,3))
+      call gideon_fd_gradient_c(order=2*hs, qx=q(ivar,i-hs:i+hs,j,k), qy=q(ivar,i,j-hs:j+hs,k), &
+                                qz=q(ivar,i,j,k-hs:k+hs), dxyz=dxyz, g=gradient(:,1))
+      call gideon_fd_gradient_c(order=2*hs, qx=q(ivar+1,i-hs:i+hs,j,k), qy=q(ivar+1,i,j-hs:j+hs,k), &
+                                qz=q(ivar+1,i,j,k-hs:k+hs), dxyz=dxyz, g=gradient(:,2))
+      call gideon_fd_gradient_c(order=2*hs, qx=q(ivar+2,i-hs:i+hs,j,k), qy=q(ivar+2,i,j-hs:j+hs,k), &
+                                qz=q(ivar+2,i,j,k-hs:k+hs), dxyz=dxyz, g=gradient(:,3))
       tv = sqrt(gradient(1,1)*gradient(1,1) + gradient(2,1)*gradient(2,1) + gradient(3,1)*gradient(3,1) +&
                 gradient(1,2)*gradient(1,2) + gradient(2,2)*gradient(2,2) + gradient(3,2)*gradient(3,2) +&
                 gradient(1,3)*gradient(1,3) + gradient(2,3)*gradient(2,3) + gradient(3,3)*gradient(3,3))
@@ -1276,35 +1205,16 @@ contains
    do k=1, self%nk
    do j=1, self%nj
    do i=1, self%ni
-      call compute_curl_fd_centered(s=hs,dxyz=dxyz(:,b),q=q(ivar:ivar+2,i-hs:i+hs,j-hs:j+hs,k-hs:k+hs,b),curl=curl(ivar:,i,j,k,b))
+      call gideon_fd_curl_c(order=2*hs, vy_x=q(ivar+1,i-hs:i+hs,j,k,b), vz_x=q(ivar+2,i-hs:i+hs,j,k,b),       &
+                            vx_y=q(ivar,i,j-hs:j+hs,k,b), vz_y=q(ivar+2,i,j-hs:j+hs,k,b),               &
+                            vx_z=q(ivar,i,j,k-hs:k+hs,b), vy_z=q(ivar+1,i,j,k-hs:k+hs,b), dxyz=dxyz(:,b), &
+                            c=curl(ivar:ivar+2,i,j,k,b))
    enddo
    enddo
    enddo
    enddo
    endassociate
    endsubroutine compute_curl_fd
-
-   subroutine compute_curl_fd_extended(self, hs, ivar, q, curl)
-   !< Compute curl of vector fields, div(q(ivar:ivar+2), using finite difference schemes.
-   class(realm_object), intent(in)    :: self                                            !< The equation.
-   integer(I4P),        intent(in)    :: hs                                              !< FDV half stencil length.
-   integer(I4P),        intent(in)    :: ivar                                            !< Start index of variable of q.
-   real(R8P),           intent(in)    :: q(   1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Field variables.
-   real(R8P),           intent(inout) :: curl(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Curl.
-   integer(I4P)                       :: i,j,k,b                                         !< Counter.
-
-   associate(dxyz=>self%adam%field%dxyz)
-   do b=1, self%blocks_number
-   do k=1-self%ngc/2, self%nk+self%ngc/2
-   do j=1-self%ngc/2, self%nj+self%ngc/2
-   do i=1-self%ngc/2, self%ni+self%ngc/2
-      call compute_curl_fd_centered(s=hs,dxyz=dxyz(:,b),q=q(ivar:ivar+2,i-hs:i+hs,j-hs:j+hs,k-hs:k+hs,b),curl=curl(ivar:,i,j,k,b))
-   enddo
-   enddo
-   enddo
-   enddo
-   endassociate
-   endsubroutine compute_curl_fd_extended
 
    subroutine compute_curl_fv(self, hs, ivar, q, curl)
    !< Compute curl of vector fields, div(q(ivar:ivar+2), using finite volume schemes.
@@ -1320,265 +1230,16 @@ contains
    do k=1, self%nk
    do j=1, self%nj
    do i=1, self%ni
-      call compute_curl_fv_centered(s=hs,dxyz=dxyz(:,b),q=q(ivar:ivar+2,i-hs:i+hs,j-hs:j+hs,k-hs:k+hs,b),curl=curl(ivar:,i,j,k,b))
+      call gideon_fv_curl_c(order=2*hs, vy_x=q(ivar+1,i-hs:i+hs,j,k,b), vz_x=q(ivar+2,i-hs:i+hs,j,k,b),       &
+                            vx_y=q(ivar,i,j-hs:j+hs,k,b), vz_y=q(ivar+2,i,j-hs:j+hs,k,b),               &
+                            vx_z=q(ivar,i,j,k-hs:k+hs,b), vy_z=q(ivar+1,i,j,k-hs:k+hs,b), dxyz=dxyz(:,b), &
+                            c=curl(ivar:ivar+2,i,j,k,b))
    enddo
    enddo
    enddo
    enddo
    endassociate
    endsubroutine compute_curl_fv
-
-   subroutine compute_curl_fv_extended(self, hs, ivar, q, curl)
-   !< Compute curl of vector fields, div(q(ivar:ivar+2), using finite volume schemes.
-   class(realm_object), intent(in)    :: self                                            !< The equation.
-   integer(I4P),        intent(in)    :: hs                                              !< FDV half stencil length.
-   integer(I4P),        intent(in)    :: ivar                                            !< Start index of variable of q.
-   real(R8P),           intent(in)    :: q(   1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Field variables.
-   real(R8P),           intent(inout) :: curl(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Curl.
-   integer(I4P)                       :: i,j,k,b                                         !< Counter.
-
-   associate(dxyz=>self%adam%field%dxyz)
-   do b=1, self%blocks_number
-   do k=1-self%ngc/2, self%nk+self%ngc/2
-   do j=1-self%ngc/2, self%nj+self%ngc/2
-   do i=1-self%ngc/2, self%ni+self%ngc/2
-      call compute_curl_fv_centered(s=hs,dxyz=dxyz(:,b),q=q(ivar:ivar+2,i-hs:i+hs,j-hs:j+hs,k-hs:k+hs,b),curl=curl(ivar:,i,j,k,b))
-   enddo
-   enddo
-   enddo
-   enddo
-   endassociate
-   endsubroutine compute_curl_fv_extended
-
-   subroutine compute_derivative1_fd(self, hs, dir, ivar, q, dq_ds)
-   !< Compute derivative1 of scalar fields, dq(ivar)/ds, using finite difference schemes.
-   class(realm_object), intent(in)    :: self                                         !< The equation.
-   integer(I4P),        intent(in)    :: hs                                           !< FDV half stencil length.
-   integer(I4P),        intent(in)    :: dir                                          !< Direction, 1=X, 2=Y, 3=Z.
-   integer(I4P),        intent(in)    :: ivar                                         !< Start index of (vec.) variable of q.
-   real(R8P),           intent(in)    :: q(1:, 1-self%ngc:,1-self%ngc:,1-self%ngc:,1:)!< Field variables.
-   real(R8P),           intent(inout) :: dq_ds(1-self%ngc:,1-self%ngc:,1-self%ngc:,1:)!< Derivative1, dq/ds.
-   integer(I4P)                       :: i,j,k,b                                      !< Counter.
-
-   associate(dxyz=>self%adam%field%dxyz)
-   select case(dir)
-   case(1)
-      do b=1, self%blocks_number
-      do k=1, self%nk
-      do j=1, self%nj
-      do i=1, self%ni
-         call compute_derivative1_fd_centered(s=hs,ds=dxyz(dir,b),q=q(ivar,i-hs:i+hs,j,k,b),dq_ds=dq_ds(i,j,k,b))
-      enddo
-      enddo
-      enddo
-      enddo
-   case(2)
-      do b=1, self%blocks_number
-      do k=1, self%nk
-      do j=1, self%nj
-      do i=1, self%ni
-         call compute_derivative1_fd_centered(s=hs,ds=dxyz(dir,b),q=q(ivar,i,j-hs:j+hs,k,b),dq_ds=dq_ds(i,j,k,b))
-      enddo
-      enddo
-      enddo
-      enddo
-   case(3)
-      do b=1, self%blocks_number
-      do k=1, self%nk
-      do j=1, self%nj
-      do i=1, self%ni
-         call compute_derivative1_fd_centered(s=hs,ds=dxyz(dir,b),q=q(ivar,i,j,k-hs:k+hs,b),dq_ds=dq_ds(i,j,k,b))
-      enddo
-      enddo
-      enddo
-      enddo
-   endselect
-   endassociate
-   endsubroutine compute_derivative1_fd
-
-   subroutine compute_derivative1_fv(self, hs, dir, ivar, q, dq_ds)
-   !< Compute derivative1 of scalar fields, dq(ivar)/ds, using finite volume schemes.
-   class(realm_object), intent(in)    :: self                                         !< The equation.
-   integer(I4P),        intent(in)    :: hs                                           !< FDV half stencil length.
-   integer(I4P),        intent(in)    :: dir                                          !< Direction, 1=X, 2=Y, 3=Z.
-   integer(I4P),        intent(in)    :: ivar                                         !< Start index of (vec.) variable of q.
-   real(R8P),           intent(in)    :: q(1:, 1-self%ngc:,1-self%ngc:,1-self%ngc:,1:)!< Field variables.
-   real(R8P),           intent(inout) :: dq_ds(1-self%ngc:,1-self%ngc:,1-self%ngc:,1:)!< Derivative1, dq/ds.
-   integer(I4P)                       :: i,j,k,b                                      !< Counter.
-
-   associate(dxyz=>self%adam%field%dxyz)
-   select case(dir)
-   case(1)
-      do b=1, self%blocks_number
-      do k=1, self%nk
-      do j=1, self%nj
-      do i=1, self%ni
-         call compute_derivative1_fv_centered(s=hs,ds=dxyz(dir,b),q=q(ivar,i-hs:i+hs,j,k,b),dq_ds=dq_ds(i,j,k,b))
-      enddo
-      enddo
-      enddo
-      enddo
-   case(2)
-      do b=1, self%blocks_number
-      do k=1, self%nk
-      do j=1, self%nj
-      do i=1, self%ni
-         call compute_derivative1_fv_centered(s=hs,ds=dxyz(dir,b),q=q(ivar,i,j-hs:j+hs,k,b),dq_ds=dq_ds(i,j,k,b))
-      enddo
-      enddo
-      enddo
-      enddo
-   case(3)
-      do b=1, self%blocks_number
-      do k=1, self%nk
-      do j=1, self%nj
-      do i=1, self%ni
-         call compute_derivative1_fv_centered(s=hs,ds=dxyz(dir,b),q=q(ivar,i,j,k-hs:k+hs,b),dq_ds=dq_ds(i,j,k,b))
-      enddo
-      enddo
-      enddo
-      enddo
-   endselect
-   endassociate
-   endsubroutine compute_derivative1_fv
-
-   subroutine compute_derivative2_fd(self, hs, dir, ivar, q, d2q_ds2)
-   !< Compute derivative2 of scalar fields, d2q(ivar)/ds2, using finite difference schemes.
-   class(realm_object), intent(in)    :: self                                           !< The equation.
-   integer(I4P),        intent(in)    :: hs                                             !< FDV half stencil length.
-   integer(I4P),        intent(in)    :: dir                                            !< Direction, 1=X, 2=Y, 3=Z.
-   integer(I4P),        intent(in)    :: ivar                                           !< Start index of vec variable of q.
-   real(R8P),           intent(in)    :: q(1:,   1-self%ngc:,1-self%ngc:,1-self%ngc:,1:)!< Field variables.
-   real(R8P),           intent(inout) :: d2q_ds2(1-self%ngc:,1-self%ngc:,1-self%ngc:,1:)!< Derivative2, d2q/ds2.
-   integer(I4P)                       :: i,j,k,b                                        !< Counter.
-
-   associate(dxyz=>self%adam%field%dxyz)
-   select case(dir)
-   case(1)
-      do b=1, self%blocks_number
-      do k=1, self%nk
-      do j=1, self%nj
-      do i=1, self%ni
-         call compute_derivative2_fd_centered(s=hs,ds=dxyz(dir,b),q=q(ivar,i-hs:i+hs,j,k,b),d2q_ds2=d2q_ds2(i,j,k,b))
-      enddo
-      enddo
-      enddo
-      enddo
-   case(2)
-      do b=1, self%blocks_number
-      do k=1, self%nk
-      do j=1, self%nj
-      do i=1, self%ni
-         call compute_derivative2_fd_centered(s=hs,ds=dxyz(dir,b),q=q(ivar,i,j-hs:j+hs,k,b),d2q_ds2=d2q_ds2(i,j,k,b))
-      enddo
-      enddo
-      enddo
-      enddo
-   case(3)
-      do b=1, self%blocks_number
-      do k=1, self%nk
-      do j=1, self%nj
-      do i=1, self%ni
-         call compute_derivative2_fd_centered(s=hs,ds=dxyz(dir,b),q=q(ivar,i,j,k-hs:k+hs,b),d2q_ds2=d2q_ds2(i,j,k,b))
-      enddo
-      enddo
-      enddo
-      enddo
-   endselect
-   endassociate
-   endsubroutine compute_derivative2_fd
-
-   subroutine compute_derivative2_fv(self, hs, dir, ivar, q, d2q_ds2)
-   !< Compute derivative2 of scalar fields, d2q(ivar)/ds2, using finite volume schemes.
-   class(realm_object), intent(in)    :: self                                            !< The equation.
-   integer(I4P),        intent(in)    :: hs                                              !< FDV half stencil length.
-   integer(I4P),        intent(in)    :: dir                                             !< Direction, 1=X, 2=Y, 3=Z.
-   integer(I4P),        intent(in)    :: ivar                                            !< Start index of variable of q.
-   real(R8P),           intent(in)    :: q(1:,   1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Field variables.
-   real(R8P),           intent(inout) :: d2q_ds2(1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Derivative2, d2q/ds2.
-   integer(I4P)                       :: i,j,k,b                                         !< Counter.
-
-   associate(dxyz=>self%adam%field%dxyz)
-   select case(dir)
-   case(1)
-      do b=1, self%blocks_number
-      do k=1, self%nk
-      do j=1, self%nj
-      do i=1, self%ni
-         ! call compute_derivative2_fv_centered(s=hs,ds=dxyz(dir,b),q=q(ivar,i-hs:i+hs,j,k,b),d2q_ds2=d2q_ds2(i,j,k,b))
-      enddo
-      enddo
-      enddo
-      enddo
-   case(2)
-      do b=1, self%blocks_number
-      do k=1, self%nk
-      do j=1, self%nj
-      do i=1, self%ni
-         ! call compute_derivative2_fv_centered(s=hs,ds=dxyz(dir,b),q=q(ivar,i,j-hs:j+hs,k,b),d2q_ds2=d2q_ds2(i,j,k,b))
-      enddo
-      enddo
-      enddo
-      enddo
-   case(3)
-      do b=1, self%blocks_number
-      do k=1, self%nk
-      do j=1, self%nj
-      do i=1, self%ni
-         ! call compute_derivative2_fv_centered(s=hs,ds=dxyz(dir,b),q=q(ivar,i,j,k-hs:k+hs,b),d2q_ds2=d2q_ds2(i,j,k,b))
-      enddo
-      enddo
-      enddo
-      enddo
-   endselect
-   endassociate
-   endsubroutine compute_derivative2_fv
-
-   subroutine compute_derivative4_fd(self, hs, dir, ivar, q, d4q_ds4)
-   !< Compute derivative2 of scalar fields, d4q(ivar)/ds4, using finite difference schemes.
-   class(realm_object), intent(in)    :: self                                            !< The equation.
-   integer(I4P),        intent(in)    :: hs                                              !< FDV half stencil length.
-   integer(I4P),        intent(in)    :: dir                                             !< Direction, 1=X, 2=Y, 3=Z.
-   integer(I4P),        intent(in)    :: ivar                                            !< Start index of variable of q.
-   real(R8P),           intent(in)    :: q(1:,   1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Field variables.
-   real(R8P),           intent(inout) :: d4q_ds4(1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Derivative4, d4q/ds4.
-   integer(I4P)                       :: i,j,k,b                                         !< Counter.
-
-   associate(dxyz=>self%adam%field%dxyz)
-   select case(dir)
-   case(1)
-      do b=1, self%blocks_number
-      do k=1, self%nk
-      do j=1, self%nj
-      do i=1, self%ni
-         call compute_derivative4_fd_centered(s=hs,ds=dxyz(dir,b),q=q(ivar,i-hs:i+hs,j,k,b),d4q_ds4=d4q_ds4(i,j,k,b))
-      enddo
-      enddo
-      enddo
-      enddo
-   case(2)
-      do b=1, self%blocks_number
-      do k=1, self%nk
-      do j=1, self%nj
-      do i=1, self%ni
-         call compute_derivative4_fd_centered(s=hs,ds=dxyz(dir,b),q=q(ivar,i,j-hs:j+hs,k,b),d4q_ds4=d4q_ds4(i,j,k,b))
-      enddo
-      enddo
-      enddo
-      enddo
-   case(3)
-      do b=1, self%blocks_number
-      do k=1, self%nk
-      do j=1, self%nj
-      do i=1, self%ni
-         call compute_derivative4_fd_centered(s=hs,ds=dxyz(dir,b),q=q(ivar,i,j,k-hs:k+hs,b),d4q_ds4=d4q_ds4(i,j,k,b))
-      enddo
-      enddo
-      enddo
-      enddo
-   endselect
-   endassociate
-   endsubroutine compute_derivative4_fd
 
    subroutine compute_divergence_fd(self, hs, ivar, q, divergence)
    !< Compute divergence of vector fields, div(q(ivar:ivar+2), using finite difference schemes.
@@ -1594,8 +1255,8 @@ contains
    do k=1, self%nk
    do j=1, self%nj
    do i=1, self%ni
-      call compute_divergence_fd_centered(s=hs,dxyz=dxyz(:,b),q=q(ivar:ivar+2,i-hs:i+hs,j-hs:j+hs,k-hs:k+hs,b),&
-                                          divergence=divergence(i,j,k,b))
+      call gideon_fd_divergence_c(order=2*hs, vx_x=q(ivar,i-hs:i+hs,j,k,b), vy_y=q(ivar+1,i,j-hs:j+hs,k,b), &
+                                  vz_z=q(ivar+2,i,j,k-hs:k+hs,b), dxyz=dxyz(:,b), div=divergence(i,j,k,b))
    enddo
    enddo
    enddo
@@ -1617,8 +1278,8 @@ contains
    do k=1, self%nk
    do j=1, self%nj
    do i=1, self%ni
-      call compute_divergence_fv_centered(s=hs,dxyz=dxyz(:,b),q=q(ivar:ivar+2,i-hs:i+hs,j-hs:j+hs,k-hs:k+hs,b), &
-                                          divergence=divergence(i,j,k,b))
+      call gideon_fv_divergence_c(order=2*hs, vx_x=q(ivar,i-hs:i+hs,j,k,b), vy_y=q(ivar+1,i,j-hs:j+hs,k,b), &
+                                  vz_z=q(ivar+2,i,j,k-hs:k+hs,b), dxyz=dxyz(:,b), div=divergence(i,j,k,b))
    enddo
    enddo
    enddo
@@ -1640,37 +1301,14 @@ contains
    do k=1, self%nk
    do j=1, self%nj
    do i=1, self%ni
-      call compute_gradient_fd_centered(s=hs,dxyz=dxyz(:,b),q=q(ivar,i-hs:i+hs,j-hs:j+hs,k-hs:k+hs,b),&
-                                        gradient=gradient(1:3,i,j,k,b))
+      call gideon_fd_gradient_c(order=2*hs, qx=q(ivar,i-hs:i+hs,j,k,b), qy=q(ivar,i,j-hs:j+hs,k,b), &
+                                qz=q(ivar,i,j,k-hs:k+hs,b), dxyz=dxyz(:,b), g=gradient(1:3,i,j,k,b))
    enddo
    enddo
    enddo
    enddo
    endassociate
    endsubroutine compute_gradient_fd
-
-   subroutine compute_gradient_fd_extended(self, hs, ivar, q, gradient)
-   !< Compute gradient of scalar variable q(ivar), finite difference schemes.
-   class(realm_object), intent(in)    :: self                                               !< The equation.
-   integer(I4P),        intent(in)    :: hs                                                 !< FDV half stencil length.
-   integer(I4P),        intent(in)    :: ivar                                               !< Index of scalar variable of q.
-   real(R8P),           intent(in)    :: q(       1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:)!< Field variables.
-   real(R8P),           intent(inout) :: gradient(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:)!< Gradient.
-   integer(I4P)                       :: i, j, k, b                                         !< Counter.
-
-   associate(dxyz=>self%adam%field%dxyz)
-   do b=1, self%blocks_number
-   do k=1-self%ngc/2, self%nk+self%ngc/2
-   do j=1-self%ngc/2, self%nj+self%ngc/2
-   do i=1-self%ngc/2, self%ni+self%ngc/2
-      call compute_gradient_fd_centered(s=hs,dxyz=dxyz(:,b),q=q(ivar,i-hs:i+hs,j-hs:j+hs,k-hs:k+hs,b),&
-                                        gradient=gradient(1:3,i,j,k,b))
-   enddo
-   enddo
-   enddo
-   enddo
-   endassociate
-   endsubroutine compute_gradient_fd_extended
 
    subroutine compute_gradient_fv(self, hs, ivar, q, gradient)
    !< Compute gradient of scalar variable q(ivar), finite volume schemes.
@@ -1686,79 +1324,12 @@ contains
    do k=1, self%nk
    do j=1, self%nj
    do i=1, self%ni
-      call compute_gradient_fv_centered(s=hs,dxyz=dxyz(:,b),q=q(ivar,i-hs:i+hs,j-hs:j+hs,k-hs:k+hs,b),&
-                                        gradient=gradient(1:3,i,j,k,b))
+      call gideon_fv_gradient_c(order=2*hs, qx=q(ivar,i-hs:i+hs,j,k,b), qy=q(ivar,i,j-hs:j+hs,k,b), &
+                                qz=q(ivar,i,j,k-hs:k+hs,b), dxyz=dxyz(:,b), g=gradient(1:3,i,j,k,b))
    enddo
    enddo
    enddo
    enddo
    endassociate
    endsubroutine compute_gradient_fv
-
-   subroutine compute_gradient_fv_extended(self, hs, ivar, q, gradient)
-   !< Compute gradient of scalar variable q(ivar), finite volume schemes.
-   class(realm_object), intent(in)    :: self                                               !< The equation.
-   integer(I4P),        intent(in)    :: hs                                                 !< FDV half stencil length.
-   integer(I4P),        intent(in)    :: ivar                                               !< Index of scalar variable of q.
-   real(R8P),           intent(in)    :: q(       1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:)!< Field variables.
-   real(R8P),           intent(inout) :: gradient(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:)!< Gradient.
-   integer(I4P)                       :: i, j, k, b                                         !< Counter.
-
-   associate(dxyz=>self%adam%field%dxyz)
-   do b=1, self%blocks_number
-   do k=1-self%ngc/2, self%nk+self%ngc/2
-   do j=1-self%ngc/2, self%nj+self%ngc/2
-   do i=1-self%ngc/2, self%ni+self%ngc/2
-      call compute_gradient_fv_centered(s=hs,dxyz=dxyz(:,b),q=q(ivar,i-hs:i+hs,j-hs:j+hs,k-hs:k+hs,b),&
-                                        gradient=gradient(1:3,i,j,k,b))
-   enddo
-   enddo
-   enddo
-   enddo
-   endassociate
-   endsubroutine compute_gradient_fv_extended
-
-   subroutine compute_laplacian_fd(self, hs, ivar, q, laplacian)
-   !< Compute laplacian of scalar variable q(ivar), finite difference schemes.
-   class(realm_object), intent(in)    :: self                                              !< The equation.
-   integer(I4P),        intent(in)    :: hs                                                !< FDV half stencil length.
-   integer(I4P),        intent(in)    :: ivar                                              !< Index of scalar variable of q.
-   real(R8P),           intent(in)    :: q(     1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Field variables.
-   real(R8P),           intent(inout) :: laplacian(1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Gradient.
-   integer(I4P)                       :: i, j, k, b                                        !< Counter.
-
-   associate(dxyz=>self%adam%field%dxyz)
-   do b=1, self%blocks_number
-   do k=1, self%nk
-   do j=1, self%nj
-   do i=1, self%ni
-      call compute_laplacian_fd_centered(s=hs,dxyz=dxyz(:,b),q=q(ivar,i-hs:i+hs,j-hs:j+hs,k-hs:k+hs,b),laplacian=laplacian(i,j,k,b))
-   enddo
-   enddo
-   enddo
-   enddo
-   endassociate
-   endsubroutine compute_laplacian_fd
-
-   subroutine compute_laplacian_fv(self, hs, ivar, q, laplacian)
-   !< Compute laplacian of scalar variable q(ivar), finite volume schemes.
-   class(realm_object), intent(in)    :: self                                              !< The equation.
-   integer(I4P),        intent(in)    :: hs                                                !< FDV half stencil length.
-   integer(I4P),        intent(in)    :: ivar                                              !< Index of scalar variable of q.
-   real(R8P),           intent(in)    :: q(     1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Field variables.
-   real(R8P),           intent(inout) :: laplacian(1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Gradient.
-   integer(I4P)                       :: i, j, k, b                                        !< Counter.
-
-   associate(dxyz=>self%adam%field%dxyz)
-   do b=1, self%blocks_number
-   do k=1, self%nk
-   do j=1, self%nj
-   do i=1, self%ni
-     !call compute_laplacian_fv_centered(s=hs,dxyz=dxyz(:,b),q=q(ivar,i-hs:i+hs,j-hs:j+hs,k-hs:k+hs,b),laplacian=laplacian(i,j,k,b))
-   enddo
-   enddo
-   enddo
-   enddo
-   endassociate
-   endsubroutine compute_laplacian_fv
 endmodule adam_realm_object

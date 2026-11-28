@@ -9,6 +9,8 @@ use :: adam_prism_common_library
 ! third party modules
 use :: penf
 use :: mpi
+use :: gideon, only : FD_D1, FV_FACE, GIDEON_S_MAX, gideon_fd_curl_c, gideon_fd_d1_c, gideon_fd_divergence_c, &
+                      gideon_fd_face_c, gideon_fd_gradient_c, gideon_fv_face_c
 use :: selah, only : box, box_interior
 use :: seth,  only : seth_weno_descaling
 
@@ -1000,12 +1002,12 @@ contains
    real(R8P),    intent(inout) :: q(1:,1-ngc:,1-ngc:,1-ngc:,1:)
    real(R8P),    intent(in)    :: dxyz(3)
    logical,      intent(in)    :: use_target_var
-   real(R8P)                   :: unknown(FDV_S_MAX)
+   real(R8P)                   :: unknown(GIDEON_S_MAX)
    real(R8P)                   :: rhs, coeff, target
    integer(I4P)                :: eq, u, u_new, m, dir_n
    integer(I4P)                :: ic, jc, kc
 
-   if (hs > FDV_S_MAX) call mpih%error_stop(msg='Silver_Muller hs exceeds FDV_S_MAX')
+   if (hs > GIDEON_S_MAX) call mpih%error_stop(msg='Silver_Muller hs exceeds GIDEON_S_MAX')
 
    unknown = 0._R8P
    dir_n = face_normal_direction_cpu(face)
@@ -1063,7 +1065,7 @@ contains
    integer(I4P), intent(in) :: face, m, hs
    real(R8P),    intent(in) :: ds
 
-   coeff = FD1_CC(m, hs) / ds
+   coeff = FD_D1(m, hs) / ds
    if (face == 1_I4P .or. face == 3_I4P .or. face == 5_I4P) coeff = -coeff
    endfunction silver_muller_unknown_coefficient_cpu
 
@@ -1148,9 +1150,9 @@ contains
 
    div_t = 0._R8P
    do m=1, hs
-      div_t = div_t + FD1_CC(m, hs) * (component_along_direction_cpu(q, ngc, b, var_t1, dir_t1, i, j, k,  m) - &
+      div_t = div_t + FD_D1(m, hs) * (component_along_direction_cpu(q, ngc, b, var_t1, dir_t1, i, j, k,  m) - &
                                        component_along_direction_cpu(q, ngc, b, var_t1, dir_t1, i, j, k, -m)) / dxyz(dir_t1)
-      div_t = div_t + FD1_CC(m, hs) * (component_along_direction_cpu(q, ngc, b, var_t2, dir_t2, i, j, k,  m) - &
+      div_t = div_t + FD_D1(m, hs) * (component_along_direction_cpu(q, ngc, b, var_t2, dir_t2, i, j, k,  m) - &
                                        component_along_direction_cpu(q, ngc, b, var_t2, dir_t2, i, j, k, -m)) / dxyz(dir_t2)
    enddo
    endfunction tangential_divergence_at_cell_cpu
@@ -1168,20 +1170,20 @@ contains
    select case(face)
    case(1, 3, 5)
       do m=1, hs
-         div_n_known = div_n_known + FD1_CC(m, hs) * component_along_direction_cpu(q, ngc, b, var_n, dir_n, i, j, k,  m) &
+         div_n_known = div_n_known + FD_D1(m, hs) * component_along_direction_cpu(q, ngc, b, var_n, dir_n, i, j, k,  m) &
                                      / dxyz(dir_n)
       enddo
       do m=1, depth-1
-         div_n_known = div_n_known - FD1_CC(m, hs) * component_along_direction_cpu(q, ngc, b, var_n, dir_n, i, j, k, -m) &
+         div_n_known = div_n_known - FD_D1(m, hs) * component_along_direction_cpu(q, ngc, b, var_n, dir_n, i, j, k, -m) &
                                      / dxyz(dir_n)
       enddo
    case(2, 4, 6)
       do m=1, depth-1
-         div_n_known = div_n_known + FD1_CC(m, hs) * component_along_direction_cpu(q, ngc, b, var_n, dir_n, i, j, k,  m) &
+         div_n_known = div_n_known + FD_D1(m, hs) * component_along_direction_cpu(q, ngc, b, var_n, dir_n, i, j, k,  m) &
                                      / dxyz(dir_n)
       enddo
       do m=1, hs
-         div_n_known = div_n_known - FD1_CC(m, hs) * component_along_direction_cpu(q, ngc, b, var_n, dir_n, i, j, k, -m) &
+         div_n_known = div_n_known - FD_D1(m, hs) * component_along_direction_cpu(q, ngc, b, var_n, dir_n, i, j, k, -m) &
                                      / dxyz(dir_n)
       enddo
    endselect
@@ -2136,6 +2138,7 @@ contains
       subroutine compute_Poynting_flux(poynting_flux)
       !< Compute Poynting flux.
       real(R8P),    intent(out) :: poynting_flux  !< Power irradiated outside computational domain.
+      real(R8P) :: sf(1-GIDEON_S_MAX:GIDEON_S_MAX) !< Contiguous face stencil of one line (GIDEON's window, #159).
       integer(I4P)              :: i,j,k,b,v      !< Counter.
       real(R8P)                 :: q_boundary(6)  !< Variables at boundary for the Poynting flux computation.
       real(R8P)                 :: n(3)           !< Boundary normal direction
@@ -2150,7 +2153,8 @@ contains
       do k=1, nk
       do j=1, nj
          do v=1, 6
-            call compute_reconstruction_r_fd_centered(s=s,q=self%q(v,1-s:s,j,k,b),qr=q_boundary(v))
+            sf(1-s:s) = self%q(v,1-s:s,j,k,b)
+            call gideon_fd_face_c(order=2*s, q=sf(1-s:s), f=q_boundary(v))
          enddo
          Poynting_flux = Poynting_flux + dotproduct(crossproduct(q_boundary(1:3), q_boundary(4:6))/MU0,n)*(dy(b)*dz(b))
       enddo
@@ -2162,7 +2166,8 @@ contains
       do k=1, nk
       do j=1, nj
          do v=1, 6
-            call compute_reconstruction_r_fd_centered(s=s,q=self%q(v,ni+1-s:ni+s,j,k,b),qr=q_boundary(v))
+            sf(1-s:s) = self%q(v,ni+1-s:ni+s,j,k,b)
+            call gideon_fd_face_c(order=2*s, q=sf(1-s:s), f=q_boundary(v))
          enddo
          Poynting_flux = Poynting_flux + dotproduct(crossproduct(q_boundary(1:3),q_boundary(4:6))/MU0,n)*(dy(b)*dz(b))
       enddo
@@ -2174,7 +2179,8 @@ contains
       do k=1, nk
       do i=1, ni
          do v=1, 6
-            call compute_reconstruction_r_fd_centered(s=s,q=self%q(v,i,1-s:s,k,b),qr=q_boundary(v))
+            sf(1-s:s) = self%q(v,i,1-s:s,k,b)
+            call gideon_fd_face_c(order=2*s, q=sf(1-s:s), f=q_boundary(v))
          enddo
          Poynting_flux = Poynting_flux + dotproduct(crossproduct(q_boundary(1:3),q_boundary(4:6))/MU0,n)*(dx(b)*dz(b))
       enddo
@@ -2186,7 +2192,8 @@ contains
       do k=1, nk
       do i=1, ni
          do v=1, 6
-            call compute_reconstruction_r_fd_centered(s=s,q=self%q(v,i,nj+1-s:nj+s,k,b),qr=q_boundary(v))
+            sf(1-s:s) = self%q(v,i,nj+1-s:nj+s,k,b)
+            call gideon_fd_face_c(order=2*s, q=sf(1-s:s), f=q_boundary(v))
          enddo
          Poynting_flux = Poynting_flux + dotproduct(crossproduct(q_boundary(1:3),q_boundary(4:6))/MU0,n)*(dx(b)*dz(b))
       enddo
@@ -2198,7 +2205,8 @@ contains
       do j=1, nj
       do i=1, ni
          do v=1, 6
-            call compute_reconstruction_r_fd_centered(s=s,q=self%q(v,i,j,1-s:s,b),qr=q_boundary(v))
+            sf(1-s:s) = self%q(v,i,j,1-s:s,b)
+            call gideon_fd_face_c(order=2*s, q=sf(1-s:s), f=q_boundary(v))
          enddo
          Poynting_flux = Poynting_flux + dotproduct(crossproduct(q_boundary(1:3),q_boundary(4:6))/MU0,n)*(dx(b)*dy(b))
       enddo
@@ -2210,7 +2218,8 @@ contains
       do j=1, nj
       do i=1, ni
          do v=1, 6
-            call compute_reconstruction_r_fd_centered(s=s,q=self%q(v,i,j,nk+1-s:nk+s,b),qr=q_boundary(v))
+            sf(1-s:s) = self%q(v,i,j,nk+1-s:nk+s,b)
+            call gideon_fd_face_c(order=2*s, q=sf(1-s:s), f=q_boundary(v))
          enddo
          Poynting_flux = Poynting_flux + dotproduct(crossproduct(q_boundary(1:3),q_boundary(4:6))/MU0,n)*(dx(b)*dy(b))
       enddo
@@ -2330,13 +2339,13 @@ contains
                do s = 1, self%fdv_half_stencils(1)
                   b_plus = sqrt(self%q(VAR_BX,i+s,j,k,b)**2 + self%q(VAR_BY,i+s,j,k,b)**2)
                   b_minus = sqrt(self%q(VAR_BX,i-s,j,k,b)**2 + self%q(VAR_BY,i-s,j,k,b)**2)
-                  dBdx = dBdx + FD1_CC(s,self%fdv_half_stencils(1)) * (b_plus - b_minus) / self%adam%field%dxyz(1,b)
+                  dBdx = dBdx + FD_D1(s,self%fdv_half_stencils(1)) * (b_plus - b_minus) / self%adam%field%dxyz(1,b)
                   b_plus = sqrt(self%q(VAR_BX,i,j+s,k,b)**2 + self%q(VAR_BY,i,j+s,k,b)**2)
                   b_minus = sqrt(self%q(VAR_BX,i,j-s,k,b)**2 + self%q(VAR_BY,i,j-s,k,b)**2)
-                  dBdy = dBdy + FD1_CC(s,self%fdv_half_stencils(1)) * (b_plus - b_minus) / self%adam%field%dxyz(2,b)
+                  dBdy = dBdy + FD_D1(s,self%fdv_half_stencils(1)) * (b_plus - b_minus) / self%adam%field%dxyz(2,b)
                   b_plus = sqrt(self%q(VAR_BX,i,j,k+s,b)**2 + self%q(VAR_BY,i,j,k+s,b)**2)
                   b_minus = sqrt(self%q(VAR_BX,i,j,k-s,b)**2 + self%q(VAR_BY,i,j,k-s,b)**2)
-                  dBdz = dBdz + FD1_CC(s,self%fdv_half_stencils(1)) * (b_plus - b_minus) / self%adam%field%dxyz(3,b)
+                  dBdz = dBdz + FD_D1(s,self%fdv_half_stencils(1)) * (b_plus - b_minus) / self%adam%field%dxyz(3,b)
                enddo
                grad2 = dBdx*dBdx + dBdy*dBdy + dBdz*dBdz
                absdiff = abs(b_amp - bref_global)
@@ -2703,16 +2712,16 @@ contains
             do k=1,nk
             do j=1,nj
             do i=1,ni
-               call compute_curl_fd_centered(s=s1,dxyz=dxyz(1:3,b),                                   &
+               call cube_curl_fd(s=s1,dxyz=dxyz(1:3,b),                                   &
                                            q=q(VAR_DX:VAR_DZ,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b),        &
                                            curl=curlD)
-               call compute_curl_fd_centered(s=s1,dxyz=dxyz(1:3,b),                                   &
+               call cube_curl_fd(s=s1,dxyz=dxyz(1:3,b),                                   &
                                            q=q(VAR_BX:VAR_BZ,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b),        &
                                            curl=curlB)
-               call compute_gradient_fd_centered(s=s1,dxyz=dxyz(1:3,b),                               &
+               call cube_gradient_fd(s=s1,dxyz=dxyz(1:3,b),                               &
                                                  q=q(nv_c,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b),           &
                                                  gradient=gradphi)
-               call compute_divergence_fd_centered(s=s1,dxyz=dxyz(1:3,b),                             &
+               call cube_divergence_fd(s=s1,dxyz=dxyz(1:3,b),                             &
                                                    q=q(VAR_DX:VAR_DZ,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b),&
                                                    divergence = divergenceD)
                if (use_rho) divergenceD = divergenceD - q(rho_ivar,i,j,k,b)
@@ -2738,16 +2747,16 @@ contains
             do k=1,nk
             do j=1,nj
             do i=1,ni
-               call compute_curl_fd_centered(s=s1,dxyz=dxyz(1:3,b),                                    &
+               call cube_curl_fd(s=s1,dxyz=dxyz(1:3,b),                                    &
                                            q=q(VAR_DX:VAR_DZ,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b),         &
                                            curl=curlD)
-               call compute_curl_fd_centered(s=s1,dxyz=dxyz(1:3,b),                                    &
+               call cube_curl_fd(s=s1,dxyz=dxyz(1:3,b),                                    &
                                            q=q(VAR_BX:VAR_BZ,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b),         &
                                            curl=curlB)
-               call compute_gradient_fd_centered(s=s1,dxyz=dxyz(1:3,b),                                &
+               call cube_gradient_fd(s=s1,dxyz=dxyz(1:3,b),                                &
                                                  q=q(nv_c,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b),            &
                                                  gradient=gradpsi)
-               call compute_divergence_fd_centered(s=s1,dxyz=dxyz(1:3,b),                              &
+               call cube_divergence_fd(s=s1,dxyz=dxyz(1:3,b),                              &
                                                    q=q(VAR_BX:VAR_BZ,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b), &
                                                    divergence = divergenceB)
                dq(VAR_DX,i,j,k,b) =  curlB(1) - q(var_Jx,i,j,k,b)
@@ -2772,23 +2781,23 @@ contains
             do k=1,nk
             do j=1,nj
             do i=1,ni
-               call compute_curl_fd_centered(s=s1,dxyz=dxyz(1:3,b),                                        &
+               call cube_curl_fd(s=s1,dxyz=dxyz(1:3,b),                                        &
                                            q=q(VAR_DX:VAR_DZ,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b),             &
                                            curl=curlD)
-               call compute_curl_fd_centered(s=s1,dxyz=dxyz(1:3,b),                                        &
+               call cube_curl_fd(s=s1,dxyz=dxyz(1:3,b),                                        &
                                            q=q(VAR_BX:VAR_BZ,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b),             &
                                            curl=curlB)
-               call compute_gradient_fd_centered(s=s1,dxyz=dxyz(1:3,b),                                    &
+               call cube_gradient_fd(s=s1,dxyz=dxyz(1:3,b),                                    &
                                                  q=q(nv_c-1_I4P,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b),          &
                                                  gradient=gradphi)
-               call compute_gradient_fd_centered(s=s1,dxyz=dxyz(1:3,b),                                    &
+               call cube_gradient_fd(s=s1,dxyz=dxyz(1:3,b),                                    &
                                                  q=q(nv_c,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b),                &
                                                  gradient=gradpsi)
-               call compute_divergence_fd_centered(s=s1,dxyz=dxyz(1:3,b),                                  &
+               call cube_divergence_fd(s=s1,dxyz=dxyz(1:3,b),                                  &
                                                    q=q(VAR_DX:VAR_DZ,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b),     &
                                                    divergence = divergenceD)
                if (use_rho) divergenceD = divergenceD - q(rho_ivar,i,j,k,b)
-               call compute_divergence_fd_centered(s=s1,dxyz=dxyz(1:3,b),                                  &
+               call cube_divergence_fd(s=s1,dxyz=dxyz(1:3,b),                                  &
                                                    q=q(VAR_BX:VAR_BZ,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b),     &
                                                    divergence = divergenceB)
                dq(VAR_DX,i,j,k,b)      =  curlB(1)  - gradphi(1) - q(var_Jx,i,j,k,b)
@@ -2811,10 +2820,10 @@ contains
             do k=1,nk
             do j=1,nj
             do i=1,ni
-               call compute_curl_fd_centered(s=s1,dxyz=dxyz(1:3,b),                             &
+               call cube_curl_fd(s=s1,dxyz=dxyz(1:3,b),                             &
                                           q=q(VAR_DX:VAR_DZ,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b),   &
                                           curl=curlD)
-               call compute_curl_fd_centered(s=s1,dxyz=dxyz(1:3,b),                             &
+               call cube_curl_fd(s=s1,dxyz=dxyz(1:3,b),                             &
                                           q=q(VAR_BX:VAR_BZ,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b),   &
                                           curl=curlB)
                dq(VAR_DX,i,j,k,b) =  curlB(1) - q(var_Jx,i,j,k,b)
@@ -2839,16 +2848,16 @@ contains
             do k=1,nk
             do j=1,nj
             do i=1,ni
-               call compute_curl_fd_centered(s=s1,dxyz=dxyz(1:3,b),                                   &
+               call cube_curl_fd(s=s1,dxyz=dxyz(1:3,b),                                   &
                                            q=q(VAR_DX:VAR_DZ,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b),        &
                                            curl=curlD)
-               call compute_curl_fd_centered(s=s1,dxyz=dxyz(1:3,b),                                   &
+               call cube_curl_fd(s=s1,dxyz=dxyz(1:3,b),                                   &
                                            q=q(VAR_BX:VAR_BZ,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b),        &
                                            curl=curlB)
-               call compute_gradient_fd_centered(s=s1,dxyz=dxyz(1:3,b),                               &
+               call cube_gradient_fd(s=s1,dxyz=dxyz(1:3,b),                               &
                                                  q=q(nv_c,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b),           &
                                                  gradient=gradphi)
-               call compute_divergence_fd_centered(s=s1,dxyz=dxyz(1:3,b),                             &
+               call cube_divergence_fd(s=s1,dxyz=dxyz(1:3,b),                             &
                                                    q=q(VAR_DX:VAR_DZ,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b),&
                                                    divergence = divergenceD)
                if (use_rho) divergenceD = divergenceD - q(rho_ivar,i,j,k,b)
@@ -2873,16 +2882,16 @@ contains
             do k=1,nk
             do j=1,nj
             do i=1,ni
-               call compute_curl_fd_centered(s=s1,dxyz=dxyz(1:3,b),                                    &
+               call cube_curl_fd(s=s1,dxyz=dxyz(1:3,b),                                    &
                                            q=q(VAR_DX:VAR_DZ,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b),         &
                                            curl=curlD)
-               call compute_curl_fd_centered(s=s1,dxyz=dxyz(1:3,b),                                    &
+               call cube_curl_fd(s=s1,dxyz=dxyz(1:3,b),                                    &
                                            q=q(VAR_BX:VAR_BZ,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b),         &
                                            curl=curlB)
-               call compute_gradient_fd_centered(s=s1,dxyz=dxyz(1:3,b),                                &
+               call cube_gradient_fd(s=s1,dxyz=dxyz(1:3,b),                                &
                                                  q=q(nv_c,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b),            &
                                                  gradient=gradpsi)
-               call compute_divergence_fd_centered(s=s1,dxyz=dxyz(1:3,b),                              &
+               call cube_divergence_fd(s=s1,dxyz=dxyz(1:3,b),                              &
                                                    q=q(VAR_BX:VAR_BZ,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b), &
                                                    divergence = divergenceB)
                dq(VAR_DX,i,j,k,b) =  curlB(1)/MU0 - q(var_Jx,i,j,k,b) !- sigma*C0*(KO_Dx_x+KO_Dx_y+KO_Dx_z)/16._R8P
@@ -2907,23 +2916,23 @@ contains
             do k=1,nk
             do j=1,nj
             do i=1,ni
-               call compute_curl_fd_centered(s=s1,dxyz=dxyz(1:3,b),                                    &
+               call cube_curl_fd(s=s1,dxyz=dxyz(1:3,b),                                    &
                                              q=q(VAR_DX:VAR_DZ,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b),       &
                                              curl=curlD)
-               call compute_curl_fd_centered(s=s1,dxyz=dxyz(1:3,b),                                    &
+               call cube_curl_fd(s=s1,dxyz=dxyz(1:3,b),                                    &
                                              q=q(VAR_BX:VAR_BZ,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b),       &
                                              curl=curlB)
-               call compute_gradient_fd_centered(s=s1,dxyz=dxyz(1:3,b),                                &
+               call cube_gradient_fd(s=s1,dxyz=dxyz(1:3,b),                                &
                                                  q=q(nv_c-1_I4P,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b),      &
                                                  gradient=gradphi)
-               call compute_gradient_fd_centered(s=s1,dxyz=dxyz(1:3,b),                                &
+               call cube_gradient_fd(s=s1,dxyz=dxyz(1:3,b),                                &
                                                  q=q(nv_c,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b),            &
                                                  gradient=gradpsi)
-               call compute_divergence_fd_centered(s=s1,dxyz=dxyz(1:3,b),                              &
+               call cube_divergence_fd(s=s1,dxyz=dxyz(1:3,b),                              &
                                                    q=q(VAR_DX:VAR_DZ,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b), &
                                                    divergence = divergenceD)
                if (use_rho) divergenceD = divergenceD - q(rho_ivar,i,j,k,b)
-               call compute_divergence_fd_centered(s=s1,dxyz=dxyz(1:3,b),                              &
+               call cube_divergence_fd(s=s1,dxyz=dxyz(1:3,b),                              &
                                                    q=q(VAR_BX:VAR_BZ,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b), &
                                                    divergence = divergenceB)
                dq(VAR_DX,    i,j,k,b) =  curlB(1)/MU0  - gradphi(1) - q(var_Jx,i,j,k,b)
@@ -2946,10 +2955,10 @@ contains
             do k=1,nk
             do j=1,nj
             do i=1,ni
-               call compute_curl_fd_centered(s=s1,dxyz=dxyz(1:3,b),                             &
+               call cube_curl_fd(s=s1,dxyz=dxyz(1:3,b),                             &
                                           q=q(VAR_DX:VAR_DZ,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b),   &
                                           curl=curlD)
-               call compute_curl_fd_centered(s=s1,dxyz=dxyz(1:3,b),                             &
+               call cube_curl_fd(s=s1,dxyz=dxyz(1:3,b),                             &
                                           q=q(VAR_BX:VAR_BZ,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b),   &
                                           curl=curlB)
                dq(VAR_DX,i,j,k,b) =  curlB(1)/MU0 - q(var_Jx,i,j,k,b)
@@ -3177,6 +3186,7 @@ contains
 
    subroutine apply_x_face_field_correction(self, q, q_face, dq, block_ids, face, inv_eps_scale, inv_mu_scale)
    class(prism_cpu_object), intent(in)    :: self
+   real(R8P) :: st(-GIDEON_S_MAX:GIDEON_S_MAX) !< Contiguous stencil of one line (GIDEON's window, #159).
    real(R8P),               intent(in)    :: q(1:,          &
                                                1-self%ngc:, &
                                                1-self%ngc:, &
@@ -3217,16 +3227,20 @@ contains
                                        self%adam%grid%domain_emax(1) - self%adam%field%emax(1,b) + real(self%ni - i, R8P) * &
                                        self%adam%field%dxyz(1,b), face == PML_FACE_X_M)
                kappa = compute_pml_kappa(self=self, center_distance=center_distance, span=span)
-               call compute_derivative1_fd_centered(s=s1, ds=self%adam%field%dxyz(1,b), q=q(VAR_BZ,i-s1:i+s1,j,k,b), dq_ds=d_field)
+               st(-s1:s1) = q(VAR_BZ,i-s1:i+s1,j,k,b)
+               call gideon_fd_d1_c(order=2*s1, q=st(-s1:s1), ds=self%adam%field%dxyz(1,b), d=d_field)
                dq(VAR_DY,i,j,k,b) = dq(VAR_DY,i,j,k,b) + (1._R8P / kappa - 1._R8P) * (-d_field * inv_mu_scale)
                dq(VAR_DY,i,j,k,b) = dq(VAR_DY,i,j,k,b) + q_face(4,li,j,k,lid)
-               call compute_derivative1_fd_centered(s=s1, ds=self%adam%field%dxyz(1,b), q=q(VAR_BY,i-s1:i+s1,j,k,b), dq_ds=d_field)
+               st(-s1:s1) = q(VAR_BY,i-s1:i+s1,j,k,b)
+               call gideon_fd_d1_c(order=2*s1, q=st(-s1:s1), ds=self%adam%field%dxyz(1,b), d=d_field)
                dq(VAR_DZ,i,j,k,b) = dq(VAR_DZ,i,j,k,b) + (1._R8P / kappa - 1._R8P) * (d_field * inv_mu_scale)
                dq(VAR_DZ,i,j,k,b) = dq(VAR_DZ,i,j,k,b) - q_face(3,li,j,k,lid)
-               call compute_derivative1_fd_centered(s=s1, ds=self%adam%field%dxyz(1,b), q=q(VAR_DZ,i-s1:i+s1,j,k,b), dq_ds=d_field)
+               st(-s1:s1) = q(VAR_DZ,i-s1:i+s1,j,k,b)
+               call gideon_fd_d1_c(order=2*s1, q=st(-s1:s1), ds=self%adam%field%dxyz(1,b), d=d_field)
                dq(VAR_BY,i,j,k,b) = dq(VAR_BY,i,j,k,b) + (1._R8P / kappa - 1._R8P) * (d_field * inv_eps_scale)
                dq(VAR_BY,i,j,k,b) = dq(VAR_BY,i,j,k,b) - q_face(2,li,j,k,lid)
-               call compute_derivative1_fd_centered(s=s1, ds=self%adam%field%dxyz(1,b), q=q(VAR_DY,i-s1:i+s1,j,k,b), dq_ds=d_field)
+               st(-s1:s1) = q(VAR_DY,i-s1:i+s1,j,k,b)
+               call gideon_fd_d1_c(order=2*s1, q=st(-s1:s1), ds=self%adam%field%dxyz(1,b), d=d_field)
                dq(VAR_BZ,i,j,k,b) = dq(VAR_BZ,i,j,k,b) + (1._R8P / kappa - 1._R8P) * (-d_field * inv_eps_scale)
                dq(VAR_BZ,i,j,k,b) = dq(VAR_BZ,i,j,k,b) + q_face(1,li,j,k,lid)
             enddo
@@ -3237,6 +3251,7 @@ contains
 
    subroutine apply_y_face_field_correction(self, q, q_face, dq, block_ids, face, inv_eps_scale, inv_mu_scale)
    class(prism_cpu_object), intent(in)    :: self
+   real(R8P) :: st(-GIDEON_S_MAX:GIDEON_S_MAX) !< Contiguous stencil of one line (GIDEON's window, #159).
    real(R8P),               intent(in)    :: q(1:,          &
                                                1-self%ngc:, &
                                                1-self%ngc:, &
@@ -3276,16 +3291,20 @@ contains
                                     self%adam%field%dxyz(2,b), face == PML_FACE_Y_M)
             kappa = compute_pml_kappa(self=self, center_distance=center_distance, span=span)
             do i=1, self%ni
-               call compute_derivative1_fd_centered(s=s1, ds=self%adam%field%dxyz(2,b), q=q(VAR_BZ,i,j-s1:j+s1,k,b), dq_ds=d_field)
+               st(-s1:s1) = q(VAR_BZ,i,j-s1:j+s1,k,b)
+               call gideon_fd_d1_c(order=2*s1, q=st(-s1:s1), ds=self%adam%field%dxyz(2,b), d=d_field)
                dq(VAR_DX,i,j,k,b) = dq(VAR_DX,i,j,k,b) + (1._R8P / kappa - 1._R8P) * (d_field * inv_mu_scale)
                dq(VAR_DX,i,j,k,b) = dq(VAR_DX,i,j,k,b) - q_face(4,i,lj,k,lid)
-               call compute_derivative1_fd_centered(s=s1, ds=self%adam%field%dxyz(2,b), q=q(VAR_BX,i,j-s1:j+s1,k,b), dq_ds=d_field)
+               st(-s1:s1) = q(VAR_BX,i,j-s1:j+s1,k,b)
+               call gideon_fd_d1_c(order=2*s1, q=st(-s1:s1), ds=self%adam%field%dxyz(2,b), d=d_field)
                dq(VAR_DZ,i,j,k,b) = dq(VAR_DZ,i,j,k,b) + (1._R8P / kappa - 1._R8P) * (-d_field * inv_mu_scale)
                dq(VAR_DZ,i,j,k,b) = dq(VAR_DZ,i,j,k,b) + q_face(3,i,lj,k,lid)
-               call compute_derivative1_fd_centered(s=s1, ds=self%adam%field%dxyz(2,b), q=q(VAR_DZ,i,j-s1:j+s1,k,b), dq_ds=d_field)
+               st(-s1:s1) = q(VAR_DZ,i,j-s1:j+s1,k,b)
+               call gideon_fd_d1_c(order=2*s1, q=st(-s1:s1), ds=self%adam%field%dxyz(2,b), d=d_field)
                dq(VAR_BX,i,j,k,b) = dq(VAR_BX,i,j,k,b) + (1._R8P / kappa - 1._R8P) * (-d_field * inv_eps_scale)
                dq(VAR_BX,i,j,k,b) = dq(VAR_BX,i,j,k,b) + q_face(2,i,lj,k,lid)
-               call compute_derivative1_fd_centered(s=s1, ds=self%adam%field%dxyz(2,b), q=q(VAR_DX,i,j-s1:j+s1,k,b), dq_ds=d_field)
+               st(-s1:s1) = q(VAR_DX,i,j-s1:j+s1,k,b)
+               call gideon_fd_d1_c(order=2*s1, q=st(-s1:s1), ds=self%adam%field%dxyz(2,b), d=d_field)
                dq(VAR_BZ,i,j,k,b) = dq(VAR_BZ,i,j,k,b) + (1._R8P / kappa - 1._R8P) * (d_field * inv_eps_scale)
                dq(VAR_BZ,i,j,k,b) = dq(VAR_BZ,i,j,k,b) - q_face(1,i,lj,k,lid)
             enddo
@@ -3296,6 +3315,7 @@ contains
 
    subroutine apply_z_face_field_correction(self, q, q_face, dq, block_ids, face, inv_eps_scale, inv_mu_scale)
    class(prism_cpu_object), intent(in)    :: self
+   real(R8P) :: st(-GIDEON_S_MAX:GIDEON_S_MAX) !< Contiguous stencil of one line (GIDEON's window, #159).
    real(R8P),               intent(in)    :: q(1:,          &
                                                1-self%ngc:, &
                                                1-self%ngc:, &
@@ -3335,16 +3355,20 @@ contains
          kappa = compute_pml_kappa(self=self, center_distance=center_distance, span=span)
          do j=1, self%nj
             do i=1, self%ni
-               call compute_derivative1_fd_centered(s=s1, ds=self%adam%field%dxyz(3,b), q=q(VAR_BY,i,j,k-s1:k+s1,b), dq_ds=d_field)
+               st(-s1:s1) = q(VAR_BY,i,j,k-s1:k+s1,b)
+               call gideon_fd_d1_c(order=2*s1, q=st(-s1:s1), ds=self%adam%field%dxyz(3,b), d=d_field)
                dq(VAR_DX,i,j,k,b) = dq(VAR_DX,i,j,k,b) + (1._R8P / kappa - 1._R8P) * (-d_field * inv_mu_scale)
                dq(VAR_DX,i,j,k,b) = dq(VAR_DX,i,j,k,b) + q_face(4,i,j,lk,lid)
-               call compute_derivative1_fd_centered(s=s1, ds=self%adam%field%dxyz(3,b), q=q(VAR_BX,i,j,k-s1:k+s1,b), dq_ds=d_field)
+               st(-s1:s1) = q(VAR_BX,i,j,k-s1:k+s1,b)
+               call gideon_fd_d1_c(order=2*s1, q=st(-s1:s1), ds=self%adam%field%dxyz(3,b), d=d_field)
                dq(VAR_DY,i,j,k,b) = dq(VAR_DY,i,j,k,b) + (1._R8P / kappa - 1._R8P) * (d_field * inv_mu_scale)
                dq(VAR_DY,i,j,k,b) = dq(VAR_DY,i,j,k,b) - q_face(3,i,j,lk,lid)
-               call compute_derivative1_fd_centered(s=s1, ds=self%adam%field%dxyz(3,b), q=q(VAR_DY,i,j,k-s1:k+s1,b), dq_ds=d_field)
+               st(-s1:s1) = q(VAR_DY,i,j,k-s1:k+s1,b)
+               call gideon_fd_d1_c(order=2*s1, q=st(-s1:s1), ds=self%adam%field%dxyz(3,b), d=d_field)
                dq(VAR_BX,i,j,k,b) = dq(VAR_BX,i,j,k,b) + (1._R8P / kappa - 1._R8P) * (d_field * inv_eps_scale)
                dq(VAR_BX,i,j,k,b) = dq(VAR_BX,i,j,k,b) - q_face(2,i,j,lk,lid)
-               call compute_derivative1_fd_centered(s=s1, ds=self%adam%field%dxyz(3,b), q=q(VAR_DX,i,j,k-s1:k+s1,b), dq_ds=d_field)
+               st(-s1:s1) = q(VAR_DX,i,j,k-s1:k+s1,b)
+               call gideon_fd_d1_c(order=2*s1, q=st(-s1:s1), ds=self%adam%field%dxyz(3,b), d=d_field)
                dq(VAR_BY,i,j,k,b) = dq(VAR_BY,i,j,k,b) + (1._R8P / kappa - 1._R8P) * (-d_field * inv_eps_scale)
                dq(VAR_BY,i,j,k,b) = dq(VAR_BY,i,j,k,b) + q_face(1,i,j,lk,lid)
             enddo
@@ -3356,6 +3380,7 @@ contains
    subroutine compute_x_face_pml_rhs(self, q, q_face, dq_face, block_ids, face, inv_eps_scale, inv_mu_scale, exact, &
                                      lam_face)
    class(prism_cpu_object), intent(in)    :: self
+   real(R8P) :: st(-GIDEON_S_MAX:GIDEON_S_MAX) !< Contiguous stencil of one line (GIDEON's window, #159).
    real(R8P),               intent(in)    :: q(1:,          &
                                                1-self%ngc:, &
                                                1-self%ngc:, &
@@ -3396,28 +3421,32 @@ contains
                                        self%adam%field%dxyz(1,b), face == PML_FACE_X_M)
                call compute_pml_coefficients(self=self, center_distance=center_distance, span=span, gamma=gamma, alpha=alpha, &
                                              kappa=kappa)
-               call compute_derivative1_fd_centered(s=s1, ds=self%adam%field%dxyz(1,b), q=q(VAR_DY,i-s1:i+s1,j,k,b), dq_ds=d_field)
+               st(-s1:s1) = q(VAR_DY,i-s1:i+s1,j,k,b)
+               call gideon_fd_d1_c(order=2*s1, q=st(-s1:s1), ds=self%adam%field%dxyz(1,b), d=d_field)
                if (exact) then ! the decay integrated by SELAH: the source alone, lambda for its decay=
                   lam_face(1,li,j,k,lid) = alpha + gamma / kappa
                   dq_face(1,li,j,k,lid) = gamma / kappa**2 * d_field * inv_eps_scale
                else
                   dq_face(1,li,j,k,lid) = gamma / kappa**2 * d_field * inv_eps_scale - (alpha + gamma / kappa) * q_face(1,li,j,k,lid)
                endif
-               call compute_derivative1_fd_centered(s=s1, ds=self%adam%field%dxyz(1,b), q=q(VAR_DZ,i-s1:i+s1,j,k,b), dq_ds=d_field)
+               st(-s1:s1) = q(VAR_DZ,i-s1:i+s1,j,k,b)
+               call gideon_fd_d1_c(order=2*s1, q=st(-s1:s1), ds=self%adam%field%dxyz(1,b), d=d_field)
                if (exact) then ! the decay integrated by SELAH: the source alone, lambda for its decay=
                   lam_face(2,li,j,k,lid) = alpha + gamma / kappa
                   dq_face(2,li,j,k,lid) = gamma / kappa**2 * d_field * inv_eps_scale
                else
                   dq_face(2,li,j,k,lid) = gamma / kappa**2 * d_field * inv_eps_scale - (alpha + gamma / kappa) * q_face(2,li,j,k,lid)
                endif
-               call compute_derivative1_fd_centered(s=s1, ds=self%adam%field%dxyz(1,b), q=q(VAR_BY,i-s1:i+s1,j,k,b), dq_ds=d_field)
+               st(-s1:s1) = q(VAR_BY,i-s1:i+s1,j,k,b)
+               call gideon_fd_d1_c(order=2*s1, q=st(-s1:s1), ds=self%adam%field%dxyz(1,b), d=d_field)
                if (exact) then ! the decay integrated by SELAH: the source alone, lambda for its decay=
                   lam_face(3,li,j,k,lid) = alpha + gamma / kappa
                   dq_face(3,li,j,k,lid) = gamma / kappa**2 * d_field * inv_mu_scale
                else
                   dq_face(3,li,j,k,lid) = gamma / kappa**2 * d_field * inv_mu_scale - (alpha + gamma / kappa) * q_face(3,li,j,k,lid)
                endif
-               call compute_derivative1_fd_centered(s=s1, ds=self%adam%field%dxyz(1,b), q=q(VAR_BZ,i-s1:i+s1,j,k,b), dq_ds=d_field)
+               st(-s1:s1) = q(VAR_BZ,i-s1:i+s1,j,k,b)
+               call gideon_fd_d1_c(order=2*s1, q=st(-s1:s1), ds=self%adam%field%dxyz(1,b), d=d_field)
                if (exact) then ! the decay integrated by SELAH: the source alone, lambda for its decay=
                   lam_face(4,li,j,k,lid) = alpha + gamma / kappa
                   dq_face(4,li,j,k,lid) = gamma / kappa**2 * d_field * inv_mu_scale
@@ -3433,6 +3462,7 @@ contains
    subroutine compute_y_face_pml_rhs(self, q, q_face, dq_face, block_ids, face, inv_eps_scale, inv_mu_scale, exact, &
                                      lam_face)
    class(prism_cpu_object), intent(in)    :: self
+   real(R8P) :: st(-GIDEON_S_MAX:GIDEON_S_MAX) !< Contiguous stencil of one line (GIDEON's window, #159).
    real(R8P),               intent(in)    :: q(1:,          &
                                                1-self%ngc:, &
                                                1-self%ngc:, &
@@ -3473,28 +3503,32 @@ contains
             call compute_pml_coefficients(self=self, center_distance=center_distance, span=span, gamma=gamma, alpha=alpha, &
                                           kappa=kappa)
             do i=1, self%ni
-               call compute_derivative1_fd_centered(s=s1, ds=self%adam%field%dxyz(2,b), q=q(VAR_DX,i,j-s1:j+s1,k,b), dq_ds=d_field)
+               st(-s1:s1) = q(VAR_DX,i,j-s1:j+s1,k,b)
+               call gideon_fd_d1_c(order=2*s1, q=st(-s1:s1), ds=self%adam%field%dxyz(2,b), d=d_field)
                if (exact) then ! the decay integrated by SELAH: the source alone, lambda for its decay=
                   lam_face(1,i,lj,k,lid) = alpha + gamma / kappa
                   dq_face(1,i,lj,k,lid) = gamma / kappa**2 * d_field * inv_eps_scale
                else
                   dq_face(1,i,lj,k,lid) = gamma / kappa**2 * d_field * inv_eps_scale - (alpha + gamma / kappa) * q_face(1,i,lj,k,lid)
                endif
-               call compute_derivative1_fd_centered(s=s1, ds=self%adam%field%dxyz(2,b), q=q(VAR_DZ,i,j-s1:j+s1,k,b), dq_ds=d_field)
+               st(-s1:s1) = q(VAR_DZ,i,j-s1:j+s1,k,b)
+               call gideon_fd_d1_c(order=2*s1, q=st(-s1:s1), ds=self%adam%field%dxyz(2,b), d=d_field)
                if (exact) then ! the decay integrated by SELAH: the source alone, lambda for its decay=
                   lam_face(2,i,lj,k,lid) = alpha + gamma / kappa
                   dq_face(2,i,lj,k,lid) = gamma / kappa**2 * d_field * inv_eps_scale
                else
                   dq_face(2,i,lj,k,lid) = gamma / kappa**2 * d_field * inv_eps_scale - (alpha + gamma / kappa) * q_face(2,i,lj,k,lid)
                endif
-               call compute_derivative1_fd_centered(s=s1, ds=self%adam%field%dxyz(2,b), q=q(VAR_BX,i,j-s1:j+s1,k,b), dq_ds=d_field)
+               st(-s1:s1) = q(VAR_BX,i,j-s1:j+s1,k,b)
+               call gideon_fd_d1_c(order=2*s1, q=st(-s1:s1), ds=self%adam%field%dxyz(2,b), d=d_field)
                if (exact) then ! the decay integrated by SELAH: the source alone, lambda for its decay=
                   lam_face(3,i,lj,k,lid) = alpha + gamma / kappa
                   dq_face(3,i,lj,k,lid) = gamma / kappa**2 * d_field * inv_mu_scale
                else
                   dq_face(3,i,lj,k,lid) = gamma / kappa**2 * d_field * inv_mu_scale - (alpha + gamma / kappa) * q_face(3,i,lj,k,lid)
                endif
-               call compute_derivative1_fd_centered(s=s1, ds=self%adam%field%dxyz(2,b), q=q(VAR_BZ,i,j-s1:j+s1,k,b), dq_ds=d_field)
+               st(-s1:s1) = q(VAR_BZ,i,j-s1:j+s1,k,b)
+               call gideon_fd_d1_c(order=2*s1, q=st(-s1:s1), ds=self%adam%field%dxyz(2,b), d=d_field)
                if (exact) then ! the decay integrated by SELAH: the source alone, lambda for its decay=
                   lam_face(4,i,lj,k,lid) = alpha + gamma / kappa
                   dq_face(4,i,lj,k,lid) = gamma / kappa**2 * d_field * inv_mu_scale
@@ -3510,6 +3544,7 @@ contains
    subroutine compute_z_face_pml_rhs(self, q, q_face, dq_face, block_ids, face, inv_eps_scale, inv_mu_scale, exact, &
                                      lam_face)
    class(prism_cpu_object), intent(in)    :: self
+   real(R8P) :: st(-GIDEON_S_MAX:GIDEON_S_MAX) !< Contiguous stencil of one line (GIDEON's window, #159).
    real(R8P),               intent(in)    :: q(1:,          &
                                                1-self%ngc:, &
                                                1-self%ngc:, &
@@ -3550,28 +3585,32 @@ contains
                                        kappa=kappa)
          do j=1, self%nj
             do i=1, self%ni
-               call compute_derivative1_fd_centered(s=s1, ds=self%adam%field%dxyz(3,b), q=q(VAR_DX,i,j,k-s1:k+s1,b), dq_ds=d_field)
+               st(-s1:s1) = q(VAR_DX,i,j,k-s1:k+s1,b)
+               call gideon_fd_d1_c(order=2*s1, q=st(-s1:s1), ds=self%adam%field%dxyz(3,b), d=d_field)
                if (exact) then ! the decay integrated by SELAH: the source alone, lambda for its decay=
                   lam_face(1,i,j,lk,lid) = alpha + gamma / kappa
                   dq_face(1,i,j,lk,lid) = gamma / kappa**2 * d_field * inv_eps_scale
                else
                   dq_face(1,i,j,lk,lid) = gamma / kappa**2 * d_field * inv_eps_scale - (alpha + gamma / kappa) * q_face(1,i,j,lk,lid)
                endif
-               call compute_derivative1_fd_centered(s=s1, ds=self%adam%field%dxyz(3,b), q=q(VAR_DY,i,j,k-s1:k+s1,b), dq_ds=d_field)
+               st(-s1:s1) = q(VAR_DY,i,j,k-s1:k+s1,b)
+               call gideon_fd_d1_c(order=2*s1, q=st(-s1:s1), ds=self%adam%field%dxyz(3,b), d=d_field)
                if (exact) then ! the decay integrated by SELAH: the source alone, lambda for its decay=
                   lam_face(2,i,j,lk,lid) = alpha + gamma / kappa
                   dq_face(2,i,j,lk,lid) = gamma / kappa**2 * d_field * inv_eps_scale
                else
                   dq_face(2,i,j,lk,lid) = gamma / kappa**2 * d_field * inv_eps_scale - (alpha + gamma / kappa) * q_face(2,i,j,lk,lid)
                endif
-               call compute_derivative1_fd_centered(s=s1, ds=self%adam%field%dxyz(3,b), q=q(VAR_BX,i,j,k-s1:k+s1,b), dq_ds=d_field)
+               st(-s1:s1) = q(VAR_BX,i,j,k-s1:k+s1,b)
+               call gideon_fd_d1_c(order=2*s1, q=st(-s1:s1), ds=self%adam%field%dxyz(3,b), d=d_field)
                if (exact) then ! the decay integrated by SELAH: the source alone, lambda for its decay=
                   lam_face(3,i,j,lk,lid) = alpha + gamma / kappa
                   dq_face(3,i,j,lk,lid) = gamma / kappa**2 * d_field * inv_mu_scale
                else
                   dq_face(3,i,j,lk,lid) = gamma / kappa**2 * d_field * inv_mu_scale - (alpha + gamma / kappa) * q_face(3,i,j,lk,lid)
                endif
-               call compute_derivative1_fd_centered(s=s1, ds=self%adam%field%dxyz(3,b), q=q(VAR_BY,i,j,k-s1:k+s1,b), dq_ds=d_field)
+               st(-s1:s1) = q(VAR_BY,i,j,k-s1:k+s1,b)
+               call gideon_fd_d1_c(order=2*s1, q=st(-s1:s1), ds=self%adam%field%dxyz(3,b), d=d_field)
                if (exact) then ! the decay integrated by SELAH: the source alone, lambda for its decay=
                   lam_face(4,i,j,lk,lid) = alpha + gamma / kappa
                   dq_face(4,i,j,lk,lid) = gamma / kappa**2 * d_field * inv_mu_scale
@@ -3655,6 +3694,7 @@ contains
    subroutine compute_residuals_fv_centered(self, q, dq, s, flux_register)
    !< Compute residuals of equation, space operator, centered finite volume schemes.
    class(prism_cpu_object),     intent(inout)                    :: self                      !< The equation.
+   real(R8P) :: sf(1-GIDEON_S_MAX:GIDEON_S_MAX) !< Contiguous face stencil of one line (GIDEON's window, #159).
    real(R8P),                   intent(inout)                    :: q(1:,       &
                                                                     1-self%ngc:,&
                                                                     1-self%ngc:,&
@@ -3721,7 +3761,8 @@ contains
       do j=1, nj
       do i=0, ni
          do v=1, nv_c
-            call compute_reconstruction_r_fv_centered(s=s,q=flxyz_c(v,1,d,1+i-s:i+s,j,k,b),qr=flx_f(v,i,j,k,b))
+            sf(1-s:s) = flxyz_c(v,1,d,1+i-s:i+s,j,k,b)
+            call gideon_fv_face_c(order=2*s, q=sf(1-s:s), f=flx_f(v,i,j,k,b))
          enddo
       enddo
       enddo
@@ -3733,7 +3774,8 @@ contains
       do j=0, nj
       do i=1, ni
          do v=1, nv_c
-            call compute_reconstruction_r_fv_centered(s=s,q=flxyz_c(v,1,d,i,1+j-s:j+s,k,b),qr=fly_f(v,i,j,k,b))
+            sf(1-s:s) = flxyz_c(v,1,d,i,1+j-s:j+s,k,b)
+            call gideon_fv_face_c(order=2*s, q=sf(1-s:s), f=fly_f(v,i,j,k,b))
          enddo
       enddo
       enddo
@@ -3745,7 +3787,8 @@ contains
       do j=1, nj
       do i=1, ni
          do v=1, nv_c
-            call compute_reconstruction_r_fv_centered(s=s,q=flxyz_c(v,1,d,i,j,1+k-s:k+s,b),qr=flz_f(v,i,j,k,b))
+            sf(1-s:s) = flxyz_c(v,1,d,i,j,1+k-s:k+s,b)
+            call gideon_fv_face_c(order=2*s, q=sf(1-s:s), f=flz_f(v,i,j,k,b))
          enddo
       enddo
       enddo
@@ -5804,7 +5847,7 @@ contains
    do face=0,n
       reconstructed = 0._R8P
       do m=1,self%fdv_half_stencils(1)
-         coeff = FV1_CC(m,self%fdv_half_stencils(1))
+         coeff = FV_FACE(m,self%fdv_half_stencils(1))
          call odd_mirror_index(idx=face+m, n=n, col=col, sgn=sgn)
          reconstructed = reconstructed + coeff*sgn*sol(col)
          call odd_mirror_index(idx=face+1-m, n=n, col=col, sgn=sgn)
@@ -5924,7 +5967,7 @@ contains
    endsubroutine particle_shape_weight_1d
 
    subroutine build_centered_reconstruction_matrix(self, n, a)
-   !< Build face-reconstruction matrix R such that FD1_CC J = (R_{i+1/2}-R_{i-1/2})/dx.
+   !< Build face-reconstruction matrix R such that FD_D1 J = (R_{i+1/2}-R_{i-1/2})/dx.
    implicit none
    class(prism_cpu_object), intent(in)    :: self
    integer(I4P),            intent(in)    :: n
@@ -5935,7 +5978,7 @@ contains
    a(0:n,1:n) = 0._R8P
    do face=0, n
       do m=1, self%fdv_half_stencils(1)
-         coeff = FV1_CC(m,self%fdv_half_stencils(1))
+         coeff = FV_FACE(m,self%fdv_half_stencils(1))
          call odd_mirror_index(idx=face+m, n=n, col=col, sgn=sgn)
          a(face,col) = a(face,col) + coeff * sgn
          call odd_mirror_index(idx=face+1-m, n=n, col=col, sgn=sgn)
@@ -6369,4 +6412,56 @@ contains
    cross(2) = (a(3) * b(1)) - (a(1) * b(3))
    cross(3) = (a(1) * b(2)) - (a(2) * b(1))
    endfunction crossproduct
+   ! The cube operators of the FD residual: GIDEON's directional operators on the lines through the cube centre (#159)
+   pure subroutine cube_curl_fd(s, dxyz, q, curl)
+   !< Curl at the centre of the cube `q(1:3,-s:s,-s:s,-s:s)` by `gideon_fd_curl_c` on the six off-axis lines through it,
+   !< gathered into contiguous stencils: GIDEON's dummies are explicit-shape, so a strided line of `q` passed directly
+   !< would be copied into a temporary at every call (#159, trap 4).
+   integer(I4P), intent(in)  :: s                                   !< Half stencil, order 2s.
+   real(R8P),    intent(in)  :: dxyz(3)                             !< Space steps.
+   real(R8P),    intent(in)  :: q(1:,-s:,-s:,-s:)                   !< Vector field over the cube.
+   real(R8P),    intent(out) :: curl(3)                             !< Curl at the centre.
+   real(R8P)                 :: vy_x(-GIDEON_S_MAX:GIDEON_S_MAX)    !< v_y along x.
+   real(R8P)                 :: vz_x(-GIDEON_S_MAX:GIDEON_S_MAX)    !< v_z along x.
+   real(R8P)                 :: vx_y(-GIDEON_S_MAX:GIDEON_S_MAX)    !< v_x along y.
+   real(R8P)                 :: vz_y(-GIDEON_S_MAX:GIDEON_S_MAX)    !< v_z along y.
+   real(R8P)                 :: vx_z(-GIDEON_S_MAX:GIDEON_S_MAX)    !< v_x along z.
+   real(R8P)                 :: vy_z(-GIDEON_S_MAX:GIDEON_S_MAX)    !< v_y along z.
+
+   vy_x(-s:s) = q(2,-s:s,0,0) ; vz_x(-s:s) = q(3,-s:s,0,0)
+   vx_y(-s:s) = q(1,0,-s:s,0) ; vz_y(-s:s) = q(3,0,-s:s,0)
+   vx_z(-s:s) = q(1,0,0,-s:s) ; vy_z(-s:s) = q(2,0,0,-s:s)
+   call gideon_fd_curl_c(order=2*s, vy_x=vy_x(-s:s), vz_x=vz_x(-s:s), vx_y=vx_y(-s:s), vz_y=vz_y(-s:s), vx_z=vx_z(-s:s), &
+                         vy_z=vy_z(-s:s), dxyz=dxyz, c=curl)
+   endsubroutine cube_curl_fd
+
+   pure subroutine cube_divergence_fd(s, dxyz, q, divergence)
+   !< Divergence at the centre of the cube `q(1:3,-s:s,-s:s,-s:s)` by `gideon_fd_divergence_c` on the three axis lines
+   !< through it, gathered into contiguous stencils (see `cube_curl_fd`).
+   integer(I4P), intent(in)  :: s                                   !< Half stencil, order 2s.
+   real(R8P),    intent(in)  :: dxyz(3)                             !< Space steps.
+   real(R8P),    intent(in)  :: q(1:,-s:,-s:,-s:)                   !< Vector field over the cube.
+   real(R8P),    intent(out) :: divergence                          !< Divergence at the centre.
+   real(R8P)                 :: vx_x(-GIDEON_S_MAX:GIDEON_S_MAX)    !< v_x along x.
+   real(R8P)                 :: vy_y(-GIDEON_S_MAX:GIDEON_S_MAX)    !< v_y along y.
+   real(R8P)                 :: vz_z(-GIDEON_S_MAX:GIDEON_S_MAX)    !< v_z along z.
+
+   vx_x(-s:s) = q(1,-s:s,0,0) ; vy_y(-s:s) = q(2,0,-s:s,0) ; vz_z(-s:s) = q(3,0,0,-s:s)
+   call gideon_fd_divergence_c(order=2*s, vx_x=vx_x(-s:s), vy_y=vy_y(-s:s), vz_z=vz_z(-s:s), dxyz=dxyz, div=divergence)
+   endsubroutine cube_divergence_fd
+
+   pure subroutine cube_gradient_fd(s, dxyz, q, gradient)
+   !< Gradient at the centre of the scalar cube `q(-s:s,-s:s,-s:s)` by `gideon_fd_gradient_c` on the three axis lines
+   !< through it, gathered into contiguous stencils (see `cube_curl_fd`).
+   integer(I4P), intent(in)  :: s                                   !< Half stencil, order 2s.
+   real(R8P),    intent(in)  :: dxyz(3)                             !< Space steps.
+   real(R8P),    intent(in)  :: q(-s:,-s:,-s:)                      !< Scalar field over the cube.
+   real(R8P),    intent(out) :: gradient(3)                         !< Gradient at the centre.
+   real(R8P)                 :: qx(-GIDEON_S_MAX:GIDEON_S_MAX)      !< q along x.
+   real(R8P)                 :: qy(-GIDEON_S_MAX:GIDEON_S_MAX)      !< q along y.
+   real(R8P)                 :: qz(-GIDEON_S_MAX:GIDEON_S_MAX)      !< q along z.
+
+   qx(-s:s) = q(-s:s,0,0) ; qy(-s:s) = q(0,-s:s,0) ; qz(-s:s) = q(0,0,-s:s)
+   call gideon_fd_gradient_c(order=2*s, qx=qx(-s:s), qy=qy(-s:s), qz=qz(-s:s), dxyz=dxyz, g=gradient)
+   endsubroutine cube_gradient_fd
 endmodule adam_prism_cpu_object
