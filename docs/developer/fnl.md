@@ -2,7 +2,10 @@
 
 The FNL backend is ADAM's GPU layer, built on the [FUNDAL](https://github.com/szaghi/FUNDAL) device-memory library. The
 same sources compile as OpenACC with nvfortran (`*-fnl-nvf` modes) or as OpenMP target offloading with amdflang
-(`*-fnl-omp-amd` modes, `DEV_OMP`): every kernel carries an `!$acc` directive and its `!$omp` twin.
+(`*-fnl-omp-amd` modes, `DEV_OMP`): every kernel carries an `!$acc` directive and its `!$omp` twin. Each mode also
+defines the device macro of [HERALD](https://github.com/szaghi/HERALD), the MPI handler, next to FUNDAL's: `HERALD_OAC`
+with `DEV_OAC`, `HERALD_OMP` with `DEV_OMP`, `HERALD_HIP` with `DEV_HIP`
+([#158](https://github.com/szaghi/adam/issues/158)), so that HERALD binds the rank to its device with the same runtime.
 
 Every subsystem has two parts: a **wrapper object** holding the device arrays, and a **kernel module** with the device
 routines. The wrappers are plain types, not extensions of the common classes (the Poisson solvers excepted). Each is a

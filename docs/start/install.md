@@ -33,9 +33,11 @@ fobis fetch
 
 `fobis fetch` reads `src/third_party/.deps_config.ini` and downloads all required source libraries into `src/third_party/`.
 Among them, [SELAH](https://github.com/szaghi/SELAH) holds the time integrators and [SETH](https://github.com/szaghi/SETH)
-the space operators (WENO, TENO, the hybrid central fluxes and sensors). A checkout fetched before a dependency was added
-(SETH, [#139](https://github.com/szaghi/adam/issues/139)) gets it with a plain `fobis fetch`, which downloads only the
-missing libraries.
+the space operators (WENO, TENO, the hybrid central fluxes and sensors), and [HERALD](https://github.com/szaghi/HERALD)
+the MPI handler (ranks, node topology, memory budget, messages, device binding). A checkout fetched before a dependency
+was added (SETH, [#139](https://github.com/szaghi/adam/issues/139); HERALD,
+[#158](https://github.com/szaghi/adam/issues/158)) gets it with a plain `fobis fetch`, which downloads only the missing
+libraries.
 
 ADAM tracks the newest `main`/`master` of every dependency: no commit is pinned, and the `fobos.lock` that `fobis fetch`
 writes stays local (it is gitignored). A fresh clone therefore gets the current heads, but an existing checkout does not

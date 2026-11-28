@@ -21,14 +21,14 @@ target   = adam_ripple_cpu.F90
 template = template-nvf
 mod_dir  = ./mod/ripple/nvf/
 obj_dir  = ./obj/ripple/nvf/
-preproc  = -D_FNL -D_MPI_ -DDEV_OAC -DCOMPILER_NVF -w
+preproc  = -D_FNL -D_MPI_ -DDEV_OAC -DHERALD_OAC -DCOMPILER_NVF -w
 target   = adam_ripple_fnl.F90
 
 [ripple-fnl-nvf-debug]
 template = template-nvf-debug
 mod_dir  = ./mod/ripple/nvf/debug/
 obj_dir  = ./obj/ripple/nvf/debug/
-preproc  = -D_FNL -D_MPI_ -DDEV_OAC -DCOMPILER_NVF -w
+preproc  = -D_FNL -D_MPI_ -DDEV_OAC -DHERALD_OAC -DCOMPILER_NVF -w
 target   = adam_ripple_fnl.F90
 
 # The RIPPLE CPU driver plus a registered refinement criterion (issue #110, P4.5), the worked example of the

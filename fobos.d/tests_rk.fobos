@@ -14,7 +14,7 @@ target   = test_selah_stepper_smoke.F90
 template = template-nvf
 mod_dir  = ./mod/nvf/selah-smoke/
 obj_dir  = ./obj/nvf/selah-smoke/
-preproc  = -D_FNL -D_MPI_ -DDEV_OAC -DCOMPILER_NVF -w
+preproc  = -D_FNL -D_MPI_ -DDEV_OAC -DHERALD_OAC -DCOMPILER_NVF -w
 target   = test_selah_stepper_smoke.F90
 output   = test_selah_stepper_smoke_fnl
 

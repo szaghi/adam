@@ -9,12 +9,12 @@ preproc  = -D_NVF
 [ascot-omp-amd]
 template = template-omp-amd
 target   = ascot.F90
-preproc  = -DDEV_OMP -DDEV_HIP
+preproc  = -DDEV_OMP -DHERALD_OMP -DDEV_HIP -DHERALD_HIP
 
 [ascot-omp-amd-debug]
 template = template-omp-amd-debug
 target   = ascot.F90
-preproc  = -DDEV_OMP -DDEV_HIP
+preproc  = -DDEV_OMP -DHERALD_OMP -DDEV_HIP -DHERALD_HIP
 
 [template-nvf-cuda]
 template = template-base

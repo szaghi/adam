@@ -107,6 +107,10 @@ GPU backends extend base objects with GPU-accelerated implementations in `lib/fn
 - `_FNL` - OpenACC backend using FNL library
 - `_GMP` - OpenMP target offloading (experimental)
 - `DEV_OAC` - Marks device-side code for OpenACC compiler
+- `DEV_OMP` / `DEV_HIP` - OpenMP target offloading (the AMD modes; `DEV_HIP` adds FUNDAL's HIP memory queries)
+- `HERALD_OAC` / `HERALD_OMP` / `HERALD_HIP` - HERALD's device layer (OpenACC; OpenMP; HIP memory queries): every
+  fobos mode that defines `DEV_OAC`, `DEV_OMP` or `DEV_HIP` defines its `HERALD_*` twin too (#158 D3); the CPU modes
+  define none (HERALD with MPI and no device runtime)
 - `COMPILER_NVF` / `COMPILER_GNU` / `COMPILER_INTEL` - Compiler-specific workarounds
 
 **Usage Patterns**:

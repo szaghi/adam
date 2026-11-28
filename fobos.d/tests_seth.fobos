@@ -14,7 +14,7 @@ target   = test_seth_smoke.F90
 template = template-nvf
 mod_dir  = ./mod/nvf/seth-smoke/
 obj_dir  = ./obj/nvf/seth-smoke/
-preproc  = -DDEV_OAC -w
+preproc  = -DDEV_OAC -DHERALD_OAC -w
 target   = test_seth_smoke.F90
 output   = test_seth_smoke_fnl
 
@@ -22,7 +22,7 @@ output   = test_seth_smoke_fnl
 template = template-omp-amd
 mod_dir  = ./mod/amd/omp/seth-smoke/
 obj_dir  = ./obj/amd/omp/seth-smoke/
-preproc  = -DDEV_OMP -w
+preproc  = -DDEV_OMP -DHERALD_OMP -w
 target   = test_seth_smoke.F90
 output   = test_seth_smoke_omp
 

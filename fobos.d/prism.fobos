@@ -42,7 +42,7 @@ target   = adam_prism_cpu.F90
 template = template-nvf
 mod_dir  = ./mod/prism/nvf/
 obj_dir  = ./obj/prism/nvf/
-preproc  = -D_FNL -D_MPI_ -DDEV_OAC -DCOMPILER_NVF -D_CUFFT -w
+preproc  = -D_FNL -D_MPI_ -DDEV_OAC -DHERALD_OAC -DCOMPILER_NVF -D_CUFFT -w
 lflags   = -acc -gpu=$NVF_CC$NVF_LTO -fast -Minfo=all -cudalib=cufft $NVF_SPLIT
 target   = adam_prism_fnl.F90
 
@@ -50,7 +50,7 @@ target   = adam_prism_fnl.F90
 template = template-nvf-debug
 mod_dir  = ./mod/prism/nvf/debug/
 obj_dir  = ./obj/prism/nvf/debug/
-preproc  = -D_FNL -D_MPI_ -DDEV_OAC -DCOMPILER_NVF -D_CUFFT -w
+preproc  = -D_FNL -D_MPI_ -DDEV_OAC -DHERALD_OAC -DCOMPILER_NVF -D_CUFFT -w
 lflags   = -acc -gpu=$NVF_CC -Minfo=all -C -gopt -Mbounds -traceback -Mchkptr -Mchkstk -Ktrap=fp -g -O0 -cudalib=cufft
 target   = adam_prism_fnl.F90
 
@@ -58,7 +58,7 @@ target   = adam_prism_fnl.F90
 template  = template-nvf
 mod_dir   = ./mod/prism/nvf-spacehpc/
 obj_dir   = ./obj/prism/nvf-spacehpc/
-preproc   = -D_FNL -D_MPI_ -DDEV_OAC -DCOMPILER_NVF -D_CUFFT -w
+preproc   = -D_FNL -D_MPI_ -DDEV_OAC -DHERALD_OAC -DCOMPILER_NVF -D_CUFFT -w
 lflags    = -acc -gpu=$NVF_CC$NVF_LTO -fast -Minfo=all -cudalib=cufft $NVF_SPLIT
 target    = adam_prism_fnl.F90
 libs      =
@@ -68,7 +68,7 @@ ext_libs  = hdf5_fortran hdf5 z
 template = template-omp-amd
 mod_dir  = ./mod/prism/amd/omp/
 obj_dir  = ./obj/prism/amd/omp/
-preproc  = -D_FNL -D_MPI_ -DDEV_OMP -DDEV_HIP -D_FFTW -w
+preproc  = -D_FNL -D_MPI_ -DDEV_OMP -DHERALD_OMP -DDEV_HIP -DHERALD_HIP -D_FFTW -w
 ext_libs = z hdf5_fortran dl fftw3
 target   = adam_prism_fnl.F90
 
@@ -76,6 +76,6 @@ target   = adam_prism_fnl.F90
 template = template-omp-amd-debug
 mod_dir  = ./mod/prism/amd/omp/debug/
 obj_dir  = ./obj/prism/amd/omp/debug/
-preproc  = -D_FNL -D_MPI_ -DDEV_OMP -DDEV_HIP -D_FFTW -w
+preproc  = -D_FNL -D_MPI_ -DDEV_OMP -DHERALD_OMP -DDEV_HIP -DHERALD_HIP -D_FFTW -w
 ext_libs = z hdf5_fortran dl fftw3
 target   = adam_prism_fnl.F90

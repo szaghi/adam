@@ -60,7 +60,7 @@ output   = adam_flume_cpu_fft
 template = template-nvf
 mod_dir  = ./mod/flume/nvf-fft/
 obj_dir  = ./obj/flume/nvf-fft/
-preproc  = -D_FNL -D_MPI_ -DDEV_OAC -DCOMPILER_NVF -D_CUFFT -w
+preproc  = -D_FNL -D_MPI_ -DDEV_OAC -DHERALD_OAC -DCOMPILER_NVF -D_CUFFT -w
 lflags   = -acc -gpu=$NVF_CC$NVF_LTO -fast -Minfo=all -cudalib=cufft $NVF_SPLIT
 target   = adam_flume_fnl.F90
 output   = adam_flume_fnl_fft
@@ -69,7 +69,7 @@ output   = adam_flume_fnl_fft
 template = template-nvf-debug
 mod_dir  = ./mod/flume/nvf-fft/debug/
 obj_dir  = ./obj/flume/nvf-fft/debug/
-preproc  = -D_FNL -D_MPI_ -DDEV_OAC -DCOMPILER_NVF -D_CUFFT -w
+preproc  = -D_FNL -D_MPI_ -DDEV_OAC -DHERALD_OAC -DCOMPILER_NVF -D_CUFFT -w
 lflags   = -acc -gpu=$NVF_CC -Minfo=all -C -gopt -Mbounds -traceback -Mchkptr -Mchkstk -Ktrap=fp -g -O0 -cudalib=cufft
 target   = adam_flume_fnl.F90
 output   = adam_flume_fnl_fft
@@ -78,28 +78,28 @@ output   = adam_flume_fnl_fft
 template = template-nvf
 mod_dir  = ./mod/flume/nvf/
 obj_dir  = ./obj/flume/nvf/
-preproc  = -D_FNL -D_MPI_ -DDEV_OAC -DCOMPILER_NVF -w
+preproc  = -D_FNL -D_MPI_ -DDEV_OAC -DHERALD_OAC -DCOMPILER_NVF -w
 target   = adam_flume_fnl.F90
 
 [flume-fnl-nvf-debug]
 template = template-nvf-debug
 mod_dir  = ./mod/flume/nvf/debug/
 obj_dir  = ./obj/flume/nvf/debug/
-preproc  = -D_FNL -D_MPI_ -DDEV_OAC -DCOMPILER_NVF -w
+preproc  = -D_FNL -D_MPI_ -DDEV_OAC -DHERALD_OAC -DCOMPILER_NVF -w
 target   = adam_flume_fnl.F90
 
 [flume-fnl-omp-amd]
 template = template-omp-amd
 mod_dir  = ./mod/flume/amd/omp/
 obj_dir  = ./obj/flume/amd/omp/
-preproc  = -D_FNL -D_MPI_ -DDEV_OMP -DDEV_HIP -w
+preproc  = -D_FNL -D_MPI_ -DDEV_OMP -DHERALD_OMP -DDEV_HIP -DHERALD_HIP -w
 target   = adam_flume_fnl.F90
 
 [flume-fnl-omp-amd-debug]
 template = template-omp-amd-debug
 mod_dir  = ./mod/flume/amd/omp/debug/
 obj_dir  = ./obj/flume/amd/omp/debug/
-preproc  = -D_FNL -D_MPI_ -DDEV_OMP -DDEV_HIP -w
+preproc  = -D_FNL -D_MPI_ -DDEV_OMP -DHERALD_OMP -DDEV_HIP -DHERALD_HIP -w
 target   = adam_flume_fnl.F90
 
 [test-flume-euler-library-gnu]
@@ -109,12 +109,12 @@ target   = test_flume_euler_library.F90
 
 [test-flume-euler-library-fnl-nvf]
 template = template-nvf
-preproc  = -DDEV_OAC -DCOMPILER_NVF -w
+preproc  = -DDEV_OAC -DHERALD_OAC -DCOMPILER_NVF -w
 target   = test_flume_euler_library_fnl.F90
 
 [test-flume-euler-library-fnl-omp-amd]
 template = template-omp-amd
-preproc  = -DDEV_OMP -DDEV_HIP -w
+preproc  = -DDEV_OMP -DHERALD_OMP -DDEV_HIP -DHERALD_HIP -w
 target   = test_flume_euler_library_fnl.F90
 
 [test-flume-mhd-library-gnu]
@@ -124,12 +124,12 @@ target   = test_flume_mhd_library.F90
 
 [test-flume-mhd-library-fnl-nvf]
 template = template-nvf
-preproc  = -DDEV_OAC -DCOMPILER_NVF -w
+preproc  = -DDEV_OAC -DHERALD_OAC -DCOMPILER_NVF -w
 target   = test_flume_mhd_library_fnl.F90
 
 [test-flume-mhd-library-fnl-omp-amd]
 template = template-omp-amd
-preproc  = -DDEV_OMP -DDEV_HIP -w
+preproc  = -DDEV_OMP -DHERALD_OMP -DDEV_HIP -DHERALD_HIP -w
 target   = test_flume_mhd_library_fnl.F90
 
 [test-flume-mhd-riemann-gnu]
@@ -139,12 +139,12 @@ target   = test_flume_mhd_riemann.F90
 
 [test-flume-mhd-riemann-fnl-nvf]
 template = template-nvf
-preproc  = -DDEV_OAC -DCOMPILER_NVF -w
+preproc  = -DDEV_OAC -DHERALD_OAC -DCOMPILER_NVF -w
 target   = test_flume_mhd_riemann_fnl.F90
 
 [test-flume-mhd-riemann-fnl-omp-amd]
 template = template-omp-amd
-preproc  = -DDEV_OMP -DDEV_HIP -w
+preproc  = -DDEV_OMP -DHERALD_OMP -DDEV_HIP -DHERALD_HIP -w
 target   = test_flume_mhd_riemann_fnl.F90
 
 [test-flume-positivity-gnu]

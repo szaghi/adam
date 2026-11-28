@@ -13,12 +13,12 @@ target   = adam_nasto_cpu.F90
 
 [nasto-fnl-nvf]
 template = template-nvf
-preproc  = -D_FNL -D_MPI_ -DDEV_OAC -DCOMPILER_NVF -w
+preproc  = -D_FNL -D_MPI_ -DDEV_OAC -DHERALD_OAC -DCOMPILER_NVF -w
 target   = adam_nasto_fnl.F90
 
 [nasto-fnl-nvf-debug]
 template = template-nvf-debug
-preproc  = -D_FNL -D_MPI_ -DDEV_OAC -DCOMPILER_NVF -w
+preproc  = -D_FNL -D_MPI_ -DDEV_OAC -DHERALD_OAC -DCOMPILER_NVF -w
 target   = adam_nasto_fnl.F90
 
 [nasto-cpu-amd]
@@ -28,10 +28,10 @@ target   = adam_nasto_cpu.F90
 
 [nasto-fnl-omp-amd]
 template = template-omp-amd
-preproc  = -D_FNL -D_MPI_ -DDEV_OMP -DDEV_HIP -w
+preproc  = -D_FNL -D_MPI_ -DDEV_OMP -DHERALD_OMP -DDEV_HIP -DHERALD_HIP -w
 target   = adam_nasto_fnl.F90
 
 [nasto-fnl-omp-amd-debug]
 template = template-omp-amd-debug
-preproc  = -D_FNL -D_MPI_ -DDEV_OMP -DDEV_HIP -w
+preproc  = -D_FNL -D_MPI_ -DDEV_OMP -DHERALD_OMP -DDEV_HIP -DHERALD_HIP -w
 target   = adam_nasto_fnl.F90

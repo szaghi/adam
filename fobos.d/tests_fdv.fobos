@@ -23,32 +23,32 @@ target   = test_fdv_curl_trigonometric.F90
 
 [test-fdv-fnl-curl-trigonometric-nvf]
 template = template-nvf
-preproc  = -D_FNL -D_MPI_ -DDEV_OAC -DCOMPILER_NVF -w
+preproc  = -D_FNL -D_MPI_ -DDEV_OAC -DHERALD_OAC -DCOMPILER_NVF -w
 target   = test_fdv_fnl_curl_trigonometric.F90
 
 [test-fdv-fnl-operators-trigonometric-nvf]
 template = template-nvf
-preproc  = -D_FNL -D_MPI_ -DDEV_OAC -DCOMPILER_NVF -w
+preproc  = -D_FNL -D_MPI_ -DDEV_OAC -DHERALD_OAC -DCOMPILER_NVF -w
 target   = test_fdv_fnl_operators_trigonometric.F90
 
 [test-fdv-fnl-operators-vector-trigonometric-nvf]
 template = template-nvf
-preproc  = -D_FNL -D_MPI_ -DDEV_OAC -DCOMPILER_NVF -w
+preproc  = -D_FNL -D_MPI_ -DDEV_OAC -DHERALD_OAC -DCOMPILER_NVF -w
 target   = test_fdv_fnl_operators_vector_trigonometric.F90
 
 [test-fdv-fnl-curl-trigonometric-omp-amd]
 template = template-omp-amd
-preproc  = -D_FNL -D_MPI_ -DDEV_OMP -DDEV_HIP -w
+preproc  = -D_FNL -D_MPI_ -DDEV_OMP -DHERALD_OMP -DDEV_HIP -DHERALD_HIP -w
 target   = test_fdv_fnl_curl_trigonometric.F90
 
 [test-fdv-fnl-operators-trigonometric-omp-amd]
 template = template-omp-amd
-preproc  = -D_FNL -D_MPI_ -DDEV_OMP -DDEV_HIP -w
+preproc  = -D_FNL -D_MPI_ -DDEV_OMP -DHERALD_OMP -DDEV_HIP -DHERALD_HIP -w
 target   = test_fdv_fnl_operators_trigonometric.F90
 
 [test-fdv-fnl-operators-vector-trigonometric-omp-amd]
 template = template-omp-amd
-preproc  = -D_FNL -D_MPI_ -DDEV_OMP -DDEV_HIP -w
+preproc  = -D_FNL -D_MPI_ -DDEV_OMP -DHERALD_OMP -DDEV_HIP -DHERALD_HIP -w
 target   = test_fdv_fnl_operators_vector_trigonometric.F90
 
 [test-fdv-curl-trigonometric-gnu-debug]

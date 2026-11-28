@@ -28,7 +28,7 @@ target   = test_poisson_fft.F90
 template = template-nvf
 mod_dir  = ./mod/nvf-fft/
 obj_dir  = ./obj/nvf-fft/
-preproc  = -D_FNL -D_MPI_ -DDEV_OAC -DCOMPILER_NVF -D_CUFFT -w
+preproc  = -D_FNL -D_MPI_ -DDEV_OAC -DHERALD_OAC -DCOMPILER_NVF -D_CUFFT -w
 lflags   = -acc -gpu=$NVF_CC$NVF_LTO -fast -Minfo=all -cudalib=cufft $NVF_SPLIT
 target   = test_poisson_fft.F90
 output   = test_poisson_fft_fnl
@@ -57,7 +57,7 @@ target   = test_poisson_mg.F90
 template = template-nvf
 mod_dir  = ./mod/nvf-fft/
 obj_dir  = ./obj/nvf-fft/
-preproc  = -D_FNL -D_MPI_ -DDEV_OAC -DCOMPILER_NVF -D_CUFFT -w
+preproc  = -D_FNL -D_MPI_ -DDEV_OAC -DHERALD_OAC -DCOMPILER_NVF -D_CUFFT -w
 lflags   = -acc -gpu=$NVF_CC$NVF_LTO -fast -Minfo=all -cudalib=cufft $NVF_SPLIT
 target   = test_poisson_mg.F90
 output   = test_poisson_mg_fnl
@@ -75,7 +75,7 @@ target   = test_flail_bc.F90
 template = template-nvf
 mod_dir  = ./mod/nvf-fft/
 obj_dir  = ./obj/nvf-fft/
-preproc  = -D_FNL -D_MPI_ -DDEV_OAC -DCOMPILER_NVF -D_CUFFT -w
+preproc  = -D_FNL -D_MPI_ -DDEV_OAC -DHERALD_OAC -DCOMPILER_NVF -D_CUFFT -w
 lflags   = -acc -gpu=$NVF_CC$NVF_LTO -fast -Minfo=all -cudalib=cufft $NVF_SPLIT
 target   = test_flail_bc.F90
 output   = test_flail_bc_fnl
@@ -94,7 +94,7 @@ target   = bench_poisson.F90
 template = template-nvf
 mod_dir  = ./mod/nvf-fft/
 obj_dir  = ./obj/nvf-fft/
-preproc  = -D_FNL -D_MPI_ -DDEV_OAC -DCOMPILER_NVF -D_CUFFT -w
+preproc  = -D_FNL -D_MPI_ -DDEV_OAC -DHERALD_OAC -DCOMPILER_NVF -D_CUFFT -w
 lflags   = -acc -gpu=$NVF_CC$NVF_LTO -fast -Minfo=all -cudalib=cufft $NVF_SPLIT
 target   = bench_poisson.F90
 output   = bench_poisson_fnl
